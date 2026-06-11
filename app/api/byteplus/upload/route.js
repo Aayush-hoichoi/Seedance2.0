@@ -1,17 +1,13 @@
 import { NextResponse } from 'next/server';
-import { signTosRequest, presignGetUrl, encodePath, TOS_ENDPOINT } from '../../../../lib/byteplus/tosSign.js';
+import { presignPutUrl, presignGetUrl, encodePath, TOS_ENDPOINT } from '../../../../lib/byteplus/tosSign.js';
+import { signTosRequest } from '../../../../lib/byteplus/tosSign.js';
 
-// Server-side file hosting for the Seedance asset pipeline. The browser POSTs a
-// file; we PUT it into a TOS bucket on the user's own BytePlus account (signed
-// with the server-only AK/SK) and return a 12h presigned GET URL that BytePlus
-// CreateAsset can ingest. Bucket is created on first use.
+// Returns a presigned PUT URL so the browser uploads directly to TOS —
+// no Vercel body-size limit, no server-side buffering.
+// GET /api/byteplus/upload?name=foo.jpg&type=image/jpeg
 
 export const runtime = 'nodejs';
-export const maxDuration = 120;
-
-// TOS hard-caps a single non-multipart PUT well above this; the real ceiling is
-// the largest Seedance input (video ≤ 50 MB).
-const MAX_UPLOAD_BYTES = 60 * 1024 * 1024;
+export const maxDuration = 30;
 
 const BUCKET = process.env.TOS_BUCKET?.trim() || 'seedance-studio-assets';
 
@@ -38,7 +34,7 @@ async function tosFetch(method, host, path, { query = '', body, contentType, cre
 async function ensureBucket(creds) {
     const host = `${BUCKET}.${TOS_ENDPOINT}`;
     const res = await tosFetch('PUT', host, '/', { creds });
-    if (res.ok || res.status === 409) return null; // created, exists, or already owned
+    if (res.ok || res.status === 409) return null;
     const text = await res.text().catch(() => '');
     if (text.includes('AccountDisable')) {
         return 'TOS (object storage) is not activated on your BytePlus account. ' +
@@ -47,7 +43,7 @@ async function ensureBucket(creds) {
     return `Could not create the TOS bucket (${res.status}): ${text.slice(0, 200)}`;
 }
 
-export async function POST(request) {
+export async function GET(request) {
     const creds = credentials();
     if (!creds) {
         return NextResponse.json(
@@ -56,40 +52,19 @@ export async function POST(request) {
         );
     }
 
-    let file;
-    try {
-        const form = await request.formData();
-        file = form.get('file');
-    } catch {
-        return NextResponse.json({ error: 'Send the file as multipart/form-data under "file".' }, { status: 400 });
-    }
-    if (!file || typeof file.arrayBuffer !== 'function') {
-        return NextResponse.json({ error: 'No file received.' }, { status: 400 });
-    }
-    if (file.size > MAX_UPLOAD_BYTES) {
-        return NextResponse.json({ error: `File is too large (${Math.round(file.size / 1048576)} MB).` }, { status: 413 });
-    }
+    const { searchParams } = new URL(request.url);
+    const name = searchParams.get('name') || 'file';
+    const contentType = searchParams.get('type') || 'application/octet-stream';
 
-    try {
-        const bucketProblem = await ensureBucket(creds);
-        if (bucketProblem) return NextResponse.json({ error: bucketProblem }, { status: 502 });
+    const bucketProblem = await ensureBucket(creds);
+    if (bucketProblem) return NextResponse.json({ error: bucketProblem }, { status: 502 });
 
-        const host = `${BUCKET}.${TOS_ENDPOINT}`;
-        const key = `uploads/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${sanitizeName(file.name)}`;
-        const path = `/${encodePath(key)}`;
-        const body = Buffer.from(await file.arrayBuffer());
+    const key = `uploads/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${sanitizeName(name)}`;
+    const host = `${BUCKET}.${TOS_ENDPOINT}`;
+    const path = `/${encodePath(key)}`;
 
-        const put = await tosFetch('PUT', host, path, {
-            body, creds, contentType: file.type || 'application/octet-stream',
-        });
-        if (!put.ok) {
-            const text = await put.text().catch(() => '');
-            return NextResponse.json({ error: `TOS upload failed (${put.status}): ${text.slice(0, 200)}` }, { status: 502 });
-        }
+    const putUrl = presignPutUrl({ host, path, contentType, ak: creds.ak, sk: creds.sk });
+    const getUrl = presignGetUrl({ host, path, ak: creds.ak, sk: creds.sk });
 
-        const url = presignGetUrl({ host, path, ak: creds.ak, sk: creds.sk });
-        return NextResponse.json({ url, key });
-    } catch (error) {
-        return NextResponse.json({ error: error.message }, { status: 502 });
-    }
+    return NextResponse.json({ putUrl, getUrl, key, contentType });
 }
