@@ -6,7 +6,10 @@ function getApiKey(request) {
     const headerKey = request.headers.get('x-api-key');
     if (headerKey) return headerKey;
     const cookieKey = request.cookies.get('muapi_key')?.value;
-    return cookieKey;
+    if (cookieKey) return cookieKey;
+    // Server-side fallback so the Seedance studio (BytePlus key, no muapi login)
+    // can still use the uploader. Set MUAPI_API_KEY in .env.local.
+    return process.env.MUAPI_API_KEY?.trim();
 }
 
 function cleanHeaders(request) {
