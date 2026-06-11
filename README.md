@@ -554,3 +554,4 @@ Built with [Muapi.ai](https://muapi.ai) — the unified API for AI image and vid
 
 ---
 *Looking for a free, open-source AI Video Platform? Open Generative AI is an open-source AI image and video generation studio — with no content filters that you can self-host, customize, and extend.*
+# Seedance2.0
