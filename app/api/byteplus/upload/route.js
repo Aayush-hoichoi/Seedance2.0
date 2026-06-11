@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { presignPutUrl, presignGetUrl, encodePath, TOS_ENDPOINT } from '../../../../lib/byteplus/tosSign.js';
-import { signTosRequest } from '../../../../lib/byteplus/tosSign.js';
+import { signTosRequest, presignPutUrl, presignGetUrl, encodePath, TOS_ENDPOINT } from '../../../../lib/byteplus/tosSign.js';
 
 // Returns a presigned PUT URL so the browser uploads directly to TOS —
 // no Vercel body-size limit, no server-side buffering.
@@ -43,6 +42,33 @@ async function ensureBucket(creds) {
     return `Could not create the TOS bucket (${res.status}): ${text.slice(0, 200)}`;
 }
 
+// Browser PUTs to TOS are cross-origin and preflighted; without a CORS rule on
+// the bucket the OPTIONS is rejected and the upload dies as a network error
+// ("Load failed"). Idempotent, so re-applying per cold start is fine.
+let corsApplied = false;
+async function ensureCors(creds) {
+    if (corsApplied) return null;
+    const host = `${BUCKET}.${TOS_ENDPOINT}`;
+    const body = JSON.stringify({
+        CORSRules: [{
+            AllowedOrigins: ['*'],
+            AllowedMethods: ['PUT', 'GET', 'HEAD'],
+            AllowedHeaders: ['*'],
+            ExposeHeaders: ['ETag'],
+            MaxAgeSeconds: 3600,
+        }],
+    });
+    const res = await tosFetch('PUT', host, '/', {
+        query: 'cors=', body, contentType: 'application/json', creds,
+    });
+    if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        return `Could not set CORS on the TOS bucket (${res.status}): ${text.slice(0, 200)}`;
+    }
+    corsApplied = true;
+    return null;
+}
+
 export async function GET(request) {
     const creds = credentials();
     if (!creds) {
@@ -56,7 +82,7 @@ export async function GET(request) {
     const name = searchParams.get('name') || 'file';
     const contentType = searchParams.get('type') || 'application/octet-stream';
 
-    const bucketProblem = await ensureBucket(creds);
+    const bucketProblem = (await ensureBucket(creds)) || (await ensureCors(creds));
     if (bucketProblem) return NextResponse.json({ error: bucketProblem }, { status: 502 });
 
     const key = `uploads/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${sanitizeName(name)}`;
