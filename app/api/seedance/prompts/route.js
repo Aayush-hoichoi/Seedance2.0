@@ -9,7 +9,6 @@ export const runtime = 'nodejs';
 export const maxDuration = 15;
 
 const MAX_IDS = 100;
-const MAX_TEXT = 20000;
 
 function bad(message, status = 400) {
     return NextResponse.json({ error: message }, { status });
@@ -22,9 +21,10 @@ export async function POST(request) {
     const taskId = typeof body.taskId === 'string' ? body.taskId.trim() : '';
     if (!taskId || taskId.length > 200) return bad('taskId is required.');
 
-    const clip = (v) => (typeof v === 'string' ? v.slice(0, MAX_TEXT) : null);
-    const userPrompt = clip(body.userPrompt);
-    const generatedPrompt = clip(body.generatedPrompt);
+    // Unclipped — Postgres `text` holds prompts of any length.
+    const asText = (v) => (typeof v === 'string' ? v : null);
+    const userPrompt = asText(body.userPrompt);
+    const generatedPrompt = asText(body.generatedPrompt);
     const style = typeof body.style === 'string' ? body.style.slice(0, 50) : null;
 
     let sql;

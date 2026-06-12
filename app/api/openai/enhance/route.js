@@ -10,7 +10,6 @@ export const maxDuration = 60;
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 const MODEL = process.env.OPENAI_ENHANCE_MODEL?.trim() || 'gpt-4o';
-const MAX_PROMPT_CHARS = 4000;
 
 function bad(message, status = 400) {
     return NextResponse.json({ error: message }, { status });
@@ -44,9 +43,10 @@ export async function POST(request) {
     const style = STYLES[body.style];
     if (!style) return bad(`Unknown style "${body.style}". Expected one of: ${Object.keys(STYLES).join(', ')}.`);
 
+    // No app-side length cap — the only ceiling is GPT-4o's own context window,
+    // and OpenAI returns a clear error if a prompt ever exceeds it.
     const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
     if (!prompt) return bad('Prompt is empty — describe what should change in the video.');
-    if (prompt.length > MAX_PROMPT_CHARS) return bad(`Prompt is too long (${prompt.length} chars, max ${MAX_PROMPT_CHARS}).`);
 
     const assets = Array.isArray(body.assets) ? body.assets : [];
     const assetLines = assets
@@ -70,7 +70,7 @@ export async function POST(request) {
             body: JSON.stringify({
                 model: MODEL,
                 temperature: 0.3,
-                max_tokens: 3500,
+                max_tokens: 16384, // gpt-4o's output ceiling — never truncate the brief
                 messages: [
                     { role: 'system', content: style.system },
                     { role: 'user', content: userMessage },
