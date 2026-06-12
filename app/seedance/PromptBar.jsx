@@ -278,7 +278,7 @@ const BATCH_OPTIONS = [1, 2, 4];
 export default function PromptBar({
     mode, onChangeMode, prompt, onPromptChange, options, setOpt,
     mediaByRole, setMediaByRole, models, resolutions, selectedModel,
-    error, onGenerate, batch = 1, setBatch,
+    error, onGenerate, enhancing = false, batch = 1, setBatch,
     onMediaError, onUploadFiles, tags,
 }) {
     const [openKey, setOpenKey] = useState(null);
@@ -449,9 +449,14 @@ export default function PromptBar({
                         <button
                             type="button"
                             onClick={onGenerate}
-                            className="bg-primary text-black px-5 py-2.5 rounded-md font-semibold text-sm hover:bg-[#e5ff33] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 w-full sm:w-auto shadow-lg shadow-primary/10"
+                            disabled={enhancing}
+                            className="bg-primary text-black px-5 py-2.5 rounded-md font-semibold text-sm hover:bg-[#e5ff33] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 w-full sm:w-auto shadow-lg shadow-primary/10 disabled:opacity-60 disabled:hover:scale-100"
                         >
-                            {batch > 1 ? `Generate ×${batch}` : 'Generate'}
+                            {enhancing ? (
+                                <><span className="animate-spin inline-block">◌</span> Structuring prompt…</>
+                            ) : (
+                                batch > 1 ? `Generate ×${batch}` : 'Generate'
+                            )}
                         </button>
                     </div>
                 </div>

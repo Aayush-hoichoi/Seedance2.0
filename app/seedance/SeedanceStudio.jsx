@@ -11,6 +11,7 @@ import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
 import { buildTags, modeSupportsTags, normalizePromptForApi, validatePromptReferences } from '../../lib/seedance/tags.js';
 import { registerAssetFromUrl } from '../../lib/seedance/assetsClient.js';
+import { enhancePrompt } from '../../lib/seedance/enhance.js';
 import { uploadToCdn } from '../../lib/seedance/upload.js';
 import { validateMediaFile } from '../../lib/seedance/inspectMedia.js';
 import { loadJobs, saveJobs, newJob, loadPrompts, savePrompt } from '../../lib/seedance/jobs.js';
@@ -56,6 +57,7 @@ export default function SeedanceStudio() {
     const [batch, setBatch] = useState(1); // generations fired per Generate click
     const [selectedId, setSelectedId] = useState(null); // rail selection; null = follow newest
     const [error, setError] = useState(null);
+    const [enhancing, setEnhancing] = useState(false); // GPT-4o prompt restructuring in flight
     const [fullscreen, setFullscreen] = useState(null);
     const controllersRef = useRef({}); // jobId -> AbortController (not persisted)
     const pendingRef = useRef(0);
@@ -262,7 +264,8 @@ export default function SeedanceStudio() {
         }
     };
 
-    const onGenerate = () => {
+    const onGenerate = async () => {
+        if (enhancing) return;
         setError(null);
         const problem = validate(mode, prompt, mediaByRole);
         if (problem) { setError(problem); return; }
@@ -274,10 +277,28 @@ export default function SeedanceStudio() {
 
         // @Image1-style chips are auto-corrected to the "Image 1" wording the
         // API expects, then checked against what's actually attached.
-        const apiPrompt = modeSupportsTags(mode) ? normalizePromptForApi(prompt) : prompt;
+        let apiPrompt = modeSupportsTags(mode) ? normalizePromptForApi(prompt) : prompt;
         if (modeSupportsTags(mode)) {
             const refProblem = validatePromptReferences(apiPrompt, tags);
             if (refProblem) { setError(refProblem); return; }
+        }
+
+        // Styled modes (Motion Capture / Green Screen): GPT-4o restructures the
+        // raw prompt into the full production brief before Seedance sees it.
+        if (mode.enhanceStyle) {
+            setEnhancing(true);
+            try {
+                apiPrompt = await enhancePrompt({
+                    style: mode.enhanceStyle,
+                    prompt: apiPrompt,
+                    assets: tags.map((t) => ({ label: t.label, kind: t.kind, name: t.name })),
+                });
+            } catch (e) {
+                setError(e.message);
+                return;
+            } finally {
+                setEnhancing(false);
+            }
         }
 
         let payload;
@@ -354,6 +375,7 @@ export default function SeedanceStudio() {
                 selectedModel={selectedModel}
                 error={error}
                 onGenerate={onGenerate}
+                enhancing={enhancing}
                 batch={batch}
                 setBatch={setBatch}
                 onMediaError={setError}
