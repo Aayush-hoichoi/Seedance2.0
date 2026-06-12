@@ -34,9 +34,6 @@ body {
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
 .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
 
-/* Light-themed surfaces (e.g. the Seedance studio) need dark scrollbar thumbs. */
-.light-surface .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.18); }
-
 .scrollbar-none::-webkit-scrollbar {
   height: 2px;
   width: 2px;

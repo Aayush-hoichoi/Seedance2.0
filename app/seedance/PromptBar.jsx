@@ -24,7 +24,7 @@ function renderChips(text, tags) {
         if (m.index > last) out.push(text.slice(last, m.index));
         const valid = known.has(`${m[1].toLowerCase()}${m[2]}`);
         out.push(
-            <span key={i++} className={`rounded-[4px] ${valid ? 'bg-primary/25 text-primary' : 'bg-gray-200 text-gray-400'}`}>
+            <span key={i++} className={`rounded-[4px] ${valid ? 'bg-primary/25 text-primary' : 'bg-white/10 text-white/40'}`}>
                 {m[0]}
             </span>,
         );
@@ -38,7 +38,7 @@ function renderChips(text, tags) {
 const ACCEPT = { image: 'image/*', video: 'video/*', audio: 'audio/*' };
 
 const PILL = 'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border transition-all whitespace-nowrap group disabled:opacity-40';
-const PILL_IDLE = 'bg-gray-100 hover:bg-gray-200/70 border-gray-200';
+const PILL_IDLE = 'bg-white/[0.06] hover:bg-white/[0.1] border-white/[0.1]';
 const PILL_ON = 'bg-primary/10 border-primary/30';
 
 /* ── tiny inline icons (single stroke voice, 14px) ──────────────────────── */
@@ -60,7 +60,7 @@ function Popover({ children }) {
     return (
         <div
             onClick={(e) => e.stopPropagation()}
-            className="absolute bottom-[calc(100%+12px)] left-0 z-50 min-w-[170px] max-h-[min(60vh,22rem)] overflow-y-auto custom-scrollbar bg-white rounded-lg p-2 shadow-xl border border-gray-200"
+            className="absolute bottom-[calc(100%+12px)] left-0 z-50 min-w-[170px] max-h-[min(60vh,22rem)] overflow-y-auto custom-scrollbar bg-[#0a0a0a] rounded-lg p-2 shadow-2xl border border-white/[0.05]"
         >
             {children}
         </div>
@@ -78,19 +78,19 @@ function PillSelect({ id, openKey, setOpenKey, badge, display, label, options, v
                 className={`${PILL} ${open ? PILL_ON : PILL_IDLE}`}
             >
                 {badge}
-                <span className={`text-xs font-semibold transition-colors ${open ? 'text-primary' : 'text-gray-800 group-hover:text-primary'}`}>{display}</span>
+                <span className={`text-xs font-semibold transition-colors ${open ? 'text-primary' : 'text-white/90 group-hover:text-primary'}`}>{display}</span>
                 <Chevron />
             </button>
             {open && (
                 <Popover>
-                    {label && <div className="px-2 pb-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">{label}</div>}
+                    {label && <div className="px-2 pb-1.5 text-[10px] font-bold uppercase tracking-wide text-white/50">{label}</div>}
                     <div className="flex flex-col gap-0.5">
                         {options.map((opt) => (
                             <button
                                 key={String(opt.value)}
                                 type="button"
                                 onClick={() => { onSelect(opt.value); setOpenKey(null); }}
-                                className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${opt.value === value ? 'bg-primary/15 text-primary font-semibold' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'}`}
+                                className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${opt.value === value ? 'bg-primary/15 text-primary font-semibold' : 'text-white/70 hover:bg-white/[0.06] hover:text-white'}`}
                             >{opt.label}</button>
                         ))}
                     </div>
@@ -103,8 +103,8 @@ function PillSelect({ id, openKey, setOpenKey, badge, display, label, options, v
 function PillToggle({ label, active, onToggle, disabled, icon }) {
     return (
         <button type="button" disabled={disabled} onClick={onToggle} className={`${PILL} ${active ? PILL_ON : PILL_IDLE}`}>
-            <span className={active ? 'text-primary' : 'text-gray-500'}>{icon}</span>
-            <span className={`text-xs font-semibold transition-colors ${active ? 'text-primary' : 'text-gray-800 group-hover:text-primary'}`}>{label}</span>
+            <span className={active ? 'text-primary' : 'text-white/65'}>{icon}</span>
+            <span className={`text-xs font-semibold transition-colors ${active ? 'text-primary' : 'text-white/90 group-hover:text-primary'}`}>{label}</span>
         </button>
     );
 }
@@ -126,13 +126,13 @@ function DurationControl({ openKey, setOpenKey, duration, setDuration }) {
     return (
         <div className="relative">
             <button type="button" onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : 'dur'); }} className={`${PILL} ${open ? PILL_ON : PILL_IDLE}`}>
-                <span className={open ? 'text-primary' : 'text-gray-500'}><ClockIcon /></span>
-                <span className={`text-xs font-semibold ${open ? 'text-primary' : 'text-gray-800 group-hover:text-primary'}`}>{isAuto ? 'Auto' : `${duration}s`}</span>
+                <span className={open ? 'text-primary' : 'text-white/65'}><ClockIcon /></span>
+                <span className={`text-xs font-semibold ${open ? 'text-primary' : 'text-white/90 group-hover:text-primary'}`}>{isAuto ? 'Auto' : `${duration}s`}</span>
                 <Chevron />
             </button>
             {open && (
                 <Popover>
-                    <div className="px-2 pb-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Duration · 4–15s</div>
+                    <div className="px-2 pb-1.5 text-[10px] font-bold uppercase tracking-wide text-white/50">Duration · 4–15s</div>
                     <div className="flex items-center gap-3 w-72 px-2 pb-1.5">
                         <input
                             type="range"
@@ -143,7 +143,7 @@ function DurationControl({ openKey, setOpenKey, duration, setDuration }) {
                             onChange={(e) => setDuration(Number(e.target.value))}
                             className="flex-1 h-1 accent-primary cursor-pointer"
                         />
-                        <div className="flex items-center gap-1 shrink-0 bg-gray-50 border border-gray-300 rounded-md px-2 py-1.5 focus-within:border-primary/60">
+                        <div className="flex items-center gap-1 shrink-0 bg-black/40 border border-white/10 rounded-md px-2 py-1.5 focus-within:border-primary/50">
                             <input
                                 type="number"
                                 min={4}
@@ -153,11 +153,11 @@ function DurationControl({ openKey, setOpenKey, duration, setDuration }) {
                                 onChange={(e) => setText(e.target.value)}
                                 onBlur={commit}
                                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }}
-                                className="w-8 bg-transparent text-xs text-gray-900 text-center outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                className="w-8 bg-transparent text-xs text-white text-center outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             />
-                            <span className="text-[10px] text-gray-400">s</span>
+                            <span className="text-[10px] text-white/40">s</span>
                         </div>
-                        <button type="button" onClick={() => setDuration(-1)} className={`shrink-0 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${isAuto ? 'bg-primary/15 text-primary' : 'bg-gray-100 text-gray-600 hover:text-primary'}`}>Auto</button>
+                        <button type="button" onClick={() => setDuration(-1)} className={`shrink-0 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${isAuto ? 'bg-primary/15 text-primary' : 'bg-white/[0.06] text-white/60 hover:text-primary'}`}>Auto</button>
                     </div>
                 </Popover>
             )}
@@ -172,21 +172,21 @@ function SeedControl({ openKey, setOpenKey, seed, setSeed, disabled }) {
     return (
         <div className="relative">
             <button type="button" disabled={disabled} onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : 'seed'); }} className={`${PILL} ${open ? PILL_ON : PILL_IDLE}`}>
-                <span className={open ? 'text-primary' : 'text-gray-500'}><DiceIcon /></span>
-                <span className={`text-xs font-semibold ${open ? 'text-primary' : 'text-gray-800 group-hover:text-primary'}`}>{isRandom ? 'Seed' : `Seed · ${seed}`}</span>
+                <span className={open ? 'text-primary' : 'text-white/65'}><DiceIcon /></span>
+                <span className={`text-xs font-semibold ${open ? 'text-primary' : 'text-white/90 group-hover:text-primary'}`}>{isRandom ? 'Seed' : `Seed · ${seed}`}</span>
             </button>
             {open && (
                 <Popover>
-                    <div className="px-2 pb-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Seed</div>
+                    <div className="px-2 pb-1.5 text-[10px] font-bold uppercase tracking-wide text-white/50">Seed</div>
                     <div className="flex gap-2 w-56 px-1 pb-1">
                         <input
                             ref={ref}
                             type="number"
                             defaultValue={seed}
                             onChange={(e) => setSeed(e.target.value)}
-                            className="flex-1 min-w-0 bg-gray-50 border border-gray-300 rounded-md px-2.5 py-1.5 text-xs text-gray-900 focus:border-primary/60 outline-none"
+                            className="flex-1 min-w-0 bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-white focus:border-primary/50 outline-none"
                         />
-                        <button type="button" onClick={() => { setSeed(-1); if (ref.current) ref.current.value = '-1'; }} className="shrink-0 px-2.5 py-1.5 rounded-md bg-gray-100 text-gray-600 text-xs font-semibold hover:text-primary transition-colors">Random</button>
+                        <button type="button" onClick={() => { setSeed(-1); if (ref.current) ref.current.value = '-1'; }} className="shrink-0 px-2.5 py-1.5 rounded-md bg-white/[0.06] text-white/70 text-xs font-semibold hover:text-primary transition-colors">Random</button>
                     </div>
                 </Popover>
             )}
@@ -263,7 +263,7 @@ function MediaButtons({ mode, mediaByRole, setMediaByRole, disabled, onUploadFil
                         disabled={disabled}
                         title={`Add ${kinds.join(' / ')} from your computer → your asset library`}
                         onClick={() => inputRef.current?.click()}
-                        className="w-10 h-10 shrink-0 rounded-full border bg-gray-100 border-gray-300 border-dashed hover:bg-gray-200 hover:border-primary/60 flex items-center justify-center text-gray-500 hover:text-primary transition-all disabled:opacity-40"
+                        className="w-10 h-10 shrink-0 rounded-full border bg-white/[0.03] border-white/[0.08] border-dashed hover:bg-white/10 hover:border-primary/50 flex items-center justify-center text-white/50 hover:text-primary transition-all disabled:opacity-40"
                     >
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
                     </button>
@@ -337,12 +337,12 @@ export default function PromptBar({
 
     return (
         <div className="fixed bottom-4 inset-x-0 mx-auto w-[95%] max-w-4xl z-40 animate-fade-in-up" style={{ animationDelay: '0.15s' }}>
-            <div className="w-full bg-white/90 backdrop-blur-3xl rounded-2xl border border-gray-200 p-4 flex flex-col gap-2 shadow-2xl">
+            <div className="w-full bg-[#0a0a0a]/80 backdrop-blur-3xl rounded-2xl border border-white/10 p-4 flex flex-col gap-2 shadow-2xl">
                 {/* media + prompt */}
                 <div className="relative flex items-start gap-2 px-1">
                     {showMention && (
-                        <div className="absolute bottom-full left-0 mb-2 z-50 min-w-[190px] max-h-60 overflow-y-auto custom-scrollbar bg-white rounded-lg p-1.5 shadow-xl border border-gray-200">
-                            <div className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">Reference an asset</div>
+                        <div className="absolute bottom-full left-0 mb-2 z-50 min-w-[190px] max-h-60 overflow-y-auto custom-scrollbar bg-[#0a0a0a] rounded-lg p-1.5 shadow-2xl border border-white/[0.08]">
+                            <div className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wide text-white/50">Reference an asset</div>
                             {mentionTags.map((t, i) => {
                                 const active = i === Math.min(mentionIdx, mentionTags.length - 1);
                                 return (
@@ -351,10 +351,10 @@ export default function PromptBar({
                                         type="button"
                                         onMouseDown={(e) => { e.preventDefault(); insertTag(t); }}
                                         onMouseEnter={() => setMentionIdx(i)}
-                                        className={`w-full text-left px-2.5 py-1.5 rounded-md text-sm flex items-center justify-between gap-3 transition-colors ${active ? 'bg-primary/15 text-primary' : 'text-gray-700'}`}
+                                        className={`w-full text-left px-2.5 py-1.5 rounded-md text-sm flex items-center justify-between gap-3 transition-colors ${active ? 'bg-primary/15 text-primary' : 'text-white/80'}`}
                                     >
                                         <span className="font-semibold">{tagToken(t)}</span>
-                                        {t.name && <span className="text-[10px] text-gray-400 truncate max-w-[100px]">{t.name}</span>}
+                                        {t.name && <span className="text-[10px] text-white/30 truncate max-w-[100px]">{t.name}</span>}
                                     </button>
                                 );
                             })}
@@ -372,7 +372,7 @@ export default function PromptBar({
                         <div
                             ref={chipRef}
                             aria-hidden
-                            className="pointer-events-none absolute inset-0 text-sm pt-2 leading-relaxed whitespace-pre-wrap break-words overflow-y-auto custom-scrollbar [scrollbar-gutter:stable] text-gray-900"
+                            className="pointer-events-none absolute inset-0 text-sm pt-2 leading-relaxed whitespace-pre-wrap break-words overflow-y-auto custom-scrollbar [scrollbar-gutter:stable] text-white"
                         >
                             {renderChips(prompt, allTags)}
                         </div>
@@ -399,20 +399,20 @@ export default function PromptBar({
                             onBlur={() => setTimeout(() => setMention(null), 120)}
                             placeholder={allTagsPossible ? 'Describe the video — type “@” to reference an upload (e.g. actions in @Video1, character from @Image1)' : mode.requiresText ? 'Describe the video you want to create' : 'Describe the video (optional)…'}
                             rows={1}
-                            className="relative block w-full bg-transparent border-none text-transparent caret-gray-900 text-sm placeholder:text-gray-400 focus:outline-none resize-none pt-2 leading-relaxed min-h-[40px] max-h-[200px] overflow-y-auto custom-scrollbar [scrollbar-gutter:stable]"
+                            className="relative block w-full bg-transparent border-none text-transparent caret-white text-sm placeholder:text-white/40 focus:outline-none resize-none pt-2 leading-relaxed min-h-[40px] max-h-[200px] overflow-y-auto custom-scrollbar [scrollbar-gutter:stable]"
                         />
                     </div>
                 </div>
 
                 {/* hint / error */}
                 {error ? (
-                    <div className="mx-1 px-3 py-1.5 rounded-lg bg-red-50 border border-red-200 text-[11px] text-red-600">{error}</div>
+                    <div className="mx-1 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-[11px] text-red-300">{error}</div>
                 ) : (
-                    <div className="mx-1 text-[11px] text-gray-500">{mode.hint}{audioHint}{allTags.length > 0 ? ' · type “@” to reference an asset (@Image1…)' : ''}</div>
+                    <div className="mx-1 text-[11px] text-white/55">{mode.hint}{audioHint}{allTags.length > 0 ? ' · type “@” to reference an asset (@Image1…)' : ''}</div>
                 )}
 
                 {/* controls (selectors left, toggles right) + generate (own row, right) */}
-                <div className="flex flex-col gap-2 pt-2 border-t border-gray-100">
+                <div className="flex flex-col gap-2 pt-2 border-t border-white/[0.03]">
                     <div className="flex items-center justify-between gap-1.5 flex-wrap">
                     <div className="flex items-center gap-1.5 flex-wrap">
                         <PillSelect
@@ -444,13 +444,13 @@ export default function PromptBar({
                     <div className="flex items-center justify-end gap-2">
                         {/* Batch: fire 1 / 2 / 4 parallel generations per click */}
                         {setBatch && (
-                            <div className="flex items-center shrink-0 self-stretch rounded-md border border-gray-200 overflow-hidden" title="How many generations to start per click">
+                            <div className="flex items-center shrink-0 self-stretch rounded-md border border-white/[0.06] overflow-hidden" title="How many generations to start per click">
                                 {BATCH_OPTIONS.map((n) => (
                                     <button
                                         key={n}
                                         type="button"
                                         onClick={() => setBatch(n)}
-                                        className={`h-full px-3 text-xs font-bold transition-colors ${batch === n ? 'bg-primary/15 text-primary' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'}`}
+                                        className={`h-full px-3 text-xs font-bold transition-colors ${batch === n ? 'bg-primary/15 text-primary' : 'text-white/65 hover:text-white hover:bg-white/[0.08]'}`}
                                     >×{n}</button>
                                 ))}
                             </div>
@@ -459,7 +459,7 @@ export default function PromptBar({
                             type="button"
                             onClick={onGenerate}
                             disabled={enhancing}
-                            className="bg-primary text-black px-5 py-2.5 rounded-md font-semibold text-sm hover:bg-primary-hover hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 w-full sm:w-auto shadow-lg shadow-primary/10 disabled:opacity-60 disabled:hover:scale-100"
+                            className="bg-primary text-black px-5 py-2.5 rounded-md font-semibold text-sm hover:bg-[#e5ff33] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 w-full sm:w-auto shadow-lg shadow-primary/10 disabled:opacity-60 disabled:hover:scale-100"
                         >
                             {enhancing ? (
                                 <><span className="animate-spin inline-block">◌</span> Structuring prompt…</>
