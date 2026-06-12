@@ -37,6 +37,13 @@ function renderChips(text, tags) {
 // File-input accept by media kind.
 const ACCEPT = { image: 'image/*', video: 'video/*', audio: 'audio/*' };
 
+// Seconds → "m:ss" (e.g. 8 → "0:08"); null for unknown/zero so the badge hides.
+const formatDuration = (s) => {
+    if (!Number.isFinite(s) || s <= 0) return null;
+    const m = Math.floor(s / 60);
+    return `${m}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+};
+
 const PILL = 'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border transition-all whitespace-nowrap group disabled:opacity-40';
 const PILL_IDLE = 'bg-white/[0.06] hover:bg-white/[0.1] border-white/[0.1]';
 const PILL_ON = 'bg-primary/10 border-primary/30';
@@ -198,6 +205,7 @@ function SeedControl({ openKey, setOpenKey, seed, setSeed, disabled }) {
 /* ── inline media (round buttons + thumbnails) ──────────────────────────── */
 function Thumb({ item, badge, tag, onRemove }) {
     const [hover, setHover] = useState(false);
+    const [duration, setDuration] = useState(null); // clip length, read from the preview <video> metadata
     // Library assets carry a signed previewUrl (the reference url is asset://id,
     // which a browser can't render). Uploads carry a base64 data url in `url`.
     // Only browser-loadable schemes qualify — a missing/expired preview (e.g.
@@ -238,7 +246,13 @@ function Thumb({ item, badge, tag, onRemove }) {
                             // Unmuted: the hover preview plays the reference's own
                             // audio. Allowed to autoplay with sound because the user
                             // has already interacted with the page (picked the asset).
-                            <video src={imgSrc} autoPlay loop playsInline className="block w-full max-h-56 object-contain bg-black" />
+                            // Bottom-right pill shows the clip length once metadata loads.
+                            <div className="relative">
+                                <video src={imgSrc} autoPlay loop playsInline onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)} className="block w-full max-h-56 object-contain bg-black" />
+                                {formatDuration(duration) && (
+                                    <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 bg-black/80 text-white rounded text-[10px] font-bold leading-none tabular-nums pointer-events-none">{formatDuration(duration)}</span>
+                                )}
+                            </div>
                         ) : (
                             <img src={imgSrc} alt="" className="block w-full max-h-56 object-contain bg-black" />
                         )}
