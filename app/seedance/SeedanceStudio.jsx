@@ -12,7 +12,7 @@ import { validateAggregate, validateRequestSize } from '../../lib/seedance/limit
 import { buildTags, modeSupportsTags, normalizePromptForApi, validatePromptReferences } from '../../lib/seedance/tags.js';
 import { registerAssetFromUrl, getAsset } from '../../lib/seedance/assetsClient.js';
 import { enhancePrompt } from '../../lib/seedance/enhance.js';
-import { savePromptRecord, fetchPromptRecords } from '../../lib/seedance/promptsClient.js';
+import { savePromptRecord, fetchPromptRecords, setLikeRecord } from '../../lib/seedance/promptsClient.js';
 import { uploadToCdn } from '../../lib/seedance/upload.js';
 import { validateMediaFile } from '../../lib/seedance/inspectMedia.js';
 import { loadJobs, saveJobs, newJob, loadPrompts, savePrompt } from '../../lib/seedance/jobs.js';
@@ -306,6 +306,9 @@ export default function SeedanceStudio() {
                     userPrompt: j.userPrompt || r.user_prompt || null,
                     style: j.style || r.style || null,
                     refs: j.refs || (Array.isArray(r.refs) && r.refs.length ? r.refs : null),
+                    // Likes live in the DB — let server truth win so the mark
+                    // follows the account across cleared storage and browsers.
+                    liked: typeof r.liked === 'boolean' ? r.liked : !!j.liked,
                 };
             }));
         });
@@ -472,6 +475,29 @@ export default function SeedanceStudio() {
         updateJobs((prev) => prev.filter((j) => j.id !== id));
     };
 
+    // Toggle the "like" mark on a history card. Optimistic: flip locally first
+    // (instant + persisted in localStorage), then write the new state to Neon
+    // keyed by taskId so it survives cleared storage and other browsers. If the
+    // DB write fails, revert the flip and surface the error — the heart must
+    // never claim a like the database didn't actually record.
+    const onToggleLike = async (id) => {
+        const job = jobs.find((j) => j.id === id);
+        if (!job) return;
+        const next = !job.liked;
+        patchJob(id, { liked: next });
+        if (!job.taskId) {
+            // No server identity yet (still submitting) — can't persist a like.
+            patchJob(id, { liked: job.liked });
+            setError('You can like a generation once it has started rendering.');
+            return;
+        }
+        const ok = await setLikeRecord({ taskId: job.taskId, liked: next });
+        if (!ok) {
+            patchJob(id, { liked: job.liked });
+            setError('Could not save your like — check your connection and try again.');
+        }
+    };
+
     const activeCount = jobs.filter((j) => ACTIVE_STATUSES.includes(j.status)).length;
     // What plays big in the center: only an explicitly selected job (set by a
     // rail click, a fresh Generate, or an in-flight resume) — never auto-play
@@ -520,6 +546,7 @@ export default function SeedanceStudio() {
                     selectedId={selectedJob?.id}
                     onSelect={setSelectedId}
                     onRemove={onRemoveJob}
+                    onToggleLike={onToggleLike}
                 />
             )}
 
@@ -715,7 +742,7 @@ function RefAssets({ refs, onReuse }) {
 
 // Right-side history rail (higgsfield-style): every generation as a compact
 // thumbnail — click to play it big on the center stage.
-function HistoryRail({ jobs, selectedId, onSelect, onRemove }) {
+function HistoryRail({ jobs, selectedId, onSelect, onRemove, onToggleLike }) {
     return (
         <div className="fixed right-3 top-14 bottom-40 z-20 hidden sm:flex w-44 flex-col">
             <p className="px-1 pb-2 text-[10px] font-bold uppercase tracking-wider text-white/30">History · {jobs.length}</p>
@@ -747,6 +774,18 @@ function HistoryRail({ jobs, selectedId, onSelect, onRemove }) {
                                     )}
                                 </div>
                             )}
+                            {/* Like mark — top-left, opposite the remove cross. Stays
+                                lit once liked; otherwise reveals on hover like the X. */}
+                            <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); onToggleLike(job.id); }}
+                                title={job.liked ? 'Liked' : 'Like'}
+                                aria-label={job.liked ? 'Unlike' : 'Like'}
+                                aria-pressed={!!job.liked}
+                                className={`absolute top-1 left-1 w-[18px] h-[18px] rounded-full bg-black/70 border flex items-center justify-center transition-all ${job.liked ? 'border-rose-400/40 text-rose-400 opacity-100' : 'border-white/20 text-white/60 hover:text-rose-300 opacity-0 group-hover:opacity-100'}`}
+                            >
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill={job.liked ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" /></svg>
+                            </button>
                             <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); onRemove(job.id); }}

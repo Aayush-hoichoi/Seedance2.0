@@ -92,7 +92,7 @@ export async function GET(request) {
     if (!sql) return NextResponse.json({ items: [] });
 
     try {
-        const rows = await sql`SELECT task_id, style, user_prompt, generated_prompt, refs
+        const rows = await sql`SELECT task_id, style, user_prompt, generated_prompt, refs, liked
             FROM seedance_prompts WHERE task_id = ANY(${ids})`;
         return NextResponse.json({ items: rows });
     } catch {
