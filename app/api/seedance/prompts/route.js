@@ -73,6 +73,29 @@ export async function POST(request) {
     return NextResponse.json({ ok: true, taskId });
 }
 
+// DELETE ?taskId=xxx → permanently drop a generation's record, so a deleted
+// history card cannot be resurrected by the reload server-merge.
+export async function DELETE(request) {
+    const { searchParams } = new URL(request.url);
+    const taskId = (searchParams.get('taskId') || '').trim();
+    if (!taskId || taskId.length > 200) return bad('taskId is required.');
+
+    let sql;
+    try {
+        sql = await getDb();
+    } catch {
+        return bad('Could not reach the prompts database.', 502);
+    }
+    if (!sql) return bad('DATABASE_URL is not configured — add it to .env.local (and the Vercel env).', 503);
+
+    try {
+        await sql`DELETE FROM seedance_prompts WHERE task_id = ${taskId}`;
+    } catch {
+        return bad('Failed to delete the prompt record.', 502);
+    }
+    return NextResponse.json({ ok: true, taskId });
+}
+
 export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const ids = (searchParams.get('taskIds') || '')

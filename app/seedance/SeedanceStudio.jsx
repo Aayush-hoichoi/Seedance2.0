@@ -12,10 +12,10 @@ import { validateAggregate, validateRequestSize } from '../../lib/seedance/limit
 import { buildTags, modeSupportsTags, normalizePromptForApi, restorePromptTokens, validatePromptReferences } from '../../lib/seedance/tags.js';
 import { registerAssetFromUrl, getAsset } from '../../lib/seedance/assetsClient.js';
 import { enhancePrompt } from '../../lib/seedance/enhance.js';
-import { savePromptRecord, fetchPromptRecords, setLikeRecord } from '../../lib/seedance/promptsClient.js';
+import { savePromptRecord, fetchPromptRecords, setLikeRecord, deletePromptRecord } from '../../lib/seedance/promptsClient.js';
 import { uploadToCdn } from '../../lib/seedance/upload.js';
 import { validateMediaFile } from '../../lib/seedance/inspectMedia.js';
-import { loadJobs, saveJobs, newJob, loadPrompts, savePrompt } from '../../lib/seedance/jobs.js';
+import { loadJobs, saveJobs, newJob, loadPrompts, savePrompt, removePrompt } from '../../lib/seedance/jobs.js';
 import PromptBar from './PromptBar.jsx';
 
 // Resolve form state into the flat media list buildPayload expects, in the
@@ -472,11 +472,23 @@ export default function SeedanceStudio() {
         patchJob(id, { status: 'error', error: 'Cancelled.' });
     };
 
-    const onRemoveJob = (id) => {
+    // Delete a history card for good. A generation persists in THREE places, so
+    // a reload would otherwise resurrect it: the localStorage job list, the
+    // local taskId→prompt map, and the Neon prompt record. Clear all three (the
+    // ModelArk task list still returns the task, but the reload merge only keeps
+    // tasks that have one of these local/Neon records). The Neon delete is
+    // best-effort — on failure we warn it may return rather than block.
+    const onRemoveJob = async (id) => {
+        const job = jobs.find((j) => j.id === id);
         controllersRef.current[id]?.abort();
         delete controllersRef.current[id];
         if (selectedId === id) setSelectedId(null);
         updateJobs((prev) => prev.filter((j) => j.id !== id));
+        if (job?.taskId) {
+            removePrompt(job.taskId);
+            const ok = await deletePromptRecord({ taskId: job.taskId });
+            if (!ok) setError('Removed here, but the server delete failed — it may reappear on reload.');
+        }
     };
 
     // Toggle the "like" mark on a history card. Optimistic: flip locally first
