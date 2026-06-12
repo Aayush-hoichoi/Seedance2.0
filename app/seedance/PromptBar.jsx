@@ -10,8 +10,9 @@ import { filterTags, tagLabelFor, tagToken, TOKEN_RE } from '../../lib/seedance/
 
 // Render the prompt with @Image1 / @Video2 / @Audio3 tokens as cyan chips.
 // Rendered in a backdrop behind a transparent-text textarea, so the chip
-// styling is background-only (no padding/border) to keep glyph metrics
-// identical to the textarea's.
+// styling is background-and-color ONLY (no padding/border/font-weight) — any
+// property that changes glyph advance widths desyncs the painted text from
+// the textarea's caret, making typed letters appear in the wrong place.
 function renderChips(text, tags) {
     const known = new Set(tags.map((t) => t.label.replace(' ', '').toLowerCase()));
     const re = new RegExp(TOKEN_RE.source, 'gi');
@@ -23,7 +24,7 @@ function renderChips(text, tags) {
         if (m.index > last) out.push(text.slice(last, m.index));
         const valid = known.has(`${m[1].toLowerCase()}${m[2]}`);
         out.push(
-            <span key={i++} className={`rounded-[4px] font-semibold ${valid ? 'bg-primary/25 text-primary' : 'bg-white/10 text-white/40'}`}>
+            <span key={i++} className={`rounded-[4px] ${valid ? 'bg-primary/25 text-primary' : 'bg-white/10 text-white/40'}`}>
                 {m[0]}
             </span>,
         );
@@ -364,10 +365,14 @@ export default function PromptBar({
                         cyan chips) behind a transparent-text textarea, so editing
                         mechanics stay native while @Image1 reads as a pill. */}
                     <div className="relative flex-1 min-w-0">
+                        {/* The backdrop must wrap at EXACTLY the textarea's width:
+                            both scroll (synced) and both always reserve the 4px
+                            scrollbar gutter, else long prompts wrap differently
+                            per layer and the caret drifts off the painted text. */}
                         <div
                             ref={chipRef}
                             aria-hidden
-                            className="pointer-events-none absolute inset-0 text-sm pt-2 leading-relaxed whitespace-pre-wrap break-words overflow-hidden text-white"
+                            className="pointer-events-none absolute inset-0 text-sm pt-2 leading-relaxed whitespace-pre-wrap break-words overflow-y-auto custom-scrollbar [scrollbar-gutter:stable] text-white"
                         >
                             {renderChips(prompt, allTags)}
                         </div>
@@ -394,7 +399,7 @@ export default function PromptBar({
                             onBlur={() => setTimeout(() => setMention(null), 120)}
                             placeholder={allTagsPossible ? 'Describe the video — type “@” to reference an upload (e.g. actions in @Video1, character from @Image1)' : mode.requiresText ? 'Describe the video you want to create' : 'Describe the video (optional)…'}
                             rows={1}
-                                                       className="relative w-full bg-transparent border-none text-transparent caret-white text-sm placeholder:text-white/20 focus:outline-none resize-none pt-2 leading-relaxed min-h-[40px] max-h-[200px] overflow-y-auto custom-scrollbar"
+                            className="relative w-full bg-transparent border-none text-transparent caret-white text-sm placeholder:text-white/20 focus:outline-none resize-none pt-2 leading-relaxed min-h-[40px] max-h-[200px] overflow-y-auto custom-scrollbar [scrollbar-gutter:stable]"
                         />
                     </div>
                 </div>
