@@ -399,7 +399,7 @@ export default function PromptBar({
                             onBlur={() => setTimeout(() => setMention(null), 120)}
                             placeholder={allTagsPossible ? 'Describe the video — type “@” to reference an upload (e.g. actions in @Video1, character from @Image1)' : mode.requiresText ? 'Describe the video you want to create' : 'Describe the video (optional)…'}
                             rows={1}
-                            className="relative w-full bg-transparent border-none text-transparent caret-white text-sm placeholder:text-white/20 focus:outline-none resize-none pt-2 leading-relaxed min-h-[40px] max-h-[200px] overflow-y-auto custom-scrollbar [scrollbar-gutter:stable]"
+                            className="relative block w-full bg-transparent border-none text-transparent caret-white text-sm placeholder:text-white/20 focus:outline-none resize-none pt-2 leading-relaxed min-h-[40px] max-h-[200px] overflow-y-auto custom-scrollbar [scrollbar-gutter:stable]"
                         />
                     </div>
                 </div>
