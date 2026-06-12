@@ -12,6 +12,7 @@ import { validateAggregate, validateRequestSize } from '../../lib/seedance/limit
 import { buildTags, modeSupportsTags, normalizePromptForApi, validatePromptReferences } from '../../lib/seedance/tags.js';
 import { registerAssetFromUrl } from '../../lib/seedance/assetsClient.js';
 import { enhancePrompt } from '../../lib/seedance/enhance.js';
+import { savePromptRecord, fetchPromptRecords } from '../../lib/seedance/promptsClient.js';
 import { uploadToCdn } from '../../lib/seedance/upload.js';
 import { validateMediaFile } from '../../lib/seedance/inspectMedia.js';
 import { loadJobs, saveJobs, newJob, loadPrompts, savePrompt } from '../../lib/seedance/jobs.js';
@@ -121,6 +122,7 @@ export default function SeedanceStudio() {
         const inFlight = restored.filter((j) => ACTIVE_STATUSES.includes(j.status) && j.taskId);
         for (const j of inFlight) watchJob(j.id, j.taskId);
         if (inFlight[0]) setSelectedId(inFlight[0].id);
+        hydratePrompts(restored.filter((j) => !j.userPrompt).map((j) => j.taskId));
 
         // Archived videos live in the user's own TOS bucket forever — refresh
         // their presigned URLs (pure local signing on the server, instant).
@@ -175,6 +177,8 @@ export default function SeedanceStudio() {
                         watchJob(`srv-${t.id}`, t.id);
                     }
                 }
+                // Server-merged cards have no prompts — recover both from Neon.
+                hydratePrompts(items.map((t) => t.id));
             })
             .catch(() => { /* offline / proxy down: local history still works */ });
 
@@ -237,10 +241,30 @@ export default function SeedanceStudio() {
         }
     };
 
+    // Backfill prompts for jobs restored without them (server-merged cards,
+    // other browsers): the Neon store maps taskId → {user, generated} prompts.
+    const hydratePrompts = (taskIds) => {
+        fetchPromptRecords(taskIds).then((byTask) => {
+            if (!Object.keys(byTask).length) return;
+            updateJobs((prev) => prev.map((j) => {
+                const r = j.taskId && byTask[j.taskId];
+                if (!r) return j;
+                return {
+                    ...j,
+                    prompt: j.prompt || r.generated_prompt || r.user_prompt || '',
+                    userPrompt: j.userPrompt || r.user_prompt || null,
+                    style: j.style || r.style || null,
+                };
+            }));
+        });
+    };
+
     // Create one job: submit the task, then watch it. Never blocks other jobs.
     // Quota/rate-limit rejections auto-retry with backoff instead of failing.
-    const launchJob = async (payload, promptText) => {
-        const job = newJob({ prompt: promptText, model: payload.model });
+    // `promptMeta` (styled modes) carries the user's raw prompt + style for the
+    // Neon prompt-pair store, powering the GPT-4o/user comparison tabs.
+    const launchJob = async (payload, promptText, promptMeta = null) => {
+        const job = newJob({ prompt: promptText, model: payload.model, userPrompt: promptMeta?.userPrompt ?? null, style: promptMeta?.style ?? null });
         updateJobs((prev) => [job, ...prev]);
         setSelectedId(job.id); // a fresh generation takes the big stage
         const MAX_ATTEMPTS = 6;
@@ -249,6 +273,12 @@ export default function SeedanceStudio() {
             try {
                 const taskId = await createTask(payload);
                 savePrompt(taskId, promptText); // survives any history wipe
+                savePromptRecord({
+                    taskId,
+                    userPrompt: promptMeta?.userPrompt ?? promptText,
+                    generatedPrompt: promptMeta ? promptText : null,
+                    style: promptMeta?.style ?? null,
+                });
                 patchJob(job.id, { taskId, status: 'queued' });
                 watchJob(job.id, taskId);
                 return;
@@ -285,6 +315,7 @@ export default function SeedanceStudio() {
 
         // Styled modes (Motion Capture / Green Screen): GPT-4o restructures the
         // raw prompt into the full production brief before Seedance sees it.
+        const promptMeta = mode.enhanceStyle ? { userPrompt: apiPrompt, style: mode.enhanceStyle } : null;
         if (mode.enhanceStyle) {
             setEnhancing(true);
             try {
@@ -310,7 +341,7 @@ export default function SeedanceStudio() {
         }
 
         // Fire `batch` parallel generations (seed -1 → each gets its own random seed).
-        for (let i = 0; i < batch; i++) launchJob(payload, apiPrompt);
+        for (let i = 0; i < batch; i++) launchJob(payload, apiPrompt, promptMeta);
     };
 
     const onCancelJob = (id) => {
@@ -406,7 +437,7 @@ function BigStage({ job, onCancel, onFullscreen }) {
                         </a>
                     </div>
                 </div>
-                <p className="mt-3 text-center text-xs text-white/35 truncate px-6" title={job.prompt || job.meta}>{job.prompt || job.meta}</p>
+                <PromptTabs job={job} />
             </div>
         );
     }
@@ -427,6 +458,41 @@ function BigStage({ job, onCancel, onFullscreen }) {
         <div className="max-w-md text-center animate-fade-in-up">
             <p className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-300 leading-relaxed">{job.error || 'Generation failed.'}</p>
             <p className="mt-3 text-xs text-white/30 truncate" title={job.prompt}>{job.prompt}</p>
+        </div>
+    );
+}
+
+// Under a played video: the prompt actually sent to the model. In styled modes
+// (Motion Capture / Green Screen) it's the GPT-4o-generated brief, shown next
+// to a "Your prompt" tab for comparison; otherwise the plain one-line caption.
+function PromptTabs({ job }) {
+    const [tab, setTab] = useState('generated');
+    const generated = job.prompt || '';
+    const userPrompt = job.userPrompt || '';
+    const hasBoth = !!userPrompt && !!generated && userPrompt !== generated;
+    if (!hasBoth) {
+        return <p className="mt-3 text-center text-xs text-white/35 truncate px-6" title={generated || job.meta}>{generated || job.meta}</p>;
+    }
+    const tabs = [
+        { id: 'generated', label: 'GPT-4o prompt (sent to model)', text: generated },
+        { id: 'user', label: 'Your prompt', text: userPrompt },
+    ];
+    const current = tabs.find((t) => t.id === tab) || tabs[0];
+    return (
+        <div className="mt-3">
+            <div className="flex items-center gap-1 mb-1.5 px-1">
+                {tabs.map((t) => (
+                    <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setTab(t.id)}
+                        className={`px-3 py-1.5 rounded-md text-[11px] font-semibold transition-colors ${t.id === current.id ? 'bg-primary/15 text-primary' : 'text-white/40 hover:text-white hover:bg-white/[0.06]'}`}
+                    >{t.label}</button>
+                ))}
+            </div>
+            <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 max-h-44 overflow-y-auto custom-scrollbar">
+                <p className="text-xs leading-relaxed text-white/60 whitespace-pre-wrap break-words">{current.text}</p>
+            </div>
         </div>
     );
 }
