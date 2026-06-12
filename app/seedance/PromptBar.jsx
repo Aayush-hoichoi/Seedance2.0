@@ -235,7 +235,10 @@ function Thumb({ item, badge, tag, onRemove }) {
                 <div className="absolute bottom-[calc(100%+10px)] left-1/2 -translate-x-1/2 z-[60] pointer-events-none">
                     <div className="w-56 rounded-xl overflow-hidden border border-primary/30 bg-[#0a0a0a] shadow-2xl shadow-black/60">
                         {isVid ? (
-                            <video src={imgSrc} autoPlay muted loop playsInline className="block w-full max-h-56 object-contain bg-black" />
+                            // Unmuted: the hover preview plays the reference's own
+                            // audio. Allowed to autoplay with sound because the user
+                            // has already interacted with the page (picked the asset).
+                            <video src={imgSrc} autoPlay loop playsInline className="block w-full max-h-56 object-contain bg-black" />
                         ) : (
                             <img src={imgSrc} alt="" className="block w-full max-h-56 object-contain bg-black" />
                         )}
