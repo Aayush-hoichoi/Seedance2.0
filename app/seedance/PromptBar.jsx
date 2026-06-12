@@ -53,6 +53,7 @@ const DiceIcon = () => (<svg {...ic} className="opacity-70"><rect x="4" y="4" wi
 const AudioIcon = () => (<svg {...ic} className="opacity-80"><path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M19 5a9 9 0 010 14M15.5 8.5a4 4 0 010 7" /></svg>);
 const DropIcon = () => (<svg {...ic} className="opacity-75"><path d="M12 3s6 6 6 11a6 6 0 11-12 0c0-5 6-11 6-11z" /></svg>);
 const MusicIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></svg>);
+const ImageIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" /></svg>);
 const FilmIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="M7 4v16M17 4v16M2 9h5M2 15h5M17 9h5M17 15h5" /></svg>);
 
 /* ── popover shell ──────────────────────────────────────────────────────── */
@@ -198,7 +199,10 @@ function SeedControl({ openKey, setOpenKey, seed, setSeed, disabled }) {
 function Thumb({ item, badge, tag, onRemove }) {
     // Library assets carry a signed previewUrl (the reference url is asset://id,
     // which a browser can't render). Uploads carry a base64 data url in `url`.
-    const imgSrc = item.previewUrl || item.url;
+    // Only browser-loadable schemes qualify — a missing/expired preview (e.g.
+    // refs reused from old history) falls back to the kind icon, never a
+    // broken <img src="asset://…">.
+    const imgSrc = [item.previewUrl, item.url].find((u) => typeof u === 'string' && /^(https?:|data:|blob:)/i.test(u)) || null;
     // A URL being registered into the library — show progress until Active.
     if (item.pending) {
         return (
@@ -213,13 +217,13 @@ function Thumb({ item, badge, tag, onRemove }) {
     }
     return (
         <div className="relative w-10 h-10 shrink-0">
-            {item.isImage ? (
+            {item.isImage && imgSrc ? (
                 <img src={imgSrc} alt="" className="w-full h-full object-cover rounded-full border border-primary/40" />
-            ) : item.kind === 'video' && item.previewUrl ? (
-                <video src={item.previewUrl} muted playsInline preload="metadata" title={item.name} className="w-full h-full object-cover rounded-full border border-primary/40 bg-black" />
+            ) : item.kind === 'video' && imgSrc ? (
+                <video src={imgSrc} muted playsInline preload="metadata" title={item.name} className="w-full h-full object-cover rounded-full border border-primary/40 bg-black" />
             ) : (
                 <div className="w-full h-full rounded-full border border-primary/40 bg-primary/5 flex items-center justify-center text-primary" title={item.name}>
-                    {item.kind === 'video' ? <FilmIcon /> : <MusicIcon />}
+                    {item.kind === 'video' ? <FilmIcon /> : item.kind === 'audio' ? <MusicIcon /> : <ImageIcon />}
                 </div>
             )}
             {item.fromLibrary && <span className="absolute -bottom-0.5 -left-0.5 w-3.5 h-3.5 bg-primary rounded-full border border-black flex items-center justify-center" title="From your asset library"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="3"><path d="M4 7h16M4 12h16M4 17h10" /></svg></span>}

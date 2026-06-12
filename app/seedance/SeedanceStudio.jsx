@@ -10,7 +10,7 @@ import { MODELS, MODES, RESOLUTIONS, DEFAULT_OPTIONS } from '../../lib/seedance/
 import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js';
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
 import { buildTags, modeSupportsTags, normalizePromptForApi, validatePromptReferences } from '../../lib/seedance/tags.js';
-import { registerAssetFromUrl } from '../../lib/seedance/assetsClient.js';
+import { registerAssetFromUrl, getAsset } from '../../lib/seedance/assetsClient.js';
 import { enhancePrompt } from '../../lib/seedance/enhance.js';
 import { savePromptRecord, fetchPromptRecords } from '../../lib/seedance/promptsClient.js';
 import { uploadToCdn } from '../../lib/seedance/upload.js';
@@ -305,6 +305,7 @@ export default function SeedanceStudio() {
                     prompt: j.prompt || r.generated_prompt || r.user_prompt || '',
                     userPrompt: j.userPrompt || r.user_prompt || null,
                     style: j.style || r.style || null,
+                    refs: j.refs || (Array.isArray(r.refs) && r.refs.length ? r.refs : null),
                 };
             }));
         });
@@ -314,8 +315,17 @@ export default function SeedanceStudio() {
     // Quota/rate-limit rejections auto-retry with backoff instead of failing.
     // `promptMeta` (styled modes) carries the user's raw prompt + style for the
     // Neon prompt-pair store, powering the GPT-4o/user comparison tabs.
-    const launchJob = async (payload, promptText, promptMeta = null) => {
-        const job = newJob({ prompt: promptText, model: payload.model, userPrompt: promptMeta?.userPrompt ?? null, style: promptMeta?.style ?? null });
+    // `creation` snapshots the mode + reference assets at click time, so the
+    // history panel can show what was attached and Reuse can restore it.
+    const launchJob = async (payload, promptText, promptMeta = null, creation = {}) => {
+        const job = newJob({
+            prompt: promptText,
+            model: payload.model,
+            userPrompt: promptMeta?.userPrompt ?? null,
+            style: promptMeta?.style ?? null,
+            modeId: creation.modeId ?? null,
+            refs: creation.refs ?? null,
+        });
         updateJobs((prev) => [job, ...prev]);
         setSelectedId(job.id); // a fresh generation takes the big stage
         const MAX_ATTEMPTS = 6;
@@ -329,6 +339,7 @@ export default function SeedanceStudio() {
                     userPrompt: promptMeta?.userPrompt ?? promptText,
                     generatedPrompt: promptMeta ? promptText : null,
                     style: promptMeta?.style ?? null,
+                    refs: creation.refs ?? null,
                 });
                 patchJob(job.id, { taskId, status: 'queued' });
                 watchJob(job.id, taskId);
@@ -391,8 +402,52 @@ export default function SeedanceStudio() {
             return;
         }
 
+        // Snapshot the attached reference assets (asset:// links live in the
+        // BytePlus library, so they stay reusable from history; data: URLs
+        // would bloat storage and are skipped). Powers the panel + Reuse.
+        const refs = mediaItems
+            .filter((m) => typeof m.url === 'string' && !m.url.startsWith('data:'))
+            .map((m) => ({
+                kind: m.kind,
+                role: m.role,
+                url: m.url,
+                previewUrl: typeof m.previewUrl === 'string' && !m.previewUrl.startsWith('data:') ? m.previewUrl : null,
+                name: m.name || null,
+                assetId: m.assetId || null,
+            }));
+        const creation = { modeId: mode.id, refs: refs.length ? refs : null };
+
         // Fire `batch` parallel generations (seed -1 → each gets its own random seed).
-        for (let i = 0; i < batch; i++) launchJob(payload, apiPrompt, promptMeta);
+        for (let i = 0; i < batch; i++) launchJob(payload, apiPrompt, promptMeta, creation);
+    };
+
+    // "Reuse" on a history card: load that generation's reference assets back
+    // into the prompt bar — restoring the mode it was made in, so every ref
+    // lands in its original slot (clamped to the mode's per-slot max).
+    const onReuseRefs = (job, refs) => {
+        const targetId = job.modeId || (MODES.some((m) => m.id === job.style) ? job.style : mode.id);
+        const target = MODES.find((m) => m.id === targetId) || mode;
+        const byRole = {};
+        for (const r of refs) {
+            if (!r?.url) continue; // unreusable (e.g. legacy entry without an asset link)
+            const slot = target.media.find((s) => s.role === r.role && s.kind === r.kind);
+            if (!slot) continue;
+            const arr = byRole[r.role] || (byRole[r.role] = []);
+            if (arr.length >= slot.max) continue;
+            arr.push({
+                kind: r.kind,
+                role: r.role,
+                url: r.url,
+                previewUrl: r.previewUrl || null,
+                name: r.name || '',
+                isImage: r.kind === 'image',
+                assetId: r.assetId || null,
+                fromLibrary: true,
+            });
+        }
+        setModeId(target.id);
+        setMediaByRole(byRole);
+        setError(null);
     };
 
     const onCancelJob = (id) => {
@@ -415,9 +470,22 @@ export default function SeedanceStudio() {
 
     return (
         <div className="relative min-h-screen w-full bg-app-bg text-white">
-            <div className="fixed top-5 left-6 z-30 text-xs font-medium tracking-wide text-white/40">
-                Seedance 2.0 · <span className="text-white/25">BytePlus ModelArk</span>
-                {activeCount > 0 && <span className="ml-2 text-primary/70">{activeCount} rendering…</span>}
+            <div className="fixed top-5 left-6 z-30 flex items-center gap-3 text-xs font-medium tracking-wide text-white/40">
+                {selectedJob && (
+                    <button
+                        type="button"
+                        onClick={() => setSelectedId(null)}
+                        title="Back to the home screen"
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 -my-1.5 rounded-md border border-white/10 bg-white/[0.04] text-white/70 hover:text-white hover:border-white/25 hover:bg-white/[0.08] transition-colors"
+                    >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+                        <span className="font-semibold">Home</span>
+                    </button>
+                )}
+                <span>
+                    Seedance 2.0 · <span className="text-white/25">BytePlus ModelArk</span>
+                    {activeCount > 0 && <span className="ml-2 text-primary/70">{activeCount} rendering…</span>}
+                </span>
             </div>
 
             {/* Center stage: hero when empty, else the selected job plays big.
@@ -431,6 +499,7 @@ export default function SeedanceStudio() {
                         job={selectedJob}
                         onCancel={() => onCancelJob(selectedJob.id)}
                         onFullscreen={() => selectedJob.videoUrl && setFullscreen(selectedJob.videoUrl)}
+                        onReuse={onReuseRefs}
                     />
                 )}
             </div>
@@ -473,10 +542,10 @@ export default function SeedanceStudio() {
 
 // The selected generation, big in the center (higgsfield-style stage):
 // video when done, live progress while rendering, error otherwise.
-function BigStage({ job, onCancel, onFullscreen }) {
+function BigStage({ job, onCancel, onFullscreen, onReuse }) {
     const active = ACTIVE_STATUSES.includes(job.status);
     if (job.status === 'done' && job.videoUrl) {
-        const hasPrompt = !!(job.prompt || job.userPrompt);
+        const hasPrompt = !!(job.prompt || job.userPrompt || job.refs?.length);
         return (
             <div className={`w-full animate-fade-in-up ${hasPrompt ? 'max-w-6xl' : 'max-w-3xl'}`}>
                 {/* Video left, prompt panel on the RIGHT (stacks below on small screens). */}
@@ -495,7 +564,7 @@ function BigStage({ job, onCancel, onFullscreen }) {
                         </div>
                         {!hasPrompt && <p className="mt-3 text-center text-xs text-white/35 truncate px-6" title={job.meta}>{job.meta}</p>}
                     </div>
-                    {hasPrompt && <PromptTabs job={job} />}
+                    {hasPrompt && <PromptTabs job={job} onReuse={onReuse} />}
                 </div>
             </div>
         );
@@ -524,10 +593,13 @@ function BigStage({ job, onCancel, onFullscreen }) {
 // Side panel to the RIGHT of a played video: the prompt actually sent to the
 // model. In styled modes (Motion Capture / Green Screen) it's the GPT-4o brief,
 // with a "Your prompt" tab for comparison; otherwise a single "Prompt" view.
-function PromptTabs({ job }) {
+// Below the prompt: the reference assets attached to this generation, with a
+// Reuse button that loads them back into the prompt bar.
+function PromptTabs({ job, onReuse }) {
     const [tab, setTab] = useState('generated');
     const generated = job.prompt || '';
     const userPrompt = job.userPrompt || '';
+    const hasText = !!(generated || userPrompt);
     const hasBoth = !!userPrompt && !!generated && userPrompt !== generated;
     const tabs = hasBoth
         ? [
@@ -538,19 +610,94 @@ function PromptTabs({ job }) {
     const current = tabs.find((t) => t.id === tab) || tabs[0];
     return (
         <div className="w-full lg:w-80 xl:w-96 shrink-0 flex flex-col max-h-[40vh] lg:max-h-[64vh] rounded-2xl border border-white/10 bg-white/[0.02] backdrop-blur-sm overflow-hidden">
-            <div className="flex items-center gap-1 p-2 border-b border-white/[0.06] shrink-0">
-                {tabs.map((t) => (
+            {hasText && (
+                <>
+                    <div className="flex items-center gap-1 p-2 border-b border-white/[0.06] shrink-0">
+                        {tabs.map((t) => (
+                            <button
+                                key={t.id}
+                                type="button"
+                                onClick={() => setTab(t.id)}
+                                className={`px-3 py-1.5 rounded-md text-[11px] font-semibold transition-colors ${t.id === current.id ? 'bg-primary/15 text-primary' : 'text-white/40 hover:text-white hover:bg-white/[0.06]'}`}
+                            >{t.label}</button>
+                        ))}
+                        {hasBoth && current.id === 'generated' && <span className="ml-auto pr-1 text-[9px] uppercase tracking-wider text-white/25">sent to model</span>}
+                    </div>
+                    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-4 py-3">
+                        <p className="text-xs leading-relaxed text-white/60 whitespace-pre-wrap break-words">{current.text}</p>
+                    </div>
+                </>
+            )}
+            {job.refs?.length > 0 && <RefAssets refs={job.refs} onReuse={onReuse ? (items) => onReuse(job, items) : null} />}
+        </div>
+    );
+}
+
+// The reference assets a generation was made with (Video 1, Image 1, …), as
+// thumbnails under the prompt panel. Signed preview links expire (~12h), so
+// thumbs are refreshed from the asset library (asset://id is permanent) —
+// the same refreshed items are what Reuse hands back to the prompt bar.
+function RefAssets({ refs, onReuse }) {
+    const [items, setItems] = useState(refs);
+    useEffect(() => {
+        let alive = true;
+        Promise.all(refs.map(async (r) => {
+            if (!r?.assetId) return r;
+            try {
+                const a = await getAsset(r.assetId);
+                return a?.previewUrl ? { ...r, previewUrl: a.previewUrl } : r;
+            } catch {
+                return r; // expired/unreachable preview → kind icon fallback below
+            }
+        })).then((next) => { if (alive) setItems(next); });
+        return () => { alive = false; };
+    }, [refs]);
+
+    // Positional tags in attachment order, matching the @Video1/@Image1 chips.
+    const counters = {};
+    const labeled = items.map((r) => {
+        counters[r.kind] = (counters[r.kind] || 0) + 1;
+        const kindName = r.kind === 'image' ? 'Image' : r.kind === 'video' ? 'Video' : 'Audio';
+        return { ...r, tag: `${kindName} ${counters[r.kind]}` };
+    });
+
+    return (
+        <div className="shrink-0 border-t border-white/[0.06] px-4 py-3">
+            <div className="flex items-center justify-between pb-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-white/40">References · {labeled.length}</span>
+                {onReuse && (
                     <button
-                        key={t.id}
                         type="button"
-                        onClick={() => setTab(t.id)}
-                        className={`px-3 py-1.5 rounded-md text-[11px] font-semibold transition-colors ${t.id === current.id ? 'bg-primary/15 text-primary' : 'text-white/40 hover:text-white hover:bg-white/[0.06]'}`}
-                    >{t.label}</button>
-                ))}
-                {hasBoth && current.id === 'generated' && <span className="ml-auto pr-1 text-[9px] uppercase tracking-wider text-white/25">sent to model</span>}
+                        onClick={() => onReuse(items)}
+                        title="Load these reference assets back into the prompt bar"
+                        className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 transition-colors"
+                    >
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M1 4v6h6M23 20v-6h-6" /><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15" /></svg>
+                        Reuse
+                    </button>
+                )}
             </div>
-            <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-4 py-3">
-                <p className="text-xs leading-relaxed text-white/60 whitespace-pre-wrap break-words">{current.text}</p>
+            <div className="flex gap-2 flex-wrap">
+                {labeled.map((r, i) => (
+                    <div key={i} className="relative w-16 h-16 rounded-lg overflow-hidden border border-white/10 bg-black/40" title={r.name || r.tag}>
+                        {r.kind === 'image' && r.previewUrl ? (
+                            <img src={r.previewUrl} alt={r.name || r.tag} className="w-full h-full object-cover" />
+                        ) : r.kind === 'video' && r.previewUrl ? (
+                            <video src={r.previewUrl} muted playsInline preload="metadata" className="w-full h-full object-cover bg-black" />
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center text-primary/70">
+                                {r.kind === 'video' ? (
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="M7 4v16M17 4v16M2 9h5M2 15h5M17 9h5M17 15h5" /></svg>
+                                ) : r.kind === 'audio' ? (
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></svg>
+                                ) : (
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" /></svg>
+                                )}
+                            </div>
+                        )}
+                        <span className="absolute bottom-0 inset-x-0 px-1 py-0.5 bg-black/75 text-[8px] font-black text-primary text-center truncate pointer-events-none">{r.tag}</span>
+                    </div>
+                ))}
             </div>
         </div>
     );
