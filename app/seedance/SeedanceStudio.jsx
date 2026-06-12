@@ -428,9 +428,11 @@ export default function SeedanceStudio() {
         for (let i = 0; i < batch; i++) launchJob(payload, apiPrompt, promptMeta, creation);
     };
 
-    // "Reuse" on a history card: load that generation's reference assets back
-    // into the prompt bar — restoring the mode it was made in, so every ref
-    // lands in its original slot (clamped to the mode's per-slot max).
+    // "Reuse" on a history card: load that generation's reference assets AND
+    // its prompt back into the prompt bar — restoring the mode it was made in,
+    // so every ref lands in its original slot (clamped to the mode's per-slot
+    // max). The raw user prompt wins over the GPT-4o brief: in styled modes the
+    // brief is regenerated on the next Generate anyway.
     const onReuseRefs = (job, refs) => {
         const targetId = job.modeId || (MODES.some((m) => m.id === job.style) ? job.style : mode.id);
         const target = MODES.find((m) => m.id === targetId) || mode;
@@ -454,6 +456,7 @@ export default function SeedanceStudio() {
         }
         setModeId(target.id);
         setMediaByRole(byRole);
+        setPrompt(job.userPrompt || job.prompt || '');
         setError(null);
     };
 
