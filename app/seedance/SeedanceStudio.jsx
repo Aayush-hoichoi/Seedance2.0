@@ -47,9 +47,9 @@ const ACTIVE_STATUSES = ['submitting', 'waiting', 'queued', 'running'];
 const RATE_LIMIT_RE = /rate.?limit|quota|too many|429|concurren|throttl/i;
 
 export default function SeedanceStudio() {
-    // Default to Multi reference — the mode users actually want for uploading
-    // several images/videos/audio; t2v and the single-frame modes stay in the menu.
-    const [modeId, setModeId] = useState('reference');
+    // Default to Motion Capture — the studio's headline styled mode; the
+    // classic t2v/i2v/reference modes stay below it in the menu.
+    const [modeId, setModeId] = useState('motion_capture');
     const [prompt, setPrompt] = useState('');
     const [options, setOptions] = useState(DEFAULT_OPTIONS);
     const [mediaByRole, setMediaByRole] = useState({});
