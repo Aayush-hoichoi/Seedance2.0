@@ -197,12 +197,17 @@ function SeedControl({ openKey, setOpenKey, seed, setSeed, disabled }) {
 
 /* ── inline media (round buttons + thumbnails) ──────────────────────────── */
 function Thumb({ item, badge, tag, onRemove }) {
+    const [hover, setHover] = useState(false);
     // Library assets carry a signed previewUrl (the reference url is asset://id,
     // which a browser can't render). Uploads carry a base64 data url in `url`.
     // Only browser-loadable schemes qualify — a missing/expired preview (e.g.
     // refs reused from old history) falls back to the kind icon, never a
     // broken <img src="asset://…">.
     const imgSrc = [item.previewUrl, item.url].find((u) => typeof u === 'string' && /^(https?:|data:|blob:)/i.test(u)) || null;
+    // Only image/video previews are worth blowing up on hover; an audio data
+    // url also matches the scheme test above but can't render in <img>/<video>.
+    const isVid = item.kind === 'video';
+    const canPreview = !!imgSrc && (item.isImage || item.kind === 'image' || isVid);
     // A URL being registered into the library — show progress until Active.
     if (item.pending) {
         return (
@@ -216,7 +221,35 @@ function Thumb({ item, badge, tag, onRemove }) {
         );
     }
     return (
-        <div className="relative w-10 h-10 shrink-0">
+        <div
+            className="relative w-10 h-10 shrink-0"
+            onMouseEnter={() => setHover(true)}
+            onMouseLeave={() => setHover(false)}
+        >
+            {/* Hover preview: a larger floating card so you can actually see the
+                attached reference without leaving the prompt bar. Mounted only
+                while hovered, so a video only loads/plays on demand. Positioned
+                above (the bar is pinned to the screen bottom) and centered over
+                the thumb; pointer-events-none keeps the × button reachable. */}
+            {hover && canPreview && (
+                <div className="absolute bottom-[calc(100%+10px)] left-1/2 -translate-x-1/2 z-[60] pointer-events-none">
+                    <div className="w-56 rounded-xl overflow-hidden border border-primary/30 bg-[#0a0a0a] shadow-2xl shadow-black/60">
+                        {isVid ? (
+                            <video src={imgSrc} autoPlay muted loop playsInline className="block w-full max-h-56 object-contain bg-black" />
+                        ) : (
+                            <img src={imgSrc} alt="" className="block w-full max-h-56 object-contain bg-black" />
+                        )}
+                        {(tag || item.name) && (
+                            <div className="flex items-center gap-2 px-2.5 py-1.5 border-t border-white/[0.06]">
+                                {tag && <span className="shrink-0 px-1.5 py-0.5 bg-primary text-black rounded-full text-[9px] font-black leading-none">{tag}</span>}
+                                {item.name && <span className="truncate text-[10px] text-white/60">{item.name}</span>}
+                            </div>
+                        )}
+                    </div>
+                    {/* caret pointing down at the thumbnail */}
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1.5 w-2.5 h-2.5 rotate-45 bg-[#0a0a0a] border-r border-b border-primary/30" />
+                </div>
+            )}
             {item.isImage && imgSrc ? (
                 <img src={imgSrc} alt="" className="w-full h-full object-cover rounded-full border border-primary/40" />
             ) : item.kind === 'video' && imgSrc ? (
@@ -289,9 +322,36 @@ export default function PromptBar({
     const [openKey, setOpenKey] = useState(null);
     const [mention, setMention] = useState(null); // { start, query } while typing "@…"
     const [mentionIdx, setMentionIdx] = useState(0); // keyboard-highlighted menu row
+    const [docked, setDocked] = useState(false); // slim strip while scrolled away from the page bottom
     const taRef = useRef(null);
     const chipRef = useRef(null); // chip backdrop, scroll-synced with the textarea
     const allTagsPossible = mode.media.some((s) => s.role.startsWith('reference_'));
+
+    // ModelArk-console behavior: scrolling up through the page shrinks the bar
+    // to a slim strip; reaching the bottom again restores the full bar. Driven
+    // purely by scroll/resize events so a page that never scrolls never docks,
+    // and never docks mid-typing (focused textarea) or with an error showing.
+    useEffect(() => {
+        const onScroll = () => {
+            const doc = document.documentElement;
+            const fromBottom = doc.scrollHeight - window.innerHeight - window.scrollY;
+            const scrollable = doc.scrollHeight > window.innerHeight + 40;
+            const typing = document.activeElement === taRef.current;
+            setDocked(scrollable && fromBottom > 100 && !typing && !error);
+        };
+        window.addEventListener('scroll', onScroll, { passive: true });
+        window.addEventListener('resize', onScroll, { passive: true });
+        onScroll();
+        return () => {
+            window.removeEventListener('scroll', onScroll);
+            window.removeEventListener('resize', onScroll);
+        };
+    }, [error]);
+
+    const undock = () => {
+        setDocked(false);
+        window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+    };
 
     // Close any open popover on an outside click. Pills/popovers stop propagation.
     useEffect(() => {
@@ -338,6 +398,32 @@ export default function PromptBar({
             autoGrow(el);
         });
     };
+
+    // Docked: a slim pill that previews the prompt; clicking it scrolls back to
+    // the bottom and the full bar re-expands (the parent keeps prompt/media
+    // state, so nothing is lost across the swap).
+    if (docked) {
+        const attached = mode.media.reduce((n, s) => n + (mediaByRole[s.role] || []).length, 0);
+        return (
+            <div className="fixed bottom-4 inset-x-0 mx-auto w-[95%] max-w-xl z-40 animate-fade-in-up">
+                <button
+                    type="button"
+                    onClick={undock}
+                    title="Back to the prompt bar"
+                    className="w-full bg-[#0a0a0a]/80 backdrop-blur-3xl rounded-full border border-white/10 pl-4 pr-3 py-2.5 flex items-center gap-3 shadow-2xl text-left hover:border-primary/40 transition-colors group"
+                >
+                    <span className="w-4 h-4 shrink-0 bg-primary rounded flex items-center justify-center"><span className="text-[9px] font-bold text-black">S</span></span>
+                    <span className={`flex-1 min-w-0 truncate text-sm ${prompt ? 'text-white/80' : 'text-white/40'}`}>
+                        {prompt || 'Describe the video…'}
+                    </span>
+                    {attached > 0 && (
+                        <span className="shrink-0 px-2 py-0.5 rounded-full bg-primary/15 text-primary text-[10px] font-bold">{attached} ref{attached > 1 ? 's' : ''}</span>
+                    )}
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="shrink-0 text-white/40 group-hover:text-primary transition-colors"><path d="M6 15l6-6 6 6" /></svg>
+                </button>
+            </div>
+        );
+    }
 
     return (
         <div className="fixed bottom-4 inset-x-0 mx-auto w-[95%] max-w-4xl z-40 animate-fade-in-up" style={{ animationDelay: '0.15s' }}>
