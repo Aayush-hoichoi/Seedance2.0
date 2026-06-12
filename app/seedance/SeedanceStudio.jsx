@@ -244,7 +244,18 @@ export default function SeedanceStudio() {
     // Backfill prompts for jobs restored without them (server-merged cards,
     // other browsers): the Neon store maps taskId → {user, generated} prompts.
     const hydratePrompts = (taskIds) => {
-        fetchPromptRecords(taskIds).then((byTask) => {
+        const ids = [...new Set(taskIds.filter(Boolean))];
+        if (!ids.length) return;
+        fetchPromptRecords(ids).then((byTask) => {
+            // Reverse-backfill: tasks created in THIS browser before the Neon
+            // store existed still have their prompt in the local map — push
+            // those up so other browsers recover them too.
+            const localPrompts = loadPrompts();
+            for (const id of ids) {
+                if (!byTask[id] && localPrompts[id]) {
+                    savePromptRecord({ taskId: id, userPrompt: localPrompts[id], generatedPrompt: null, style: null });
+                }
+            }
             if (!Object.keys(byTask).length) return;
             updateJobs((prev) => prev.map((j) => {
                 const r = j.taskId && byTask[j.taskId];
@@ -472,7 +483,20 @@ function PromptTabs({ job }) {
     const userPrompt = job.userPrompt || '';
     const hasBoth = !!userPrompt && !!generated && userPrompt !== generated;
     if (!hasBoth) {
-        return <p className="mt-3 text-center text-xs text-white/35 truncate px-6" title={generated || job.meta}>{generated || job.meta}</p>;
+        const single = generated || userPrompt;
+        // Old generations restored from ModelArk have no prompt anywhere
+        // (the list API never echoes it) — only their render settings.
+        if (!single) {
+            return <p className="mt-3 text-center text-xs text-white/35 truncate px-6" title={job.meta}>{job.meta}</p>;
+        }
+        return (
+            <div className="mt-3">
+                <div className="px-1 mb-1.5 text-[11px] font-semibold text-white/40">Prompt</div>
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 max-h-44 overflow-y-auto custom-scrollbar">
+                    <p className="text-xs leading-relaxed text-white/60 whitespace-pre-wrap break-words">{single}</p>
+                </div>
+            </div>
+        );
     }
     const tabs = [
         { id: 'generated', label: 'GPT-4o prompt (sent to model)', text: generated },
