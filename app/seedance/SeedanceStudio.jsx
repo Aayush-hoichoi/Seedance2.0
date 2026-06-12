@@ -414,9 +414,9 @@ export default function SeedanceStudio() {
     const selectedJob = jobs.find((j) => j.id === selectedId) || null;
 
     return (
-        <div className="relative min-h-screen w-full bg-app-bg text-white">
-            <div className="fixed top-5 left-6 z-30 text-xs font-medium tracking-wide text-white/40">
-                Seedance 2.0 · <span className="text-white/25">BytePlus ModelArk</span>
+        <div className="relative min-h-screen w-full bg-[#f4f5f7] text-gray-900 light-surface">
+            <div className="fixed top-5 left-6 z-30 text-xs font-medium tracking-wide text-gray-500">
+                Seedance 2.0 · <span className="text-gray-400">BytePlus ModelArk</span>
                 {activeCount > 0 && <span className="ml-2 text-primary/70">{activeCount} rendering…</span>}
             </div>
 
@@ -482,7 +482,7 @@ function BigStage({ job, onCancel, onFullscreen }) {
                 {/* Video left, prompt panel on the RIGHT (stacks below on small screens). */}
                 <div className="flex flex-col lg:flex-row gap-4 justify-center lg:items-start">
                     <div className="flex-1 min-w-0 max-w-3xl mx-auto lg:mx-0">
-                        <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-black shadow-2xl">
+                        <div className="relative rounded-2xl overflow-hidden border border-gray-200 bg-black shadow-xl">
                             <video key={job.id} src={job.videoUrl} controls autoPlay loop muted playsInline className="w-full max-h-[64vh] object-contain bg-black" />
                             <div className="absolute top-3 right-3 flex gap-2">
                                 <button type="button" onClick={onFullscreen} title="Fullscreen" className="p-2 rounded-full bg-black/60 border border-white/10 text-white/80 hover:text-white hover:bg-black/80 transition-colors backdrop-blur-sm">
@@ -493,7 +493,7 @@ function BigStage({ job, onCancel, onFullscreen }) {
                                 </a>
                             </div>
                         </div>
-                        {!hasPrompt && <p className="mt-3 text-center text-xs text-white/35 truncate px-6" title={job.meta}>{job.meta}</p>}
+                        {!hasPrompt && <p className="mt-3 text-center text-xs text-gray-500 truncate px-6" title={job.meta}>{job.meta}</p>}
                     </div>
                     {hasPrompt && <PromptTabs job={job} />}
                 </div>
@@ -505,18 +505,18 @@ function BigStage({ job, onCancel, onFullscreen }) {
             <div className="flex flex-col items-center justify-center text-center animate-fade-in-up">
                 <IconTile pulse />
                 <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight mb-3">{STATUS_TEXT[job.status] || 'Working…'}</h2>
-                <p className="text-white/40 text-sm md:text-base max-w-md leading-relaxed">
+                <p className="text-gray-500 text-sm md:text-base max-w-md leading-relaxed">
                     Usually 1–5 minutes. It keeps rendering even if you reload — watch it land in the rail on the right.
                 </p>
-                {job.taskId && <p className="mt-3 text-[11px] text-white/20 break-all max-w-md">task {job.taskId}</p>}
-                <button type="button" onClick={onCancel} className="mt-5 px-3 py-2 rounded-md text-xs font-semibold text-white/60 hover:text-white border border-white/10 hover:border-white/25 transition-colors">Cancel</button>
+                {job.taskId && <p className="mt-3 text-[11px] text-gray-400 break-all max-w-md">task {job.taskId}</p>}
+                <button type="button" onClick={onCancel} className="mt-5 px-3 py-2 rounded-md text-xs font-semibold text-gray-600 hover:text-gray-900 border border-gray-300 hover:border-gray-400 transition-colors">Cancel</button>
             </div>
         );
     }
     return (
         <div className="max-w-md text-center animate-fade-in-up">
-            <p className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-300 leading-relaxed">{job.error || 'Generation failed.'}</p>
-            <p className="mt-3 text-xs text-white/30 truncate" title={job.prompt}>{job.prompt}</p>
+            <p className="px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-600 leading-relaxed">{job.error || 'Generation failed.'}</p>
+            <p className="mt-3 text-xs text-gray-500 truncate" title={job.prompt}>{job.prompt}</p>
         </div>
     );
 }
@@ -537,20 +537,20 @@ function PromptTabs({ job }) {
         : [{ id: 'generated', label: 'Prompt', text: generated || userPrompt }];
     const current = tabs.find((t) => t.id === tab) || tabs[0];
     return (
-        <div className="w-full lg:w-80 xl:w-96 shrink-0 flex flex-col max-h-[40vh] lg:max-h-[64vh] rounded-2xl border border-white/10 bg-white/[0.02] backdrop-blur-sm overflow-hidden">
-            <div className="flex items-center gap-1 p-2 border-b border-white/[0.06] shrink-0">
+        <div className="w-full lg:w-80 xl:w-96 shrink-0 flex flex-col max-h-[40vh] lg:max-h-[64vh] rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+            <div className="flex items-center gap-1 p-2 border-b border-gray-100 shrink-0">
                 {tabs.map((t) => (
                     <button
                         key={t.id}
                         type="button"
                         onClick={() => setTab(t.id)}
-                        className={`px-3 py-1.5 rounded-md text-[11px] font-semibold transition-colors ${t.id === current.id ? 'bg-primary/15 text-primary' : 'text-white/40 hover:text-white hover:bg-white/[0.06]'}`}
+                        className={`px-3 py-1.5 rounded-md text-[11px] font-semibold transition-colors ${t.id === current.id ? 'bg-primary/15 text-primary' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'}`}
                     >{t.label}</button>
                 ))}
-                {hasBoth && current.id === 'generated' && <span className="ml-auto pr-1 text-[9px] uppercase tracking-wider text-white/25">sent to model</span>}
+                {hasBoth && current.id === 'generated' && <span className="ml-auto pr-1 text-[9px] uppercase tracking-wider text-gray-400">sent to model</span>}
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-4 py-3">
-                <p className="text-xs leading-relaxed text-white/60 whitespace-pre-wrap break-words">{current.text}</p>
+                <p className="text-xs leading-relaxed text-gray-600 whitespace-pre-wrap break-words">{current.text}</p>
             </div>
         </div>
     );
@@ -561,7 +561,7 @@ function PromptTabs({ job }) {
 function HistoryRail({ jobs, selectedId, onSelect, onRemove }) {
     return (
         <div className="fixed right-3 top-14 bottom-40 z-20 hidden sm:flex w-44 flex-col">
-            <p className="px-1 pb-2 text-[10px] font-bold uppercase tracking-wider text-white/30">History · {jobs.length}</p>
+            <p className="px-1 pb-2 text-[10px] font-bold uppercase tracking-wider text-gray-500">History · {jobs.length}</p>
             <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col gap-2 pr-0.5">
                 {jobs.map((job) => {
                     const active = ACTIVE_STATUSES.includes(job.status);
@@ -574,19 +574,19 @@ function HistoryRail({ jobs, selectedId, onSelect, onRemove }) {
                             onClick={() => onSelect(job.id)}
                             onKeyDown={(e) => { if (e.key === 'Enter') onSelect(job.id); }}
                             title={job.prompt || job.meta || job.taskId}
-                            className={`group relative shrink-0 aspect-video rounded-lg overflow-hidden border cursor-pointer transition-all ${selected ? 'border-primary/70 ring-1 ring-primary/40' : 'border-white/10 hover:border-white/30'}`}
+                            className={`group relative shrink-0 aspect-video rounded-lg overflow-hidden border cursor-pointer transition-all ${selected ? 'border-primary/70 ring-1 ring-primary/40' : 'border-gray-200 hover:border-gray-400'}`}
                         >
                             {job.status === 'done' && job.videoUrl ? (
                                 <video src={job.videoUrl} muted playsInline preload="metadata" className="w-full h-full object-cover bg-black" />
                             ) : (
-                                <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-black/50 px-2 text-center">
+                                <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-gray-200/70 px-2 text-center">
                                     {active ? (
                                         <>
                                             <span className="animate-spin inline-block text-primary text-sm">◌</span>
-                                            <span className="text-[9px] font-semibold text-white/50">{STATUS_TEXT[job.status]}</span>
+                                            <span className="text-[9px] font-semibold text-gray-600">{STATUS_TEXT[job.status]}</span>
                                         </>
                                     ) : (
-                                        <span className="text-[9px] text-red-300 leading-tight line-clamp-3">{job.error || 'Failed'}</span>
+                                        <span className="text-[9px] text-red-500 leading-tight line-clamp-3">{job.error || 'Failed'}</span>
                                     )}
                                 </div>
                             )}
@@ -595,7 +595,7 @@ function HistoryRail({ jobs, selectedId, onSelect, onRemove }) {
                                 onClick={(e) => { e.stopPropagation(); onRemove(job.id); }}
                                 title="Remove from history"
                                 aria-label="Remove"
-                                className="absolute top-1 right-1 w-[18px] h-[18px] rounded-full bg-black/70 border border-white/20 text-white/60 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                                className="absolute top-1 right-1 w-[18px] h-[18px] rounded-full bg-white border border-gray-300 text-gray-500 hover:text-gray-900 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
                             >
                                 <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                             </button>
@@ -603,7 +603,7 @@ function HistoryRail({ jobs, selectedId, onSelect, onRemove }) {
                     );
                 })}
             </div>
-            <p className="pt-2 px-1 text-[9px] leading-relaxed text-white/20">Saved on this device · links expire ~24h — download keepers</p>
+            <p className="pt-2 px-1 text-[9px] leading-relaxed text-gray-400">Saved on this device · links expire ~24h — download keepers</p>
         </div>
     );
 }
@@ -613,7 +613,7 @@ function IconTile({ pulse }) {
     return (
         <div className="mb-10 relative group">
             <div className={`absolute inset-0 bg-primary/10 blur-[120px] rounded-full transition-opacity duration-1000 ${pulse ? 'opacity-60 animate-pulse' : 'opacity-30 group-hover:opacity-60'}`} />
-            <div className="relative w-24 h-24 md:w-32 md:h-32 bg-white/[0.02] rounded-[2rem] flex items-center justify-center border border-white/[0.05] overflow-hidden backdrop-blur-sm">
+            <div className="relative w-24 h-24 md:w-32 md:h-32 bg-white rounded-[2rem] flex items-center justify-center border border-gray-200 shadow-sm overflow-hidden">
                 <div className={`w-16 h-16 bg-primary/5 rounded-2xl flex items-center justify-center border border-primary/10 relative z-10 transition-transform duration-500 ${pulse ? 'animate-pulse' : 'group-hover:scale-110'}`}>
                     <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-primary opacity-80">
                         <polygon points="23 7 16 12 23 17 23 7" />
@@ -630,11 +630,11 @@ function Hero() {
     return (
         <div className="flex flex-col items-center justify-center animate-fade-in-up">
             <IconTile />
-            <h1 className="text-3xl sm:text-5xl md:text-6xl font-extrabold text-white tracking-tight mb-4 text-center px-4 leading-[1.05]">
-                <span className="text-white/40 font-medium">START CREATING WITH</span><br />
-                <span className="text-white">SEEDANCE 2.0</span>
+            <h1 className="text-3xl sm:text-5xl md:text-6xl font-extrabold text-gray-900 tracking-tight mb-4 text-center px-4 leading-[1.05]">
+                <span className="text-gray-400 font-medium">START CREATING WITH</span><br />
+                <span className="text-gray-900">SEEDANCE 2.0</span>
             </h1>
-            <p className="text-white/40 text-sm md:text-base font-medium tracking-wide text-center max-w-lg leading-relaxed">
+            <p className="text-gray-500 text-sm md:text-base font-medium tracking-wide text-center max-w-lg leading-relaxed">
                 Turn text, images, or references into cinematic AI video — on your BytePlus ModelArk key.
             </p>
         </div>
