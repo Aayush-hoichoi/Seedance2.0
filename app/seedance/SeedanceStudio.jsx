@@ -436,20 +436,27 @@ export default function SeedanceStudio() {
 function BigStage({ job, onCancel, onFullscreen }) {
     const active = ACTIVE_STATUSES.includes(job.status);
     if (job.status === 'done' && job.videoUrl) {
+        const hasPrompt = !!(job.prompt || job.userPrompt);
         return (
-            <div className="w-full max-w-3xl animate-fade-in-up">
-                <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-black shadow-2xl">
-                    <video key={job.id} src={job.videoUrl} controls autoPlay loop muted playsInline className="w-full max-h-[64vh] object-contain bg-black" />
-                    <div className="absolute top-3 right-3 flex gap-2">
-                        <button type="button" onClick={onFullscreen} title="Fullscreen" className="p-2 rounded-full bg-black/60 border border-white/10 text-white/80 hover:text-white hover:bg-black/80 transition-colors backdrop-blur-sm">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 3H5a2 2 0 00-2 2v3M16 3h3a2 2 0 012 2v3M16 21h3a2 2 0 002-2v-3M8 21H5a2 2 0 01-2-2v-3" /></svg>
-                        </button>
-                        <a href={job.videoUrl} download title="Download" className="p-2 rounded-full bg-black/60 border border-white/10 text-white/80 hover:text-primary hover:bg-black/80 transition-colors backdrop-blur-sm">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
-                        </a>
+            <div className={`w-full animate-fade-in-up ${hasPrompt ? 'max-w-6xl' : 'max-w-3xl'}`}>
+                {/* Video left, prompt panel on the RIGHT (stacks below on small screens). */}
+                <div className="flex flex-col lg:flex-row gap-4 justify-center lg:items-start">
+                    <div className="flex-1 min-w-0 max-w-3xl mx-auto lg:mx-0">
+                        <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-black shadow-2xl">
+                            <video key={job.id} src={job.videoUrl} controls autoPlay loop muted playsInline className="w-full max-h-[64vh] object-contain bg-black" />
+                            <div className="absolute top-3 right-3 flex gap-2">
+                                <button type="button" onClick={onFullscreen} title="Fullscreen" className="p-2 rounded-full bg-black/60 border border-white/10 text-white/80 hover:text-white hover:bg-black/80 transition-colors backdrop-blur-sm">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 3H5a2 2 0 00-2 2v3M16 3h3a2 2 0 012 2v3M16 21h3a2 2 0 002-2v-3M8 21H5a2 2 0 01-2-2v-3" /></svg>
+                                </button>
+                                <a href={job.videoUrl} download title="Download" className="p-2 rounded-full bg-black/60 border border-white/10 text-white/80 hover:text-primary hover:bg-black/80 transition-colors backdrop-blur-sm">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
+                                </a>
+                            </div>
+                        </div>
+                        {!hasPrompt && <p className="mt-3 text-center text-xs text-white/35 truncate px-6" title={job.meta}>{job.meta}</p>}
                     </div>
+                    {hasPrompt && <PromptTabs job={job} />}
                 </div>
-                <PromptTabs job={job} />
             </div>
         );
     }
@@ -474,38 +481,24 @@ function BigStage({ job, onCancel, onFullscreen }) {
     );
 }
 
-// Under a played video: the prompt actually sent to the model. In styled modes
-// (Motion Capture / Green Screen) it's the GPT-4o-generated brief, shown next
-// to a "Your prompt" tab for comparison; otherwise the plain one-line caption.
+// Side panel to the RIGHT of a played video: the prompt actually sent to the
+// model. In styled modes (Motion Capture / Green Screen) it's the GPT-4o brief,
+// with a "Your prompt" tab for comparison; otherwise a single "Prompt" view.
 function PromptTabs({ job }) {
     const [tab, setTab] = useState('generated');
     const generated = job.prompt || '';
     const userPrompt = job.userPrompt || '';
     const hasBoth = !!userPrompt && !!generated && userPrompt !== generated;
-    if (!hasBoth) {
-        const single = generated || userPrompt;
-        // Old generations restored from ModelArk have no prompt anywhere
-        // (the list API never echoes it) — only their render settings.
-        if (!single) {
-            return <p className="mt-3 text-center text-xs text-white/35 truncate px-6" title={job.meta}>{job.meta}</p>;
-        }
-        return (
-            <div className="mt-3">
-                <div className="px-1 mb-1.5 text-[11px] font-semibold text-white/40">Prompt</div>
-                <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 max-h-44 overflow-y-auto custom-scrollbar">
-                    <p className="text-xs leading-relaxed text-white/60 whitespace-pre-wrap break-words">{single}</p>
-                </div>
-            </div>
-        );
-    }
-    const tabs = [
-        { id: 'generated', label: 'GPT-4o prompt (sent to model)', text: generated },
-        { id: 'user', label: 'Your prompt', text: userPrompt },
-    ];
+    const tabs = hasBoth
+        ? [
+            { id: 'generated', label: 'GPT-4o prompt', text: generated },
+            { id: 'user', label: 'Your prompt', text: userPrompt },
+        ]
+        : [{ id: 'generated', label: 'Prompt', text: generated || userPrompt }];
     const current = tabs.find((t) => t.id === tab) || tabs[0];
     return (
-        <div className="mt-3">
-            <div className="flex items-center gap-1 mb-1.5 px-1">
+        <div className="w-full lg:w-80 xl:w-96 shrink-0 flex flex-col max-h-[40vh] lg:max-h-[64vh] rounded-2xl border border-white/10 bg-white/[0.02] backdrop-blur-sm overflow-hidden">
+            <div className="flex items-center gap-1 p-2 border-b border-white/[0.06] shrink-0">
                 {tabs.map((t) => (
                     <button
                         key={t.id}
@@ -514,8 +507,9 @@ function PromptTabs({ job }) {
                         className={`px-3 py-1.5 rounded-md text-[11px] font-semibold transition-colors ${t.id === current.id ? 'bg-primary/15 text-primary' : 'text-white/40 hover:text-white hover:bg-white/[0.06]'}`}
                     >{t.label}</button>
                 ))}
+                {hasBoth && current.id === 'generated' && <span className="ml-auto pr-1 text-[9px] uppercase tracking-wider text-white/25">sent to model</span>}
             </div>
-            <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 max-h-44 overflow-y-auto custom-scrollbar">
+            <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-4 py-3">
                 <p className="text-xs leading-relaxed text-white/60 whitespace-pre-wrap break-words">{current.text}</p>
             </div>
         </div>
