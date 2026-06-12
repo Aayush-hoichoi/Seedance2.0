@@ -459,6 +459,8 @@ export default function SeedanceStudio() {
         }
         setModeId(target.id);
         setMediaByRole(byRole);
+        // The stored prompt keeps the API's bare "Video 1" wording; the prompt
+        // bar's chip renderer highlights that form directly, so no rewrite here.
         setPrompt(job.userPrompt || job.prompt || '');
         setError(null);
     };

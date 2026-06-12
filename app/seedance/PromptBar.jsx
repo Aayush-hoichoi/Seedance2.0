@@ -6,23 +6,37 @@
 
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { MODES, RATIOS } from '../../lib/seedance/constants.js';
-import { filterTags, tagLabelFor, tagToken, TOKEN_RE } from '../../lib/seedance/tags.js';
+import { filterTags, tagLabelFor, tagToken } from '../../lib/seedance/tags.js';
 
-// Render the prompt with @Image1 / @Video2 / @Audio3 tokens as cyan chips.
+// Match either an @-mention ("@Image1", what users type/insert) or the bare
+// API wording ("Image 1", what a reused prompt is stored as) so both render as
+// chips. Group 1/2 = @-form kind/number; group 3/4 = bare-form kind/number.
+const CHIP_RE = /@(image|video|audio)\s?(\d+)|\b(image|video|audio)\s+(\d+)\b/gi;
+
+// Render the prompt with reference mentions as cyan chips.
 // Rendered in a backdrop behind a transparent-text textarea, so the chip
 // styling is background-and-color ONLY (no padding/border/font-weight) — any
 // property that changes glyph advance widths desyncs the painted text from
 // the textarea's caret, making typed letters appear in the wrong place.
 function renderChips(text, tags) {
     const known = new Set(tags.map((t) => t.label.replace(' ', '').toLowerCase()));
-    const re = new RegExp(TOKEN_RE.source, 'gi');
+    // Highest attached index per kind — a bare "Video 2" only chips when a 2nd
+    // video is actually attached, so ordinary prose isn't turned into a chip.
+    const maxByKind = tags.reduce((acc, t) => ({ ...acc, [t.kind]: Math.max(acc[t.kind] || 0, t.number) }), {});
+    const re = new RegExp(CHIP_RE.source, 'gi');
     const out = [];
     let last = 0;
     let m;
     let i = 0;
     while ((m = re.exec(text)) !== null) {
+        const isAt = m[1] != null;
+        const kind = (isAt ? m[1] : m[3]).toLowerCase();
+        const num = isAt ? m[2] : m[4];
+        // @-tokens always chip (grey if unknown, so typos stay visible); a bare
+        // reference only chips when it points at an actually-attached asset.
+        if (!isAt && Number(num) > (maxByKind[kind] || 0)) continue;
         if (m.index > last) out.push(text.slice(last, m.index));
-        const valid = known.has(`${m[1].toLowerCase()}${m[2]}`);
+        const valid = known.has(`${kind}${num}`);
         out.push(
             <span key={i++} className={`rounded-[4px] ${valid ? 'bg-primary/25 text-primary' : 'bg-white/10 text-white/40'}`}>
                 {m[0]}
