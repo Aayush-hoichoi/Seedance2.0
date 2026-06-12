@@ -375,6 +375,13 @@ export default function SeedanceStudio() {
             if (refProblem) { setError(refProblem); return; }
         }
 
+        // Styled modes promise the source video's Bengali dialogue in the
+        // output — impossible with audio generation off (silent video).
+        if (mode.enhanceStyle && !options.generate_audio) {
+            setError(`${mode.name} carries the source video's dialogue into the output — turn the Audio toggle on to generate.`);
+            return;
+        }
+
         // Styled modes (Motion Capture / Green Screen): GPT-4o restructures the
         // raw prompt into the full production brief before Seedance sees it.
         const promptMeta = mode.enhanceStyle ? { userPrompt: apiPrompt, style: mode.enhanceStyle } : null;
