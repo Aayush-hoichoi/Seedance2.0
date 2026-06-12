@@ -136,12 +136,19 @@ export default function SeedanceStudio() {
         }
 
         // Merge the account's recent generations from ModelArk (newest 30).
+        // ModelArk lists EVERY task made with the API key (console, other
+        // apps) — only merge tasks created from this platform, i.e. ones with
+        // a Neon prompt record (written at creation) or a local prompt entry.
         const prompts = loadPrompts();
         const localTaskIds = new Set(restored.map((j) => j.taskId).filter(Boolean));
         fetch('/api/byteplus/contents/generations/tasks?page_num=1&page_size=30')
             .then((r) => (r.ok ? r.json() : null))
-            .then((d) => {
-                const items = Array.isArray(d?.items) ? d.items : [];
+            .then(async (d) => {
+                const all = Array.isArray(d?.items) ? d.items : [];
+                if (!all.length) return;
+                const unknownIds = all.map((t) => t.id).filter((id) => !localTaskIds.has(id) && !prompts[id]);
+                const records = await fetchPromptRecords(unknownIds);
+                const items = all.filter((t) => localTaskIds.has(t.id) || prompts[t.id] || records[t.id]);
                 if (!items.length) return;
                 const toJobStatus = (s) => (s === 'succeeded' ? 'done' : ['queued', 'running'].includes(s) ? s : 'error');
                 updateJobs((prev) => {
