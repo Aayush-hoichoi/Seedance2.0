@@ -328,6 +328,7 @@ export default function PromptBar({
     const [docked, setDocked] = useState(false); // slim strip while scrolled away from the page bottom
     const taRef = useRef(null);
     const chipRef = useRef(null); // chip backdrop, scroll-synced with the textarea
+    const manualResizedRef = useRef(false); // true once the user drags the resize grip — stops auto-grow fighting it
     const allTagsPossible = mode.media.some((s) => s.role.startsWith('reference_'));
 
     // ModelArk-console behavior: scrolling up through the page shrinks the bar
@@ -364,9 +365,19 @@ export default function PromptBar({
         return () => document.removeEventListener('click', close);
     }, [openKey]);
 
-    const autoGrow = (el) => { if (!el) return; el.style.height = 'auto'; el.style.height = `${Math.min(el.scrollHeight, 200)}px`; };
+    // Auto-grow up to a comfortable cap; once the user has manually dragged the
+    // resize grip we leave the height alone (CSS max-height bounds the drag).
+    const autoGrow = (el) => { if (!el || manualResizedRef.current) return; el.style.height = 'auto'; el.style.height = `${Math.min(el.scrollHeight, 200)}px`; };
 
-    const audioHint = options.generate_audio ? ' · put spoken lines in “double quotes” for better audio.' : '';
+    // Re-fit the box to its content whenever the prompt is set programmatically
+    // (e.g. "Reuse" loads a long prompt) or the bar re-expands from its docked
+    // pill. Without this the textarea stays one line tall and a reused prompt is
+    // clipped — autoGrow otherwise only fires on keystrokes. A cleared prompt
+    // re-enables auto-grow so a fresh prompt isn't stuck at a manual height.
+    useEffect(() => {
+        if (!prompt) manualResizedRef.current = false;
+        autoGrow(taRef.current);
+    }, [prompt, docked]);
 
     // @-mention: typing "@" after whitespace opens a menu of the attached assets'
     // positional tags (Image 1, Video 1, …). Selecting one inserts the literal
@@ -490,18 +501,23 @@ export default function PromptBar({
                                 if (e.key === 'Escape' && mention) { e.stopPropagation(); setMention(null); }
                             }}
                             onBlur={() => setTimeout(() => setMention(null), 120)}
+                            onMouseDown={(e) => {
+                                // Grabbing the bottom-right resize grip flips into manual
+                                // sizing so auto-grow stops snapping the height back.
+                                const r = e.currentTarget.getBoundingClientRect();
+                                if (e.clientX >= r.right - 18 && e.clientY >= r.bottom - 18) manualResizedRef.current = true;
+                            }}
                             placeholder={allTagsPossible ? 'Describe the video — type “@” to reference an upload (e.g. actions in @Video1, character from @Image1)' : mode.requiresText ? 'Describe the video you want to create' : 'Describe the video (optional)…'}
                             rows={1}
-                            className="relative block w-full bg-transparent border-none text-transparent caret-white text-sm placeholder:text-white/40 focus:outline-none resize-none pt-2 leading-relaxed min-h-[40px] max-h-[200px] overflow-y-auto custom-scrollbar [scrollbar-gutter:stable]"
+                            title="Drag the bottom-right corner to resize"
+                            className="relative block w-full bg-transparent border-none text-transparent caret-white text-sm placeholder:text-white/40 focus:outline-none resize-y pt-2 leading-relaxed min-h-[40px] max-h-[60vh] overflow-y-auto custom-scrollbar [scrollbar-gutter:stable]"
                         />
                     </div>
                 </div>
 
-                {/* hint / error */}
-                {error ? (
+                {/* error only — the descriptive hint line was removed to declutter the bar */}
+                {error && (
                     <div className="mx-1 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-[11px] text-red-300">{error}</div>
-                ) : (
-                    <div className="mx-1 text-[11px] text-white/55">{mode.hint}{audioHint}{allTags.length > 0 ? ' · type “@” to reference an asset (@Image1…)' : ''}</div>
                 )}
 
                 {/* controls (selectors left, toggles right) + generate (own row, right) */}
