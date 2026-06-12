@@ -376,6 +376,7 @@ export default function SeedanceStudio() {
                     <Hero />
                 ) : (
                     <BigStage
+                        key={selectedJob.id} /* remount on job switch → PromptTabs resets to the default tab */
                         job={selectedJob}
                         onCancel={() => onCancelJob(selectedJob.id)}
                         onFullscreen={() => selectedJob.videoUrl && setFullscreen(selectedJob.videoUrl)}

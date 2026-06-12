@@ -16,7 +16,23 @@ function bad(message, status = 400) {
     return NextResponse.json({ error: message }, { status });
 }
 
+// Cheap abuse guard for a public deployment: browser calls from our own pages
+// carry a same-origin Origin/Referer; reject obvious cross-site/scripted use.
+// (Not real auth — a determined caller can spoof headers — but it keeps the
+// OpenAI key from being a free-for-all proxy.)
+function sameOrigin(request) {
+    const source = request.headers.get('origin') || request.headers.get('referer');
+    if (!source) return true; // same-origin GET-less fetches may omit both
+    try {
+        return new URL(source).host === request.headers.get('host');
+    } catch {
+        return false;
+    }
+}
+
 export async function POST(request) {
+    if (!sameOrigin(request)) return bad('Forbidden.', 403);
+
     const apiKey = process.env.OPENAI_API_KEY?.trim();
     if (!apiKey) {
         return bad('OPENAI_API_KEY is not configured — add it to .env.local (and the Vercel env), then redeploy/restart.', 500);
@@ -67,8 +83,9 @@ export async function POST(request) {
 
     const data = await res.json().catch(() => null);
     if (!res.ok) {
-        const detail = data?.error?.message || `OpenAI request failed (${res.status}).`;
-        return bad(detail, 502);
+        // Don't forward OpenAI's error text — it can leak account/quota details.
+        console.error('openai enhance failed:', res.status, data?.error?.message || data?.error || '');
+        return bad(`Prompt restructuring failed (OpenAI ${res.status}) — try again.`, 502);
     }
 
     const enhanced = data?.choices?.[0]?.message?.content?.trim();
