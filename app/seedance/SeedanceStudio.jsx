@@ -623,8 +623,12 @@ function BigStage({ job, onCancel, onFullscreen, onReuse }) {
         );
     }
     if (active) {
-        return (
-            <div className="flex flex-col items-center justify-center text-center animate-fade-in-up">
+        // Show the inputs alongside the spinner so the user can tell — at a
+        // glance, and while it's still rendering — what prompt and which
+        // reference assets this generation was started from.
+        const hasPrompt = !!(job.prompt || job.userPrompt || job.refs?.length);
+        const placeholder = (
+            <div className="flex flex-col items-center justify-center text-center px-6">
                 <IconTile pulse />
                 <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight mb-3">{STATUS_TEXT[job.status] || 'Working…'}</h2>
                 <p className="text-white/40 text-sm md:text-base max-w-md leading-relaxed">
@@ -632,6 +636,21 @@ function BigStage({ job, onCancel, onFullscreen, onReuse }) {
                 </p>
                 {job.taskId && <p className="mt-3 text-[11px] text-white/20 break-all max-w-md">task {job.taskId}</p>}
                 <button type="button" onClick={onCancel} className="mt-5 px-3 py-2 rounded-md text-xs font-semibold text-white/60 hover:text-white border border-white/10 hover:border-white/25 transition-colors">Cancel</button>
+            </div>
+        );
+        if (!hasPrompt) return <div className="animate-fade-in-up">{placeholder}</div>;
+        return (
+            <div className="w-full max-w-6xl animate-fade-in-up">
+                {/* Spinner left, the submitted prompt + reference assets on the
+                    RIGHT — same layout the finished video uses. */}
+                <div className="flex flex-col lg:flex-row gap-4 justify-center lg:items-start">
+                    <div className="flex-1 min-w-0 max-w-3xl mx-auto lg:mx-0">
+                        <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-black/30 aspect-video flex items-center justify-center">
+                            {placeholder}
+                        </div>
+                    </div>
+                    <PromptTabs job={job} onReuse={onReuse} />
+                </div>
             </div>
         );
     }
