@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { MODELS, MODES, RESOLUTIONS, DEFAULT_OPTIONS } from '../../lib/seedance/constants.js';
 import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js';
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
-import { buildTags, modeSupportsTags, normalizePromptForApi, validatePromptReferences } from '../../lib/seedance/tags.js';
+import { buildTags, modeSupportsTags, normalizePromptForApi, restorePromptTokens, validatePromptReferences } from '../../lib/seedance/tags.js';
 import { registerAssetFromUrl, getAsset } from '../../lib/seedance/assetsClient.js';
 import { enhancePrompt } from '../../lib/seedance/enhance.js';
 import { savePromptRecord, fetchPromptRecords, setLikeRecord } from '../../lib/seedance/promptsClient.js';
@@ -459,9 +459,11 @@ export default function SeedanceStudio() {
         }
         setModeId(target.id);
         setMediaByRole(byRole);
-        // The stored prompt keeps the API's bare "Video 1" wording; the prompt
-        // bar's chip renderer highlights that form directly, so no rewrite here.
-        setPrompt(job.userPrompt || job.prompt || '');
+        // The stored prompt was normalised for the API ("@Video1" → "Video 1"),
+        // so re-tokenise it against the restored refs to bring back the exact
+        // "@Video1" wording the user typed (rendered as a chip in the bar).
+        const raw = job.userPrompt || job.prompt || '';
+        setPrompt(modeSupportsTags(target) ? restorePromptTokens(raw, buildTags(target, byRole)) : raw);
         setError(null);
     };
 
