@@ -37,21 +37,21 @@ function renderChips(text, tags) {
 // File-input accept by media kind.
 const ACCEPT = { image: 'image/*', video: 'video/*', audio: 'audio/*' };
 
-const PILL = 'flex items-center gap-2 px-3 py-2 rounded-md border transition-all whitespace-nowrap group disabled:opacity-40';
-const PILL_IDLE = 'bg-white/[0.03] hover:bg-white/[0.06] border-white/[0.03]';
+const PILL = 'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border transition-all whitespace-nowrap group disabled:opacity-40';
+const PILL_IDLE = 'bg-white/[0.06] hover:bg-white/[0.1] border-white/[0.1]';
 const PILL_ON = 'bg-primary/10 border-primary/30';
 
 /* ── tiny inline icons (single stroke voice, 14px) ──────────────────────── */
 const ic = { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 };
 const Chevron = () => (
-    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="opacity-20 group-hover:opacity-100 transition-opacity"><path d="M6 9l6 6 6-6" /></svg>
+    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" className="opacity-50 group-hover:opacity-100 transition-opacity"><path d="M6 9l6 6 6-6" /></svg>
 );
-const AspectIcon = () => (<svg {...ic} className="opacity-40"><rect x="3" y="3" width="18" height="18" rx="2" /></svg>);
-const ResIcon = () => (<svg {...ic} className="opacity-40"><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 12h20" /></svg>);
-const ClockIcon = () => (<svg {...ic} className="opacity-40"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>);
-const DiceIcon = () => (<svg {...ic} className="opacity-40"><rect x="4" y="4" width="16" height="16" rx="3" /><circle cx="9" cy="9" r="1.2" fill="currentColor" stroke="none" /><circle cx="15" cy="15" r="1.2" fill="currentColor" stroke="none" /></svg>);
-const AudioIcon = () => (<svg {...ic} className="opacity-60"><path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M19 5a9 9 0 010 14M15.5 8.5a4 4 0 010 7" /></svg>);
-const DropIcon = () => (<svg {...ic} className="opacity-50"><path d="M12 3s6 6 6 11a6 6 0 11-12 0c0-5 6-11 6-11z" /></svg>);
+const AspectIcon = () => (<svg {...ic} className="opacity-70"><rect x="3" y="3" width="18" height="18" rx="2" /></svg>);
+const ResIcon = () => (<svg {...ic} className="opacity-70"><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 12h20" /></svg>);
+const ClockIcon = () => (<svg {...ic} className="opacity-70"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>);
+const DiceIcon = () => (<svg {...ic} className="opacity-70"><rect x="4" y="4" width="16" height="16" rx="3" /><circle cx="9" cy="9" r="1.2" fill="currentColor" stroke="none" /><circle cx="15" cy="15" r="1.2" fill="currentColor" stroke="none" /></svg>);
+const AudioIcon = () => (<svg {...ic} className="opacity-80"><path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M19 5a9 9 0 010 14M15.5 8.5a4 4 0 010 7" /></svg>);
+const DropIcon = () => (<svg {...ic} className="opacity-75"><path d="M12 3s6 6 6 11a6 6 0 11-12 0c0-5 6-11 6-11z" /></svg>);
 const MusicIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></svg>);
 const FilmIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="M7 4v16M17 4v16M2 9h5M2 15h5M17 9h5M17 15h5" /></svg>);
 
@@ -78,12 +78,12 @@ function PillSelect({ id, openKey, setOpenKey, badge, display, label, options, v
                 className={`${PILL} ${open ? PILL_ON : PILL_IDLE}`}
             >
                 {badge}
-                <span className={`text-xs font-semibold transition-colors ${open ? 'text-primary' : 'text-white/70 group-hover:text-primary'}`}>{display}</span>
+                <span className={`text-xs font-semibold transition-colors ${open ? 'text-primary' : 'text-white/90 group-hover:text-primary'}`}>{display}</span>
                 <Chevron />
             </button>
             {open && (
                 <Popover>
-                    {label && <div className="px-2 pb-1.5 text-[10px] font-bold uppercase tracking-wide text-white/30">{label}</div>}
+                    {label && <div className="px-2 pb-1.5 text-[10px] font-bold uppercase tracking-wide text-white/50">{label}</div>}
                     <div className="flex flex-col gap-0.5">
                         {options.map((opt) => (
                             <button
@@ -103,8 +103,8 @@ function PillSelect({ id, openKey, setOpenKey, badge, display, label, options, v
 function PillToggle({ label, active, onToggle, disabled, icon }) {
     return (
         <button type="button" disabled={disabled} onClick={onToggle} className={`${PILL} ${active ? PILL_ON : PILL_IDLE}`}>
-            <span className={active ? 'text-primary' : 'text-white/40'}>{icon}</span>
-            <span className={`text-xs font-semibold transition-colors ${active ? 'text-primary' : 'text-white/70 group-hover:text-primary'}`}>{label}</span>
+            <span className={active ? 'text-primary' : 'text-white/65'}>{icon}</span>
+            <span className={`text-xs font-semibold transition-colors ${active ? 'text-primary' : 'text-white/90 group-hover:text-primary'}`}>{label}</span>
         </button>
     );
 }
@@ -126,13 +126,13 @@ function DurationControl({ openKey, setOpenKey, duration, setDuration }) {
     return (
         <div className="relative">
             <button type="button" onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : 'dur'); }} className={`${PILL} ${open ? PILL_ON : PILL_IDLE}`}>
-                <span className={open ? 'text-primary' : 'text-white/40'}><ClockIcon /></span>
-                <span className={`text-xs font-semibold ${open ? 'text-primary' : 'text-white/70 group-hover:text-primary'}`}>{isAuto ? 'Auto' : `${duration}s`}</span>
+                <span className={open ? 'text-primary' : 'text-white/65'}><ClockIcon /></span>
+                <span className={`text-xs font-semibold ${open ? 'text-primary' : 'text-white/90 group-hover:text-primary'}`}>{isAuto ? 'Auto' : `${duration}s`}</span>
                 <Chevron />
             </button>
             {open && (
                 <Popover>
-                    <div className="px-2 pb-1.5 text-[10px] font-bold uppercase tracking-wide text-white/30">Duration · 4–15s</div>
+                    <div className="px-2 pb-1.5 text-[10px] font-bold uppercase tracking-wide text-white/50">Duration · 4–15s</div>
                     <div className="flex items-center gap-3 w-72 px-2 pb-1.5">
                         <input
                             type="range"
@@ -172,12 +172,12 @@ function SeedControl({ openKey, setOpenKey, seed, setSeed, disabled }) {
     return (
         <div className="relative">
             <button type="button" disabled={disabled} onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : 'seed'); }} className={`${PILL} ${open ? PILL_ON : PILL_IDLE}`}>
-                <span className={open ? 'text-primary' : 'text-white/40'}><DiceIcon /></span>
-                <span className={`text-xs font-semibold ${open ? 'text-primary' : 'text-white/70 group-hover:text-primary'}`}>{isRandom ? 'Seed · random' : `Seed · ${seed}`}</span>
+                <span className={open ? 'text-primary' : 'text-white/65'}><DiceIcon /></span>
+                <span className={`text-xs font-semibold ${open ? 'text-primary' : 'text-white/90 group-hover:text-primary'}`}>{isRandom ? 'Seed' : `Seed · ${seed}`}</span>
             </button>
             {open && (
                 <Popover>
-                    <div className="px-2 pb-1.5 text-[10px] font-bold uppercase tracking-wide text-white/30">Seed</div>
+                    <div className="px-2 pb-1.5 text-[10px] font-bold uppercase tracking-wide text-white/50">Seed</div>
                     <div className="flex gap-2 w-56 px-1 pb-1">
                         <input
                             ref={ref}
@@ -342,7 +342,7 @@ export default function PromptBar({
                 <div className="relative flex items-start gap-2 px-1">
                     {showMention && (
                         <div className="absolute bottom-full left-0 mb-2 z-50 min-w-[190px] max-h-60 overflow-y-auto custom-scrollbar bg-[#0a0a0a] rounded-lg p-1.5 shadow-2xl border border-white/[0.08]">
-                            <div className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wide text-white/30">Reference an asset</div>
+                            <div className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wide text-white/50">Reference an asset</div>
                             {mentionTags.map((t, i) => {
                                 const active = i === Math.min(mentionIdx, mentionTags.length - 1);
                                 return (
@@ -399,7 +399,7 @@ export default function PromptBar({
                             onBlur={() => setTimeout(() => setMention(null), 120)}
                             placeholder={allTagsPossible ? 'Describe the video — type “@” to reference an upload (e.g. actions in @Video1, character from @Image1)' : mode.requiresText ? 'Describe the video you want to create' : 'Describe the video (optional)…'}
                             rows={1}
-                            className="relative block w-full bg-transparent border-none text-transparent caret-white text-sm placeholder:text-white/20 focus:outline-none resize-none pt-2 leading-relaxed min-h-[40px] max-h-[200px] overflow-y-auto custom-scrollbar [scrollbar-gutter:stable]"
+                            className="relative block w-full bg-transparent border-none text-transparent caret-white text-sm placeholder:text-white/40 focus:outline-none resize-none pt-2 leading-relaxed min-h-[40px] max-h-[200px] overflow-y-auto custom-scrollbar [scrollbar-gutter:stable]"
                         />
                     </div>
                 </div>
@@ -408,12 +408,13 @@ export default function PromptBar({
                 {error ? (
                     <div className="mx-1 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-[11px] text-red-300">{error}</div>
                 ) : (
-                    <div className="mx-1 text-[11px] text-white/30">{mode.hint}{audioHint}{allTags.length > 0 ? ' · type “@” to reference an asset (@Image1…)' : ''}</div>
+                    <div className="mx-1 text-[11px] text-white/55">{mode.hint}{audioHint}{allTags.length > 0 ? ' · type “@” to reference an asset (@Image1…)' : ''}</div>
                 )}
 
-                {/* controls + generate */}
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2 border-t border-white/[0.03]">
-                    <div className="flex items-center gap-2 flex-wrap pb-1 md:pb-0">
+                {/* controls (selectors left, toggles right) + generate (own row, right) */}
+                <div className="flex flex-col gap-2 pt-2 border-t border-white/[0.03]">
+                    <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                         <PillSelect
                             id="mode" openKey={openKey} setOpenKey={setOpenKey}                            badge={<span className="w-4 h-4 bg-primary rounded flex items-center justify-center shadow-lg shadow-primary/10"><span className="text-[9px] font-bold text-black">S</span></span>}
                             display={mode.name} label="Mode" value={mode.id}
@@ -433,20 +434,23 @@ export default function PromptBar({
                         />
                         <DurationControl openKey={openKey} setOpenKey={setOpenKey} duration={options.duration} setDuration={(v) => setOpt('duration', v)} />
                         <SeedControl openKey={openKey} setOpenKey={setOpenKey} seed={options.seed} setSeed={(v) => setOpt('seed', v)} />
+                    </div>
+                    <div className="flex items-center gap-1.5">
                         <PillToggle label="Audio" active={!!options.generate_audio} onToggle={() => setOpt('generate_audio', !options.generate_audio)} icon={<AudioIcon />} />
                         <PillToggle label="Watermark" active={!!options.watermark} onToggle={() => setOpt('watermark', !options.watermark)} icon={<DropIcon />} />
                     </div>
+                    </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center justify-end gap-2">
                         {/* Batch: fire 1 / 2 / 4 parallel generations per click */}
                         {setBatch && (
-                            <div className="flex items-center shrink-0 rounded-md border border-white/[0.06] overflow-hidden" title="How many generations to start per click">
+                            <div className="flex items-center shrink-0 self-stretch rounded-md border border-white/[0.06] overflow-hidden" title="How many generations to start per click">
                                 {BATCH_OPTIONS.map((n) => (
                                     <button
                                         key={n}
                                         type="button"
                                         onClick={() => setBatch(n)}
-                                        className={`px-2.5 py-2 text-xs font-bold transition-colors ${batch === n ? 'bg-primary/15 text-primary' : 'text-white/40 hover:text-white hover:bg-white/[0.06]'}`}
+                                        className={`h-full px-3 text-xs font-bold transition-colors ${batch === n ? 'bg-primary/15 text-primary' : 'text-white/65 hover:text-white hover:bg-white/[0.08]'}`}
                                     >×{n}</button>
                                 ))}
                             </div>
