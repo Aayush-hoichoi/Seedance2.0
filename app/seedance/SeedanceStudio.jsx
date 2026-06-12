@@ -202,10 +202,19 @@ export default function SeedanceStudio() {
                     }));
                     return [...refreshed, ...added].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
                 });
-                // Watch any server-side tasks still rendering that we didn't know about.
+                // Watch any server-side tasks still rendering that we didn't
+                // know about, and revive local cards a past network blip
+                // marked as error while the task actually kept rendering.
                 for (const t of items) {
-                    if (['queued', 'running'].includes(t.status) && !localTaskIds.has(t.id)) {
+                    if (!['queued', 'running'].includes(t.status)) continue;
+                    if (!localTaskIds.has(t.id)) {
                         watchJob(`srv-${t.id}`, t.id);
+                        continue;
+                    }
+                    const j = restored.find((x) => x.taskId === t.id);
+                    if (j && j.status === 'error') {
+                        patchJob(j.id, { status: t.status, error: null });
+                        watchJob(j.id, t.id);
                     }
                 }
                 // Server-merged cards have no prompts — recover both from Neon.
