@@ -139,16 +139,40 @@ export default function SeedanceStudio() {
         // ModelArk lists EVERY task made with the API key (console, other
         // apps) — only merge tasks created from this platform, i.e. ones with
         // a Neon prompt record (written at creation) or a local prompt entry.
+        // srv-* cards restored from localStorage are NOT trusted as proof of
+        // origin: earlier sessions merged foreign tasks before this filter.
         const prompts = loadPrompts();
+        const ownTaskIds = new Set(
+            restored.filter((j) => !String(j.id).startsWith('srv-')).map((j) => j.taskId).filter(Boolean),
+        );
         const localTaskIds = new Set(restored.map((j) => j.taskId).filter(Boolean));
+
+        // Purge foreign cards that earlier sessions saved into localStorage.
+        // Strict response check: on a Neon hiccup purge nothing, rather than
+        // risk dropping legit platform cards made in other browsers.
+        const suspects = restored.filter(
+            (j) => String(j.id).startsWith('srv-') && j.taskId && !prompts[j.taskId] && !j.userPrompt,
+        );
+        if (suspects.length) {
+            fetch(`/api/seedance/prompts?taskIds=${encodeURIComponent(suspects.map((j) => j.taskId).join(','))}`)
+                .then((r) => (r.ok ? r.json() : null))
+                .then((d) => {
+                    if (!Array.isArray(d?.items)) return;
+                    const known = new Set(d.items.map((row) => row.task_id));
+                    const foreign = new Set(suspects.map((j) => j.taskId).filter((id) => !known.has(id)));
+                    if (foreign.size) updateJobs((prev) => prev.filter((j) => !foreign.has(j.taskId)));
+                })
+                .catch(() => {});
+        }
+
         fetch('/api/byteplus/contents/generations/tasks?page_num=1&page_size=30')
             .then((r) => (r.ok ? r.json() : null))
             .then(async (d) => {
                 const all = Array.isArray(d?.items) ? d.items : [];
                 if (!all.length) return;
-                const unknownIds = all.map((t) => t.id).filter((id) => !localTaskIds.has(id) && !prompts[id]);
+                const unknownIds = all.map((t) => t.id).filter((id) => !ownTaskIds.has(id) && !prompts[id]);
                 const records = await fetchPromptRecords(unknownIds);
-                const items = all.filter((t) => localTaskIds.has(t.id) || prompts[t.id] || records[t.id]);
+                const items = all.filter((t) => ownTaskIds.has(t.id) || prompts[t.id] || records[t.id]);
                 if (!items.length) return;
                 const toJobStatus = (s) => (s === 'succeeded' ? 'done' : ['queued', 'running'].includes(s) ? s : 'error');
                 updateJobs((prev) => {
