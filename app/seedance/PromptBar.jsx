@@ -7,6 +7,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { MODES, RATIOS } from '../../lib/seedance/constants.js';
 import { filterTags, tagLabelFor, tagToken, TOKEN_RE } from '../../lib/seedance/tags.js';
+import MediaHoverPreview from './MediaHoverPreview.jsx';
 
 // Render the prompt with @Image1 / @Video2 / @Audio3 tokens as cyan chips.
 // Rendered in a backdrop behind a transparent-text textarea, so the chip
@@ -36,13 +37,6 @@ function renderChips(text, tags) {
 
 // File-input accept by media kind.
 const ACCEPT = { image: 'image/*', video: 'video/*', audio: 'audio/*' };
-
-// Seconds → "m:ss" (e.g. 8 → "0:08"); null for unknown/zero so the badge hides.
-const formatDuration = (s) => {
-    if (!Number.isFinite(s) || s <= 0) return null;
-    const m = Math.floor(s / 60);
-    return `${m}:${String(Math.round(s % 60)).padStart(2, '0')}`;
-};
 
 const PILL = 'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border transition-all whitespace-nowrap group disabled:opacity-40';
 const PILL_IDLE = 'bg-white/[0.06] hover:bg-white/[0.1] border-white/[0.1]';
@@ -205,7 +199,7 @@ function SeedControl({ openKey, setOpenKey, seed, setSeed, disabled }) {
 /* ── inline media (round buttons + thumbnails) ──────────────────────────── */
 function Thumb({ item, badge, tag, onRemove }) {
     const [hover, setHover] = useState(false);
-    const [duration, setDuration] = useState(null); // clip length, read from the preview <video> metadata
+    const thumbRef = useRef(null); // anchor for the floating hover preview
     // Library assets carry a signed previewUrl (the reference url is asset://id,
     // which a browser can't render). Uploads carry a base64 data url in `url`.
     // Only browser-loadable schemes qualify — a missing/expired preview (e.g.
@@ -230,42 +224,16 @@ function Thumb({ item, badge, tag, onRemove }) {
     }
     return (
         <div
+            ref={thumbRef}
             className="relative w-10 h-10 shrink-0"
             onMouseEnter={() => setHover(true)}
             onMouseLeave={() => setHover(false)}
         >
             {/* Hover preview: a larger floating card so you can actually see the
                 attached reference without leaving the prompt bar. Mounted only
-                while hovered, so a video only loads/plays on demand. Positioned
-                above (the bar is pinned to the screen bottom) and centered over
-                the thumb; pointer-events-none keeps the × button reachable. */}
+                while hovered, so a video only loads/plays on demand. */}
             {hover && canPreview && (
-                <div className="absolute bottom-[calc(100%+10px)] left-1/2 -translate-x-1/2 z-[60] pointer-events-none">
-                    <div className="w-56 rounded-xl overflow-hidden border border-primary/30 bg-[#0a0a0a] shadow-2xl shadow-black/60">
-                        {isVid ? (
-                            // Unmuted: the hover preview plays the reference's own
-                            // audio. Allowed to autoplay with sound because the user
-                            // has already interacted with the page (picked the asset).
-                            // Bottom-right pill shows the clip length once metadata loads.
-                            <div className="relative">
-                                <video src={imgSrc} autoPlay loop playsInline onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)} className="block w-full max-h-56 object-contain bg-black" />
-                                {formatDuration(duration) && (
-                                    <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 bg-black/80 text-white rounded text-[10px] font-bold leading-none tabular-nums pointer-events-none">{formatDuration(duration)}</span>
-                                )}
-                            </div>
-                        ) : (
-                            <img src={imgSrc} alt="" className="block w-full max-h-56 object-contain bg-black" />
-                        )}
-                        {(tag || item.name) && (
-                            <div className="flex items-center gap-2 px-2.5 py-1.5 border-t border-white/[0.06]">
-                                {tag && <span className="shrink-0 px-1.5 py-0.5 bg-primary text-black rounded-full text-[9px] font-black leading-none">{tag}</span>}
-                                {item.name && <span className="truncate text-[10px] text-white/60">{item.name}</span>}
-                            </div>
-                        )}
-                    </div>
-                    {/* caret pointing down at the thumbnail */}
-                    <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1.5 w-2.5 h-2.5 rotate-45 bg-[#0a0a0a] border-r border-b border-primary/30" />
-                </div>
+                <MediaHoverPreview anchor={thumbRef.current} src={imgSrc} isVideo={isVid} tag={tag} name={item.name} />
             )}
             {item.isImage && imgSrc ? (
                 <img src={imgSrc} alt="" className="w-full h-full object-cover rounded-full border border-primary/40" />

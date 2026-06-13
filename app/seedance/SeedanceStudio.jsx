@@ -17,6 +17,7 @@ import { uploadToCdn } from '../../lib/seedance/upload.js';
 import { validateMediaFile } from '../../lib/seedance/inspectMedia.js';
 import { loadJobs, saveJobs, newJob, loadPrompts, savePrompt, removePrompt } from '../../lib/seedance/jobs.js';
 import PromptBar from './PromptBar.jsx';
+import MediaHoverPreview from './MediaHoverPreview.jsx';
 
 // Resolve form state into the flat media list buildPayload expects, in the
 // slot order the mode declares (so first_frame precedes last_frame).
@@ -750,27 +751,45 @@ function RefAssets({ refs, onReuse }) {
                 )}
             </div>
             <div className="flex gap-2 flex-wrap">
-                {labeled.map((r, i) => (
-                    <div key={i} className="relative w-16 h-16 rounded-lg overflow-hidden border border-white/10 bg-black/40" title={r.name || r.tag}>
-                        {r.kind === 'image' && r.previewUrl ? (
-                            <img src={r.previewUrl} alt={r.name || r.tag} className="w-full h-full object-cover" />
-                        ) : r.kind === 'video' && r.previewUrl ? (
-                            <video src={r.previewUrl} muted playsInline preload="metadata" className="w-full h-full object-cover bg-black" />
-                        ) : (
-                            <div className="w-full h-full flex items-center justify-center text-primary/70">
-                                {r.kind === 'video' ? (
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="M7 4v16M17 4v16M2 9h5M2 15h5M17 9h5M17 15h5" /></svg>
-                                ) : r.kind === 'audio' ? (
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></svg>
-                                ) : (
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" /></svg>
-                                )}
-                            </div>
-                        )}
-                        <span className="absolute bottom-0 inset-x-0 px-1 py-0.5 bg-black/75 text-[8px] font-black text-primary text-center truncate pointer-events-none">{r.tag}</span>
-                    </div>
-                ))}
+                {labeled.map((r, i) => <RefThumb key={i} r={r} />)}
             </div>
+        </div>
+    );
+}
+
+// One reference thumbnail in the history panel. Hovering pops the same large
+// floating preview the prompt bar uses (plays the video with its clip-length
+// badge), so the user can see what asset went into the generation.
+function RefThumb({ r }) {
+    const [hover, setHover] = useState(false);
+    const ref = useRef(null);
+    const isVid = r.kind === 'video';
+    const canPreview = !!r.previewUrl && (r.kind === 'image' || isVid);
+    return (
+        <div
+            ref={ref}
+            className="relative w-16 h-16 rounded-lg overflow-hidden border border-white/10 bg-black/40"
+            title={r.name || r.tag}
+            onMouseEnter={() => setHover(true)}
+            onMouseLeave={() => setHover(false)}
+        >
+            {hover && canPreview && <MediaHoverPreview anchor={ref.current} src={r.previewUrl} isVideo={isVid} tag={r.tag} name={r.name} />}
+            {r.kind === 'image' && r.previewUrl ? (
+                <img src={r.previewUrl} alt={r.name || r.tag} className="w-full h-full object-cover" />
+            ) : r.kind === 'video' && r.previewUrl ? (
+                <video src={r.previewUrl} muted playsInline preload="metadata" className="w-full h-full object-cover bg-black" />
+            ) : (
+                <div className="w-full h-full flex items-center justify-center text-primary/70">
+                    {r.kind === 'video' ? (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="M7 4v16M17 4v16M2 9h5M2 15h5M17 9h5M17 15h5" /></svg>
+                    ) : r.kind === 'audio' ? (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></svg>
+                    ) : (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" /></svg>
+                    )}
+                </div>
+            )}
+            <span className="absolute bottom-0 inset-x-0 px-1 py-0.5 bg-black/75 text-[8px] font-black text-primary text-center truncate pointer-events-none">{r.tag}</span>
         </div>
     );
 }
