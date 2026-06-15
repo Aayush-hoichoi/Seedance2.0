@@ -17,11 +17,14 @@ const PREVIEW_W = 224; // matches the old w-56 card width
 const GAP = 10; // px between the thumbnail and the card
 const EDGE = 8; // min viewport margin so the card never touches the edge
 
-// Seconds → "m:ss" (e.g. 8 → "0:08"); null for unknown/zero so the badge hides.
+// Seconds → exact one-decimal label (e.g. 7.53 → "7.5s"); null for unknown/zero
+// so the badge hides. Under a minute we show the true sub-second length rather
+// than rounding to a whole second; 60s+ falls back to "m:ss" since decimals are noise there.
 const formatDuration = (s) => {
     if (!Number.isFinite(s) || s <= 0) return null;
+    if (s < 60) return `${s.toFixed(1)}s`;
     const m = Math.floor(s / 60);
-    return `${m}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+    return `${m}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 };
 
 export default function MediaHoverPreview({ anchor, src, isVideo, tag, name }) {
