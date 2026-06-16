@@ -1,18 +1,6 @@
 import { NextResponse } from 'next/server';
 import { AUTH_COOKIE, cookieMatches } from './lib/auth/credentials.js';
-
-// Paths reachable WITHOUT auth (otherwise the gate could never be passed).
-const PUBLIC_PREFIXES = ['/login', '/api/auth/'];
-// Static-ish assets we never gate (defensive; the matcher already drops _next).
-const STATIC_FILE_RE =
-    /\.(?:png|jpe?g|gif|svg|webp|ico|css|js|map|txt|woff2?|ttf|eot)$/i;
-
-function isPublicPath(pathname) {
-    if (PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p))) {
-        return true;
-    }
-    return STATIC_FILE_RE.test(pathname);
-}
+import { isPublicPath } from './lib/auth/publicPaths.js';
 
 export async function middleware(request) {
     const url = request.nextUrl;
