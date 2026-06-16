@@ -19,49 +19,48 @@ redirected to a branded `/login` page; unauthenticated `/api/*` requests return
 
 ## Non-goals
 
-- Multi-user accounts, roles, signup, or password reset — this is a single shared
-  credential gate.
+- Multi-user accounts, roles, signup, or password reset — single shared credential.
+- **Persistent sessions.** No signed-token session, no signing secret, no 7-day
+  "remember me", no logout button. A successful login sets a plain browser-session
+  cookie that is cleared when the browser closes; you log in again next time.
 - Protecting the Electron desktop build. Electron runs the vite static bundle
   (`src/`, `index.html`) and does **not** execute Next.js middleware. It is a
   local app with the user's own key and is explicitly out of scope.
 - Rotating the Seedance key in code. Key rotation is an ops step (swap
   `ARK_API_KEY` in `.env.local` / the deploy env); no code depends on its value.
 
-## Approach: signed-cookie session
+## Approach: branded login + minimal hashed cookie (no session)
 
-On successful login the server sets an **httpOnly, SameSite=Lax** cookie named
-`ll_session` whose value is a signed token:
+On successful login the server sets an **httpOnly, SameSite=Lax browser-session
+cookie** named `ll_auth` whose value is the SHA-256 hex of `username:password`.
+There is **no `maxAge`/`expires`**, so the browser drops it on close → re-login.
 
-```
-base64url(JSON({ exp })) + "." + base64url(HMAC-SHA256(payload, APP_AUTH_SECRET))
-```
+Middleware computes the expected hash from the env credentials and compares it to
+the cookie on every non-public request. No database, no third-party auth, no
+signing secret, no expiry logic — just a shared credential gate.
 
-Middleware verifies the signature and expiry on every non-public request. No
-database and no third-party auth provider — just a shared credential gate with a
-tamper-proof cookie.
-
-Why a signed cookie (not HTTP Basic Auth): the user chose a branded `/login`
-experience with a logout affordance. Why not a server session store: a single
-shared credential needs no per-user state; a signed token is stateless and
-Edge-verifiable.
+Why hash the creds rather than store a flag or the raw password: the cookie is a
+bearer value; hashing keeps the plaintext password out of the cookie while still
+being deterministically verifiable in Edge middleware. It is forgeable only by
+someone who already knows the credentials (who could just log in anyway).
 
 ## Components
 
-### 1. `lib/auth/session.js` (Edge-compatible)
+### 1. `lib/auth/credentials.js` (Edge-compatible)
 
 Uses Web Crypto (`crypto.subtle`) only, so the same module works in both the Edge
-middleware and Node route handlers. No Node `crypto` import.
+middleware and Node route handlers. No Node `crypto` import. SHA-256 via
+`crypto.subtle.digest` is async, so these helpers are async.
 
-- `createSessionToken({ ttlMs })` → signed token string.
-- `verifySessionToken(token)` → `boolean` (valid signature **and** not expired;
-  any malformed input returns `false`, never throws).
-- `credentialsMatch(user, pass)` → `boolean`, compared against
-  `APP_AUTH_USERNAME` / `APP_AUTH_PASSWORD` with a length-safe equality check
-  (compare every char, no early return) to avoid trivial timing leaks.
 - `getAuthConfig()` → reads + validates env at call time; throws a clear error if
-  `APP_AUTH_USERNAME`, `APP_AUTH_PASSWORD`, or `APP_AUTH_SECRET` is missing.
+  `APP_AUTH_USERNAME` or `APP_AUTH_PASSWORD` is missing.
+- `cookieValueFor(user, pass)` → `sha256Hex(`${user}:${pass}`)`.
+- `expectedCookieValue()` → `cookieValueFor(APP_AUTH_USERNAME, APP_AUTH_PASSWORD)`.
+- `cookieMatches(value)` → length-safe equality of `value` vs `expectedCookieValue()`
+  (compare every char, no early return) so the gate check has no trivial timing leak.
+- `credentialsMatch(user, pass)` → length-safe compare of submitted creds vs env.
 
-Constants: cookie name `ll_session`, default TTL 7 days.
+Constant: cookie name `ll_auth`.
 
 ### 2. `app/login/page.js` + `app/login/LoginForm.jsx`
 
@@ -76,85 +75,76 @@ Constants: cookie name `ll_session`, default TTL 7 days.
 
 ### 3. `app/api/auth/login/route.js` (Node runtime)
 
-- `POST` only. Parse + validate body (`username`, `password` are non-empty
-  strings; reject otherwise with `400`).
-- If `credentialsMatch` → set `ll_session` cookie: `httpOnly`, `sameSite: 'lax'`,
-  `path: '/'`, `maxAge` = 7 days, `secure` only when `NODE_ENV === 'production'`
-  (so http://localhost dev works). Return `{ success: true }`.
+- `POST` only. Parse + validate body (`username`, `password` non-empty strings;
+  otherwise `400`).
+- If `credentialsMatch` → set `ll_auth` cookie = `cookieValueFor(user, pass)`:
+  `httpOnly`, `sameSite: 'lax'`, `path: '/'`, **no `maxAge`/`expires`**
+  (browser-session cookie), `secure` only when `NODE_ENV === 'production'` (so
+  http://localhost dev works). Return `{ success: true }`.
 - Else → `await` a small fixed delay (~400ms) to blunt brute-forcing, return
   `401 { success: false, error: 'Invalid credentials' }`.
-- Missing auth env → `500` with `{ success: false, error: 'Auth not configured' }`
-  and a server-side `console.error`.
+- Missing auth env → `500 { success: false, error: 'Auth not configured' }` plus a
+  server-side `console.error`.
 
-### 4. `app/api/auth/logout/route.js` (Node runtime)
-
-- `POST` → clear `ll_session` (set empty, `maxAge: 0`), return `{ success: true }`.
-
-### 5. `middleware.js` (extended, existing proxy preserved)
+### 4. `middleware.js` (extended, existing proxy preserved)
 
 Runs auth **before** the existing muapi proxy logic.
 
-- Public allowlist (bypass auth): `/login`, `/api/auth/login`, `/api/auth/logout`,
-  `/_next/*`, `/favicon.ico`, and static asset extensions. Next internals are
-  already excluded by the matcher.
-- Otherwise: read `ll_session`; if `verifySessionToken` is false:
+- Public allowlist (bypass auth): `/login`, `/api/auth/login`, `/_next/*`,
+  `/favicon.ico`, and static asset extensions. Next internals are already
+  excluded by the matcher.
+- Otherwise: read `ll_auth`; if `cookieMatches(value)` is false:
   - request path starts with `/api/` → return `401` JSON.
   - else → `307` redirect to `/login?next=<pathname+search>`.
 - If valid → fall through to existing muapi rewrite logic, then
   `NextResponse.next()`.
-- Middleware function becomes `async` (HMAC verify is async).
+- Middleware function stays `async` (hashing is async). Fail closed: if auth env
+  is missing or hashing throws, treat as unauthenticated.
 - Matcher widened to run on all routes except static files, e.g.
   `'/((?!_next/static|_next/image|favicon.ico).*)'`, while keeping behavior for
   the existing `/api/*` proxy paths.
 
-### 6. Logout button in `app/seedance/SeedanceStudio.jsx`
-
-In the top-left header cluster (next to "Seedance 2.0 · BytePlus ModelArk",
-around line 538): a small "Log out" button matching the existing button styling.
-On click → `POST /api/auth/logout` then `window.location.assign('/login')`.
+> No logout route and no logout button — closing the browser ends the session.
 
 ## Env vars (added to `.env.local` and documented in README)
 
 ```
 APP_AUTH_USERNAME=LoglineAI
 APP_AUTH_PASSWORD=LoglineAI
-APP_AUTH_SECRET=<64-char random hex>   # cookie signing key; required
 ```
 
-If any is missing, the login route returns `500` and middleware treats all
-sessions as invalid (fail closed).
+No signing secret. If either is missing, the login route returns `500` and
+middleware treats all requests as unauthenticated (fail closed).
 
 ## Error handling
 
 - Invalid creds → inline form error + `401`.
 - Missing auth env → `500` from login route, fail-closed in middleware, clear
   server log.
-- Expired/tampered/missing cookie → treated as unauthenticated (redirect or
+- Missing/forged/mismatched cookie → treated as unauthenticated (redirect or
   `401`), never a crash.
 - `next` redirect param sanitized to same-origin relative paths only.
 
 ## Security notes
 
-- Cookie is `httpOnly` (no JS access) + signed (can't be forged without
-  `APP_AUTH_SECRET`).
+- Cookie is `httpOnly` (no JS access) and holds a hash, not the plaintext password.
 - `secure` in production so the cookie isn't sent over plain HTTP.
-- Length-safe credential comparison.
-- Failed-login delay to slow brute force (single shared credential, so this is a
-  meaningful mitigation).
+- Length-safe comparisons for both submitted creds and the cookie value.
+- Failed-login delay to slow brute force (single shared credential).
 - This is a shared-credential gate, not per-user auth — adequate for "lock the URL
-  before sharing", not for untrusted public exposure.
+  before sharing", not for untrusted public exposure. The cookie is a bearer value
+  (replayable while valid), which is acceptable given httpOnly + Secure.
 
 ## Testing
 
-- **Unit (`lib/auth/session.js`)**: sign→verify round-trip; tampered token
-  rejected; expired token rejected; malformed input returns false; credential
-  compare true/false cases.
-- **Integration (route handlers)**: login `401` on bad creds and no cookie set;
-  login `200` + `Set-Cookie` on good creds; logout clears cookie; missing env →
-  `500`.
+- **Unit (`lib/auth/credentials.js`)**: `cookieValueFor` deterministic + matches
+  known SHA-256; `cookieMatches` true for expected value, false for tampered;
+  `credentialsMatch` true/false cases; missing env throws.
+- **Integration (login route)**: `401` on bad creds and no cookie set; `200` +
+  `Set-Cookie: ll_auth=...` (no `Max-Age`) on good creds; missing env → `500`.
 - **E2E (Playwright)**: logged-out visit to `/seedance` → redirect to `/login`;
-  successful login → lands on `/seedance`; logout → back to `/login`;
-  `fetch('/api/seedance/prompts')` with no cookie → `401`.
+  successful login → lands on `/seedance`; `fetch('/api/seedance/prompts')` with no
+  cookie → `401`; clearing cookies (simulating browser close) → back to `/login`.
 
 ## Out-of-band ops step (reminder, not code)
 
