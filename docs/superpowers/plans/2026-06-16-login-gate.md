@@ -650,7 +650,7 @@ the deployment environment, then restart the app. No code change is required.
 
 - [ ] **Step 2: Run the full automated test suite**
 
-Run: `node --test tests/`
+Run: `node --test tests/*.test.js tests/*.test.mjs` (the bare `node --test tests/` directory form misreads the dir as a module in this Node version — use the explicit globs).
 Expected: all existing tests plus `tests/auth-credentials.test.mjs` pass (`fail 0`).
 
 - [ ] **Step 3: Final end-to-end smoke (fresh cookie jar)**
