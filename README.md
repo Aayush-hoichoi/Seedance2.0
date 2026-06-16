@@ -439,6 +439,30 @@ npm run build
 npm run start
 ```
 
+### Access control (login gate)
+
+The hosted web version (`npm run dev` / `npm run start`) is gated by a single shared
+credential so a shared URL can't be used to spend your Seedance / ModelArk key. Set
+these server-side env vars (in `.env.local` and in your deployment environment):
+
+```
+APP_AUTH_USERNAME=LoglineAI
+APP_AUTH_PASSWORD=LoglineAI
+```
+
+Visitors are redirected to `/login`; any `/api/*` request returns `401` without a
+valid cookie. The cookie is a browser-session cookie (no expiry) — closing the
+browser logs you out. There is no signing secret and no server-side session store.
+
+Scope: this protects the Next.js hosted deployment only. The Electron desktop build
+(`npm run electron:dev`) runs the Vite bundle, does not execute Next.js middleware,
+and is not gated.
+
+#### Rotating the Seedance 2.0 key
+
+To rotate the BytePlus ModelArk key, replace `ARK_API_KEY` in `.env.local` and in
+the deployment environment, then restart the app. No code change is required.
+
 ### Desktop App Build
 
 Build native desktop apps with Electron:
