@@ -48,7 +48,7 @@ function videoFileName(job, index) {
     return `${base}.mp4`;
 }
 
-export default function AssetsPanel({ jobs, binned, onRestore, onDeleteForever, onClose }) {
+export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteForever, onClose }) {
     const [view, setView] = useState('assets'); // 'assets' | 'bin'
     const [selected, setSelected] = useState(() => new Set());
     const [busy, setBusy] = useState(false);
@@ -120,6 +120,7 @@ export default function AssetsPanel({ jobs, binned, onRestore, onDeleteForever, 
     );
     const onDownloadOne = (v, i) => runDownload([{ url: v.videoUrl, name: videoFileName(v, i) }]);
 
+    const binMany = (ids) => { ids.forEach((id) => onBin(id)); setSelected(new Set()); };
     const restoreMany = (ids) => { ids.forEach((id) => onRestore(id)); setSelected(new Set()); };
 
     const deleteForever = async (ids) => {
@@ -203,6 +204,7 @@ export default function AssetsPanel({ jobs, binned, onRestore, onDeleteForever, 
                                             disabled={busy}
                                             onToggle={() => toggle(v.id)}
                                             onDownload={() => onDownloadOne(v, i)}
+                                            onBin={() => onBin(v.id)}
                                             onRestore={() => onRestore(v.id)}
                                             onDelete={() => deleteForever([v.id])}
                                         />
@@ -240,21 +242,33 @@ export default function AssetsPanel({ jobs, binned, onRestore, onDeleteForever, 
                             </button>
                         </>
                     ) : (
-                        <button
-                            type="button"
-                            onClick={onDownloadSelected}
-                            disabled={busy}
-                            className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-black hover:bg-[#e5ff33] transition-colors disabled:opacity-60 disabled:cursor-wait"
-                        >
-                            {busy ? (
-                                <><span className="animate-spin inline-block">◌</span> Zipping…</>
-                            ) : (
-                                <>
-                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
-                                    Download {selected.size > 1 ? 'zip' : ''}
-                                </>
-                            )}
-                        </button>
+                        <>
+                            <button
+                                type="button"
+                                onClick={onDownloadSelected}
+                                disabled={busy}
+                                className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-black hover:bg-[#e5ff33] transition-colors disabled:opacity-60 disabled:cursor-wait"
+                            >
+                                {busy ? (
+                                    <><span className="animate-spin inline-block">◌</span> Zipping…</>
+                                ) : (
+                                    <>
+                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
+                                        Download {selected.size > 1 ? 'zip' : ''}
+                                    </>
+                                )}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => binMany([...selected])}
+                                disabled={busy}
+                                title="Move to bin"
+                                className="flex items-center gap-1.5 rounded-md bg-white/10 px-3.5 py-2 text-sm font-semibold text-white hover:bg-white/20 transition-colors disabled:opacity-60"
+                            >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
+                                Move to bin
+                            </button>
+                        </>
                     )}
                     <button
                         type="button"
@@ -288,7 +302,7 @@ function Tab({ active, onClick, label, count }) {
 // One video tile. Clicking toggles selection. Hover reveals view-specific
 // quick actions (Download in Assets; Restore + Delete forever in the Bin) and
 // plays the clip as a preview.
-function AssetCard({ job, isBin, selected, disabled, onToggle, onDownload, onRestore, onDelete }) {
+function AssetCard({ job, isBin, selected, disabled, onToggle, onDownload, onBin, onRestore, onDelete }) {
     const onEnter = (e) => { e.currentTarget.play?.().catch(() => {}); };
     const onLeave = (e) => { const v = e.currentTarget; v.pause?.(); try { v.currentTime = 0; } catch { /* noop */ } };
     return (
@@ -347,16 +361,28 @@ function AssetCard({ job, isBin, selected, disabled, onToggle, onDownload, onRes
                         </button>
                     </>
                 ) : (
-                    <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); if (!disabled) onDownload(); }}
-                        disabled={disabled}
-                        aria-label="Download this video"
-                        title="Download this video"
-                        className="p-1.5 rounded-md bg-black/70 border border-white/15 text-white/80 hover:text-primary transition-colors backdrop-blur-sm disabled:opacity-40"
-                    >
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
-                    </button>
+                    <>
+                        <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); if (!disabled) onDownload(); }}
+                            disabled={disabled}
+                            aria-label="Download this video"
+                            title="Download this video"
+                            className="p-1.5 rounded-md bg-black/70 border border-white/15 text-white/80 hover:text-primary transition-colors backdrop-blur-sm disabled:opacity-40"
+                        >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); if (!disabled) onBin(); }}
+                            disabled={disabled}
+                            aria-label="Move to bin"
+                            title="Move to bin"
+                            className="p-1.5 rounded-md bg-black/70 border border-white/15 text-white/80 hover:text-red-400 transition-colors backdrop-blur-sm disabled:opacity-40"
+                        >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                        </button>
+                    </>
                 )}
             </div>
         </div>

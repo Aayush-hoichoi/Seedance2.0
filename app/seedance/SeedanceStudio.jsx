@@ -660,6 +660,7 @@ export default function SeedanceStudio() {
                 <AssetsPanel
                     jobs={visibleJobs}
                     binned={binnedJobs}
+                    onBin={onBinJob}
                     onRestore={onRestoreJob}
                     onDeleteForever={onDeleteForever}
                     onClose={() => setShowAssets(false)}
