@@ -301,7 +301,7 @@ const BATCH_OPTIONS = [1, 2, 4];
 export default function PromptBar({
     mode, onChangeMode, prompt, onPromptChange, options, setOpt,
     mediaByRole, setMediaByRole, models, resolutions, selectedModel,
-    error, onGenerate, enhancing = false, batch = 1, setBatch,
+    error, notice, onGenerate, enhancing = false, batch = 1, setBatch,
     onMediaError, onUploadFiles, tags,
 }) {
     const [openKey, setOpenKey] = useState(null);
@@ -497,9 +497,12 @@ export default function PromptBar({
                     </div>
                 </div>
 
-                {/* error only — the descriptive hint line was removed to declutter the bar */}
+                {/* error (red) / notice (amber) — descriptive hint line was removed to declutter the bar */}
                 {error && (
                     <div className="mx-1 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-[11px] text-red-300">{error}</div>
+                )}
+                {!error && notice && (
+                    <div className="mx-1 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300">{notice}</div>
                 )}
 
                 {/* controls (selectors left, toggles right) + generate (own row, right) */}

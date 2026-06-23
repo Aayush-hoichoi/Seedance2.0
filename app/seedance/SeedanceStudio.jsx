@@ -6,7 +6,8 @@
 // in-flight tasks are resumed after a reload by re-polling their ModelArk id.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MODELS, MODES, RESOLUTIONS, DEFAULT_OPTIONS } from '../../lib/seedance/constants.js';
+import { MODELS, MODES, RATIOS, RESOLUTIONS, DEFAULT_OPTIONS } from '../../lib/seedance/constants.js';
+import { sanitizeOptions } from '../../lib/seedance/options.mjs';
 import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js';
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
 import { buildTags, modeSupportsTags, normalizePromptForApi, restorePromptTokens, validatePromptReferences } from '../../lib/seedance/tags.js';
@@ -60,6 +61,7 @@ export default function SeedanceStudio() {
     const [batch, setBatch] = useState(1); // generations fired per Generate click
     const [selectedId, setSelectedId] = useState(null); // rail selection; null = follow newest
     const [error, setError] = useState(null);
+    const [notice, setNotice] = useState(null); // non-blocking info (e.g. GPT-4o refusal → raw-prompt fallback)
     const [enhancing, setEnhancing] = useState(false); // GPT-4o prompt restructuring in flight
     const [fullscreen, setFullscreen] = useState(null);
     const [showAssets, setShowAssets] = useState(false); // "All assets" overlay
@@ -198,6 +200,10 @@ export default function SeedanceStudio() {
                         prompt: prompts[t.id] || '', // recovered from the persistent prompt map
                         meta: [t.resolution, t.duration ? `${t.duration}s` : null, t.seed != null ? `seed ${t.seed}` : null].filter(Boolean).join(' · '),
                         model: t.model,
+                        // Partial settings ModelArk's task list gives us — enough
+                        // for Reuse to restore duration/resolution/seed/model
+                        // (ratio/audio/watermark fall back to defaults).
+                        options: { model: t.model, resolution: t.resolution, duration: t.duration, seed: t.seed },
                         status: toJobStatus(t.status),
                         videoUrl: t.content?.video_url || null,
                         error: t.error?.message || null,
@@ -233,6 +239,7 @@ export default function SeedanceStudio() {
         setModeId(id);
         setMediaByRole({});
         setError(null);
+        setNotice(null);
     };
 
     // Drop a pending placeholder, upload the picked file to TOS, CreateAsset +
@@ -331,6 +338,7 @@ export default function SeedanceStudio() {
             style: promptMeta?.style ?? null,
             modeId: creation.modeId ?? null,
             refs: creation.refs ?? null,
+            options: creation.options ?? null,
         });
         updateJobs((prev) => [job, ...prev]);
         setSelectedId(job.id); // a fresh generation takes the big stage
@@ -365,6 +373,7 @@ export default function SeedanceStudio() {
     const onGenerate = async () => {
         if (enhancing) return;
         setError(null);
+        setNotice(null);
         const problem = validate(mode, prompt, mediaByRole);
         if (problem) { setError(problem); return; }
 
@@ -389,16 +398,26 @@ export default function SeedanceStudio() {
         }
 
         // Styled modes (Motion Capture / Green Screen): GPT-4o restructures the
-        // raw prompt into the full production brief before Seedance sees it.
-        const promptMeta = mode.enhanceStyle ? { userPrompt: apiPrompt, style: mode.enhanceStyle } : null;
+        // raw prompt into the full production brief before Seedance sees it. If
+        // GPT-4o REFUSES the content, fall back to the user's own prompt and
+        // send that straight to Seedance — never the refusal text.
+        let promptMeta = mode.enhanceStyle ? { userPrompt: apiPrompt, style: mode.enhanceStyle } : null;
         if (mode.enhanceStyle) {
             setEnhancing(true);
             try {
-                apiPrompt = await enhancePrompt({
+                const result = await enhancePrompt({
                     style: mode.enhanceStyle,
                     prompt: apiPrompt,
                     assets: tags.map((t) => ({ label: t.label, kind: t.kind, name: t.name })),
                 });
+                if (result.refused) {
+                    // Keep apiPrompt as the user's raw prompt; drop the styled meta
+                    // so history shows a single plain prompt (no empty brief tab).
+                    setNotice(result.reason || 'Prompt restructuring was declined — generating from your prompt as-is.');
+                    promptMeta = null;
+                } else {
+                    apiPrompt = result.prompt;
+                }
             } catch (e) {
                 setError(e.message);
                 return;
@@ -428,7 +447,9 @@ export default function SeedanceStudio() {
                 name: m.name || null,
                 assetId: m.assetId || null,
             }));
-        const creation = { modeId: mode.id, refs: refs.length ? refs : null };
+        // Snapshot the settings used for this generation so Reuse can restore
+        // the full setup (duration, aspect ratio, resolution, audio, …).
+        const creation = { modeId: mode.id, refs: refs.length ? refs : null, options: { ...options } };
 
         // Fire `batch` parallel generations (seed -1 → each gets its own random seed).
         for (let i = 0; i < batch; i++) launchJob(payload, apiPrompt, promptMeta, creation);
@@ -462,6 +483,17 @@ export default function SeedanceStudio() {
         }
         setModeId(target.id);
         setMediaByRole(byRole);
+        // Restore the generation settings (duration, aspect ratio, resolution,
+        // audio, watermark, seed, model) this job was made with — sanitized
+        // against the current catalog. Older jobs without a snapshot keep the
+        // current settings (sanitizeOptions falls back to the live values).
+        setOptions((cur) => sanitizeOptions(job.options, {
+            defaults: cur,
+            modelIds: MODELS.map((m) => m.id),
+            ratios: RATIOS,
+            resolutions: RESOLUTIONS,
+            modelSupports1080p: (id) => !!MODELS.find((m) => m.id === id)?.supports1080p,
+        }));
         // The stored prompt was normalised for the API ("@Video1" → "Video 1"),
         // so re-tokenise it against the restored refs to bring back the exact
         // "@Video1" wording the user typed (rendered as a chip in the bar).
@@ -595,6 +627,7 @@ export default function SeedanceStudio() {
                 resolutions={resolutions}
                 selectedModel={selectedModel}
                 error={error}
+                notice={notice}
                 onGenerate={onGenerate}
                 enhancing={enhancing}
                 batch={batch}

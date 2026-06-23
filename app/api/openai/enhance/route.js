@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { STYLES } from '../../../../lib/openai/styleBriefs.js';
+import { isRefusal } from '../../../../lib/openai/refusal.mjs';
 
 // Restructures a raw user prompt into the strict production brief a style
 // requires, via GPT-4o. POST { style, prompt, assets: [{label, kind, name}] }
@@ -88,7 +89,19 @@ export async function POST(request) {
         return bad(`Prompt restructuring failed (OpenAI ${res.status}) — try again.`, 502);
     }
 
+    const finishReason = data?.choices?.[0]?.finish_reason;
     const enhanced = data?.choices?.[0]?.message?.content?.trim();
+
+    // GPT-4o declined this content (its moderation, not ours). Don't forward the
+    // refusal sentence as if it were a brief — signal it so the caller can fall
+    // back to the user's own prompt.
+    if (isRefusal({ text: enhanced, finishReason })) {
+        return NextResponse.json(
+            { refused: true, error: 'GPT-4o declined to restructure this prompt — generating from your prompt as-is.' },
+            { status: 422 },
+        );
+    }
+
     if (!enhanced) return bad('OpenAI returned an empty prompt.', 502);
 
     return NextResponse.json({ prompt: enhanced, style: body.style, model: MODEL });
