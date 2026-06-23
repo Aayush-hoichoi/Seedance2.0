@@ -507,13 +507,26 @@ export default function SeedanceStudio() {
         patchJob(id, { status: 'error', error: 'Cancelled.' });
     };
 
-    // Delete a history card for good. A generation persists in THREE places, so
-    // a reload would otherwise resurrect it: the localStorage job list, the
-    // local taskId→prompt map, and the Neon prompt record. Clear all three (the
-    // ModelArk task list still returns the task, but the reload merge only keeps
-    // tasks that have one of these local/Neon records). The Neon delete is
-    // best-effort — on failure we warn it may return rather than block.
-    const onRemoveJob = async (id) => {
+    // The history-card cross moves a generation to the Bin (soft delete). It
+    // stays in storage + Neon — just flagged `deleted` so it drops out of
+    // history/assets — so the user can Restore it or delete it for good from
+    // the Bin. We don't abort an in-flight render: it keeps going in the
+    // background and shows up finished if restored.
+    const onBinJob = (id) => {
+        if (selectedId === id) setSelectedId(null);
+        patchJob(id, { deleted: true, deletedAt: Date.now() });
+    };
+
+    // Restore a binned generation back into history.
+    const onRestoreJob = (id) => patchJob(id, { deleted: false, deletedAt: null });
+
+    // Delete a generation for good (from the Bin). A generation persists in
+    // THREE places, so a reload would otherwise resurrect it: the localStorage
+    // job list, the local taskId→prompt map, and the Neon prompt record. Clear
+    // all three (the ModelArk task list still returns the task, but the reload
+    // merge only keeps tasks that have one of these local/Neon records). The
+    // Neon delete is best-effort — on failure we warn it may return.
+    const onDeleteForever = async (id) => {
         const job = jobs.find((j) => j.id === id);
         controllersRef.current[id]?.abort();
         delete controllersRef.current[id];
@@ -549,12 +562,16 @@ export default function SeedanceStudio() {
         }
     };
 
-    const activeCount = jobs.filter((j) => ACTIVE_STATUSES.includes(j.status)).length;
-    const doneCount = jobs.filter((j) => j.status === 'done' && j.videoUrl).length;
+    // Binned jobs stay in `jobs` (so they persist + can be restored) but are
+    // hidden from every main view. The Bin tab in the Assets overlay shows them.
+    const visibleJobs = jobs.filter((j) => !j.deleted);
+    const binnedJobs = jobs.filter((j) => j.deleted);
+    const activeCount = visibleJobs.filter((j) => ACTIVE_STATUSES.includes(j.status)).length;
+    const doneCount = visibleJobs.filter((j) => j.status === 'done' && j.videoUrl).length;
     // What plays big in the center: only an explicitly selected job (set by a
     // rail click, a fresh Generate, or an in-flight resume) — never auto-play
-    // old history after a reload.
-    const selectedJob = jobs.find((j) => j.id === selectedId) || null;
+    // old history after a reload. A binned job never plays on the stage.
+    const selectedJob = jobs.find((j) => j.id === selectedId && !j.deleted) || null;
 
     return (
         <div className="relative min-h-screen w-full bg-app-bg text-white">
@@ -590,7 +607,7 @@ export default function SeedanceStudio() {
 
             {/* Center stage: hero when empty, else the selected job plays big.
                 Finished generations live in the right-side history rail. */}
-            <div className={`relative z-10 flex min-h-screen flex-col items-center justify-center px-4 pb-[24rem] sm:pb-56 pt-16 ${jobs.length > 0 ? 'sm:pr-52' : ''}`}>
+            <div className={`relative z-10 flex min-h-screen flex-col items-center justify-center px-4 pb-[24rem] sm:pb-56 pt-16 ${visibleJobs.length > 0 ? 'sm:pr-52' : ''}`}>
                 {!selectedJob ? (
                     <Hero />
                 ) : (
@@ -604,12 +621,12 @@ export default function SeedanceStudio() {
                 )}
             </div>
 
-            {jobs.length > 0 && (
+            {visibleJobs.length > 0 && (
                 <HistoryRail
-                    jobs={jobs}
+                    jobs={visibleJobs}
                     selectedId={selectedJob?.id}
                     onSelect={setSelectedId}
-                    onRemove={onRemoveJob}
+                    onRemove={onBinJob}
                     onToggleLike={onToggleLike}
                 />
             )}
@@ -639,7 +656,15 @@ export default function SeedanceStudio() {
 
             {fullscreen && <Fullscreen url={fullscreen} onClose={() => setFullscreen(null)} />}
 
-            {showAssets && <AssetsPanel jobs={jobs} onClose={() => setShowAssets(false)} />}
+            {showAssets && (
+                <AssetsPanel
+                    jobs={visibleJobs}
+                    binned={binnedJobs}
+                    onRestore={onRestoreJob}
+                    onDeleteForever={onDeleteForever}
+                    onClose={() => setShowAssets(false)}
+                />
+            )}
         </div>
     );
 }
@@ -893,8 +918,8 @@ function HistoryRail({ jobs, selectedId, onSelect, onRemove, onToggleLike }) {
                             <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); onRemove(job.id); }}
-                                title="Remove from history"
-                                aria-label="Remove"
+                                title="Move to bin"
+                                aria-label="Move to bin"
                                 className="absolute top-1 right-1 w-[18px] h-[18px] rounded-full bg-black/70 border border-white/20 text-white/60 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
                             >
                                 <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
