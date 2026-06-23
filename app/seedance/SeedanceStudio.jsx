@@ -18,6 +18,7 @@ import { validateMediaFile } from '../../lib/seedance/inspectMedia.js';
 import { loadJobs, saveJobs, newJob, loadPrompts, savePrompt, removePrompt } from '../../lib/seedance/jobs.js';
 import PromptBar from './PromptBar.jsx';
 import MediaHoverPreview from './MediaHoverPreview.jsx';
+import AssetsPanel from './AssetsPanel.jsx';
 
 // Resolve form state into the flat media list buildPayload expects, in the
 // slot order the mode declares (so first_frame precedes last_frame).
@@ -61,6 +62,7 @@ export default function SeedanceStudio() {
     const [error, setError] = useState(null);
     const [enhancing, setEnhancing] = useState(false); // GPT-4o prompt restructuring in flight
     const [fullscreen, setFullscreen] = useState(null);
+    const [showAssets, setShowAssets] = useState(false); // "All assets" overlay
     const controllersRef = useRef({}); // jobId -> AbortController (not persisted)
     const pendingRef = useRef(0);
 
@@ -516,6 +518,7 @@ export default function SeedanceStudio() {
     };
 
     const activeCount = jobs.filter((j) => ACTIVE_STATUSES.includes(j.status)).length;
+    const doneCount = jobs.filter((j) => j.status === 'done' && j.videoUrl).length;
     // What plays big in the center: only an explicitly selected job (set by a
     // rail click, a fresh Generate, or an in-flight resume) — never auto-play
     // old history after a reload.
@@ -540,6 +543,18 @@ export default function SeedanceStudio() {
                     {activeCount > 0 && <span className="ml-2 text-primary/70">{activeCount} rendering…</span>}
                 </span>
             </div>
+
+            {/* Top-right: open the "All assets" gallery (select many → download zip). */}
+            <button
+                type="button"
+                onClick={() => setShowAssets(true)}
+                title="Browse all your generated videos"
+                className="fixed top-5 right-6 z-30 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-white/10 bg-white/[0.04] text-white/70 hover:text-white hover:border-white/25 hover:bg-white/[0.08] transition-colors text-xs font-semibold"
+            >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>
+                <span>Assets</span>
+                {doneCount > 0 && <span className="ml-0.5 text-white/35">{doneCount}</span>}
+            </button>
 
             {/* Center stage: hero when empty, else the selected job plays big.
                 Finished generations live in the right-side history rail. */}
@@ -590,6 +605,8 @@ export default function SeedanceStudio() {
             />
 
             {fullscreen && <Fullscreen url={fullscreen} onClose={() => setFullscreen(null)} />}
+
+            {showAssets && <AssetsPanel jobs={jobs} onClose={() => setShowAssets(false)} />}
         </div>
     );
 }
