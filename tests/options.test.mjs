@@ -8,7 +8,7 @@ const CATALOG = {
     defaults: DEFAULTS,
     modelIds: ['pro', 'fast'],
     ratios: ['adaptive', '16:9', '9:16', '1:1'],
-    resolutions: ['480p', '720p', '1080p'],
+    resolutions: ['480p', '720p', '1080p', '4k'],
     modelSupports1080p: (id) => id === 'pro',
 };
 
@@ -21,6 +21,13 @@ test('clamps 1080p to 720p when the model does not support it', () => {
     const out = sanitizeOptions({ model: 'fast', resolution: '1080p' }, CATALOG);
     assert.equal(out.resolution, '720p');
     assert.equal(out.model, 'fast');
+});
+
+test('passes 4k through unchanged (4k is gated in the UI, not clamped here)', () => {
+    // 4k is offered only on supporting models via the dropdown filter; the
+    // sanitizer just accepts it as a valid resolution and never steps it down.
+    assert.equal(sanitizeOptions({ model: 'pro', resolution: '4k' }, CATALOG).resolution, '4k');
+    assert.equal(sanitizeOptions({ model: 'fast', resolution: '4k' }, CATALOG).resolution, '4k');
 });
 
 test('fills missing fields from defaults (partial server-card snapshot)', () => {

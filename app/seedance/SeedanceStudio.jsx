@@ -72,7 +72,9 @@ export default function SeedanceStudio() {
     const tags = useMemo(() => buildTags(mode, mediaByRole), [mode, mediaByRole]);
     const selectedModel = useMemo(() => MODELS.find((m) => m.id === options.model), [options.model]);
     const resolutions = useMemo(
-        () => RESOLUTIONS.filter((r) => r !== '1080p' || selectedModel?.supports1080p),
+        () => RESOLUTIONS.filter((r) =>
+            (r !== '1080p' || selectedModel?.supports1080p)
+            && (r !== '4k' || selectedModel?.supports4k)),
         [selectedModel],
     );
 
