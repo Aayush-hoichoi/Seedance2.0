@@ -841,17 +841,23 @@ function RefAssets({ refs, onReuse }) {
 function RefThumb({ r }) {
     const [hover, setHover] = useState(false);
     const ref = useRef(null);
+    const closeTimer = useRef(null);
     const isVid = r.kind === 'video';
     const canPreview = !!r.previewUrl && (r.kind === 'image' || isVid);
+    // Keep the floating preview open while the cursor is on EITHER the thumb or
+    // the preview itself (they sit apart, bridged by a body portal), so the
+    // preview's download button is reachable. A short close delay spans the gap.
+    const showPreview = () => { clearTimeout(closeTimer.current); setHover(true); };
+    const hidePreview = () => { closeTimer.current = setTimeout(() => setHover(false), 140); };
     return (
         <div
             ref={ref}
             className="relative w-16 h-16 rounded-lg overflow-hidden border border-white/10 bg-black/40"
             title={r.name || r.tag}
-            onMouseEnter={() => setHover(true)}
-            onMouseLeave={() => setHover(false)}
+            onMouseEnter={showPreview}
+            onMouseLeave={hidePreview}
         >
-            {hover && canPreview && <MediaHoverPreview anchor={ref.current} src={r.previewUrl} isVideo={isVid} tag={r.tag} name={r.name} />}
+            {hover && canPreview && <MediaHoverPreview anchor={ref.current} src={r.previewUrl} isVideo={isVid} tag={r.tag} name={r.name} onMouseEnter={showPreview} onMouseLeave={hidePreview} />}
             {r.kind === 'image' && r.previewUrl ? (
                 <img src={r.previewUrl} alt={r.name || r.tag} className="w-full h-full object-cover" />
             ) : r.kind === 'video' && r.previewUrl ? (

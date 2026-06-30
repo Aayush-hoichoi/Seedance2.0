@@ -200,6 +200,11 @@ function SeedControl({ openKey, setOpenKey, seed, setSeed, disabled }) {
 function Thumb({ item, badge, tag, onRemove }) {
     const [hover, setHover] = useState(false);
     const thumbRef = useRef(null); // anchor for the floating hover preview
+    const closeTimer = useRef(null);
+    // Keep the preview open while the cursor is on the thumb OR the preview, so
+    // its download button stays reachable across the gap between them.
+    const showPreview = () => { clearTimeout(closeTimer.current); setHover(true); };
+    const hidePreview = () => { closeTimer.current = setTimeout(() => setHover(false), 140); };
     // Library assets carry a signed previewUrl (the reference url is asset://id,
     // which a browser can't render). Uploads carry a base64 data url in `url`.
     // Only browser-loadable schemes qualify — a missing/expired preview (e.g.
@@ -226,14 +231,14 @@ function Thumb({ item, badge, tag, onRemove }) {
         <div
             ref={thumbRef}
             className="relative w-10 h-10 shrink-0"
-            onMouseEnter={() => setHover(true)}
-            onMouseLeave={() => setHover(false)}
+            onMouseEnter={showPreview}
+            onMouseLeave={hidePreview}
         >
             {/* Hover preview: a larger floating card so you can actually see the
                 attached reference without leaving the prompt bar. Mounted only
                 while hovered, so a video only loads/plays on demand. */}
             {hover && canPreview && (
-                <MediaHoverPreview anchor={thumbRef.current} src={imgSrc} isVideo={isVid} tag={tag} name={item.name} />
+                <MediaHoverPreview anchor={thumbRef.current} src={imgSrc} isVideo={isVid} tag={tag} name={item.name} onMouseEnter={showPreview} onMouseLeave={hidePreview} />
             )}
             {item.isImage && imgSrc ? (
                 <img src={imgSrc} alt="" className="w-full h-full object-cover rounded-full border border-primary/40" />

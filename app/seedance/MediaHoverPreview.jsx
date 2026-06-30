@@ -12,6 +12,7 @@
 
 import { useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { downloadAssets } from '../../lib/seedance/downloadAssets.js';
 
 const PREVIEW_W = 224; // matches the old w-56 card width
 const GAP = 10; // px between the thumbnail and the card
@@ -27,7 +28,7 @@ const formatDuration = (s) => {
     return `${m}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 };
 
-export default function MediaHoverPreview({ anchor, src, isVideo, tag, name }) {
+export default function MediaHoverPreview({ anchor, src, isVideo, tag, name, onMouseEnter, onMouseLeave }) {
     const [duration, setDuration] = useState(null);
     const [pos, setPos] = useState(null);
 
@@ -54,18 +55,48 @@ export default function MediaHoverPreview({ anchor, src, isVideo, tag, name }) {
     const dur = formatDuration(duration);
 
     return createPortal(
+        // The wrapper stays click-through; the card re-enables pointer events so
+        // its download button is usable and so the parent can keep the preview
+        // open while the cursor is on the card (it bridges the gap to the thumb).
         <div className="fixed z-[80] pointer-events-none" style={{ left: pos.left, bottom: pos.bottom, width: PREVIEW_W }}>
-            <div className="rounded-xl overflow-hidden border border-primary/30 bg-[#0a0a0a] shadow-2xl shadow-black/60">
-                {isVideo ? (
-                    // Unmuted: the preview plays the reference's own audio (the user
-                    // has already interacted with the page by hovering an asset).
-                    <div className="relative">
+            <div
+                onMouseEnter={onMouseEnter}
+                onMouseLeave={onMouseLeave}
+                className="pointer-events-auto rounded-xl overflow-hidden border border-primary/30 bg-[#0a0a0a] shadow-2xl shadow-black/60"
+            >
+                <div className="relative">
+                    {isVideo ? (
+                        // Unmuted: the preview plays the reference's own audio (the user
+                        // has already interacted with the page by hovering an asset).
                         <video src={src} autoPlay loop playsInline onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)} className="block w-full max-h-56 object-contain bg-black" />
-                        {dur && <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 bg-black/80 text-white rounded text-[10px] font-bold leading-none tabular-nums">{dur}</span>}
-                    </div>
-                ) : (
-                    <img src={src} alt="" className="block w-full max-h-56 object-contain bg-black" />
-                )}
+                    ) : (
+                        <img src={src} alt="" className="block w-full max-h-56 object-contain bg-black" />
+                    )}
+                    {isVideo && dur && <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 bg-black/80 text-white rounded text-[10px] font-bold leading-none tabular-nums">{dur}</span>}
+                    {src && (
+                        <a
+                            href={src}
+                            download={name || ''}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="Download"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                // Videos sit behind cross-origin BytePlus links, so a plain
+                                // <a download> just opens them — route through the server
+                                // download proxy for a real file save, falling back to
+                                // opening the asset in a new tab if the proxy can't reach it.
+                                if (isVideo) {
+                                    e.preventDefault();
+                                    downloadAssets([{ url: src, name: name || tag || 'video' }]).catch(() => window.open(src, '_blank', 'noopener'));
+                                }
+                            }}
+                            className="absolute top-1.5 right-1.5 p-1.5 rounded-full bg-black/60 border border-white/10 text-white/80 hover:text-primary hover:bg-black/80 transition-colors backdrop-blur-sm"
+                        >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
+                        </a>
+                    )}
+                </div>
                 {(tag || name) && (
                     <div className="flex items-center gap-2 px-2.5 py-1.5 border-t border-white/[0.06]">
                         {tag && <span className="shrink-0 px-1.5 py-0.5 bg-primary text-black rounded-full text-[9px] font-black leading-none">{tag}</span>}
