@@ -13,7 +13,7 @@ import { validateAggregate, validateRequestSize } from '../../lib/seedance/limit
 import { buildTags, modeSupportsTags, normalizePromptForApi, restorePromptTokens, validatePromptReferences } from '../../lib/seedance/tags.js';
 import { registerAssetFromUrl, getAsset } from '../../lib/seedance/assetsClient.js';
 import { enhancePrompt } from '../../lib/seedance/enhance.js';
-import { savePromptRecord, fetchPromptRecords, setLikeRecord, deletePromptRecord } from '../../lib/seedance/promptsClient.js';
+import { savePromptRecord, fetchPromptRecords, setLikeRecord, setBinRecord, deletePromptRecord } from '../../lib/seedance/promptsClient.js';
 import { uploadToCdn } from '../../lib/seedance/upload.js';
 import { validateMediaFile } from '../../lib/seedance/inspectMedia.js';
 import { loadJobs, saveJobs, newJob, loadPrompts, savePrompt, removePrompt } from '../../lib/seedance/jobs.js';
@@ -210,6 +210,10 @@ export default function SeedanceStudio() {
                         videoUrl: t.content?.video_url || null,
                         error: t.error?.message || null,
                         createdAt: (t.created_at || 0) * 1000,
+                        // Bin flag from Neon so a generation another user binned
+                        // isn't briefly shown before hydratePrompts reconciles it.
+                        deleted: !!records[t.id]?.deleted,
+                        deletedAt: records[t.id]?.deleted ? (t.created_at || 0) * 1000 : null,
                     }));
                     return [...refreshed, ...added].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
                 });
@@ -321,6 +325,12 @@ export default function SeedanceStudio() {
                     // Likes live in the DB — let server truth win so the mark
                     // follows the account across cleared storage and browsers.
                     liked: typeof r.liked === 'boolean' ? r.liked : !!j.liked,
+                    // Bin state lives in the DB too — server truth wins so a
+                    // generation binned in one browser is hidden in all of them.
+                    deleted: typeof r.deleted === 'boolean' ? r.deleted : !!j.deleted,
+                    deletedAt: typeof r.deleted === 'boolean'
+                        ? (r.deleted ? (j.deletedAt || j.createdAt || null) : null)
+                        : j.deletedAt,
                 };
             }));
         });
@@ -514,13 +524,28 @@ export default function SeedanceStudio() {
     // history/assets — so the user can Restore it or delete it for good from
     // the Bin. We don't abort an in-flight render: it keeps going in the
     // background and shows up finished if restored.
-    const onBinJob = (id) => {
+    const onBinJob = async (id) => {
+        const job = jobs.find((j) => j.id === id);
         if (selectedId === id) setSelectedId(null);
         patchJob(id, { deleted: true, deletedAt: Date.now() });
+        // Persist the bin flag to Neon so the item stays hidden in EVERY browser.
+        // Without this it was localStorage-only, so another user's reload
+        // re-merged the task from ModelArk's list and showed it again.
+        if (job?.taskId) {
+            const ok = await setBinRecord({ taskId: job.taskId, deleted: true });
+            if (!ok) setError('Moved to the bin here, but the server update failed — it may still appear in other browsers.');
+        }
     };
 
-    // Restore a binned generation back into history.
-    const onRestoreJob = (id) => patchJob(id, { deleted: false, deletedAt: null });
+    // Restore a binned generation back into history (locally + on the server).
+    const onRestoreJob = async (id) => {
+        const job = jobs.find((j) => j.id === id);
+        patchJob(id, { deleted: false, deletedAt: null });
+        if (job?.taskId) {
+            const ok = await setBinRecord({ taskId: job.taskId, deleted: false });
+            if (!ok) setError('Restored here, but the server update failed — it may still be binned in other browsers.');
+        }
+    };
 
     // Delete a generation for good (from the Bin). A generation persists in
     // THREE places, so a reload would otherwise resurrect it: the localStorage
