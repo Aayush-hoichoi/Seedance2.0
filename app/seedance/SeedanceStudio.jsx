@@ -16,6 +16,7 @@ import { enhancePrompt } from '../../lib/seedance/enhance.js';
 import { savePromptRecord, fetchPromptRecords, setLikeRecord, setBinRecord, deletePromptRecord } from '../../lib/seedance/promptsClient.js';
 import { uploadToCdn } from '../../lib/seedance/upload.js';
 import { validateMediaFile } from '../../lib/seedance/inspectMedia.js';
+import { fitImageToLimits } from '../../lib/seedance/downscaleImage.js';
 import { loadJobs, saveJobs, newJob, loadPrompts, savePrompt, removePrompt } from '../../lib/seedance/jobs.js';
 import PromptBar from './PromptBar.jsx';
 import MediaHoverPreview from './MediaHoverPreview.jsx';
@@ -299,10 +300,14 @@ export default function SeedanceStudio() {
                 setError(kind ? `No open ${kind} slot left for ${file.name}.` : `${file.name}: unsupported file type.`);
                 continue;
             }
-            const { error: invalid } = await validateMediaFile(kind, file);
+            // Oversized images are auto-downscaled to fit the Seedance limits
+            // (longest side ≤ 6000px, ≤ 30MB) instead of being rejected. Aspect /
+            // min-dimension problems downscaling can't fix still error below.
+            const f = kind === 'image' ? await fitImageToLimits(file) : file;
+            const { error: invalid } = await validateMediaFile(kind, f);
             if (invalid) { setError(invalid); continue; }
             used[slot.role] += 1;
-            onUploadFile(slot, file);
+            onUploadFile(slot, f);
         }
     };
 
