@@ -11,7 +11,7 @@ import { sanitizeOptions } from '../../lib/seedance/options.mjs';
 import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js';
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
 import { buildTags, modeSupportsTags, normalizePromptForApi, restorePromptTokens, validatePromptReferences } from '../../lib/seedance/tags.js';
-import { registerAssetFromUrl, getAsset } from '../../lib/seedance/assetsClient.js';
+import { getAsset } from '../../lib/seedance/assetsClient.js';
 import { enhancePrompt } from '../../lib/seedance/enhance.js';
 import { savePromptRecord, fetchPromptRecords, setLikeRecord, setBinRecord, deletePromptRecord } from '../../lib/seedance/promptsClient.js';
 import { uploadToCdn } from '../../lib/seedance/upload.js';
@@ -248,9 +248,11 @@ export default function SeedanceStudio() {
         setNotice(null);
     };
 
-    // Drop a pending placeholder, upload the picked file to TOS, CreateAsset +
-    // poll until Active, then swap in the asset:// item — role taken from the slot
-    // so first_frame/last_frame stay correct. Auto-tags. Reports on failure.
+    // Drop a pending placeholder, upload the picked file to TOS, then swap in
+    // the media item referencing the presigned TOS URL directly — role taken
+    // from the slot so first_frame/last_frame stay correct. The ModelArk Asset
+    // Library is deliberately NOT used (its entry tier caps out at 50 assets);
+    // `tosKey` lets history refs re-presign the URL forever via /api/byteplus/archive.
     const registerInto = async (slot, { name, initialStatus, resolveUrl }) => {
         setError(null);
         const key = `pending-${pendingRef.current++}`;
@@ -261,9 +263,16 @@ export default function SeedanceStudio() {
         const drop = () => setMediaByRole((prev) => ({ ...prev, [slot.role]: (prev[slot.role] || []).filter((m) => m.pendingKey !== key) }));
 
         try {
-            const url = await resolveUrl();
-            const item = await registerAssetFromUrl({ url, kind: slot.kind, onStatus: (s) => patch((m) => ({ ...m, status: s })) });
-            patch(() => ({ ...item, role: slot.role }));
+            const up = await resolveUrl();
+            patch(() => ({
+                kind: slot.kind,
+                role: slot.role,
+                url: up.url,
+                previewUrl: up.url,
+                tosKey: up.key || null,
+                name,
+                isImage: slot.kind === 'image',
+            }));
         } catch (e) {
             drop();
             setError(e.message);
@@ -458,6 +467,7 @@ export default function SeedanceStudio() {
                 previewUrl: typeof m.previewUrl === 'string' && !m.previewUrl.startsWith('data:') ? m.previewUrl : null,
                 name: m.name || null,
                 assetId: m.assetId || null,
+                tosKey: m.tosKey || null,
             }));
         // Snapshot the settings used for this generation so Reuse can restore
         // the full setup (duration, aspect ratio, resolution, audio, …).
@@ -811,15 +821,22 @@ function PromptTabs({ job, onReuse }) {
 
 // The reference assets a generation was made with (Video 1, Image 1, …), as
 // thumbnails under the prompt panel. Signed preview links expire (~12h), so
-// thumbs are refreshed from the asset library (asset://id is permanent) —
-// the same refreshed items are what Reuse hands back to the prompt bar.
+// thumbs are refreshed — TOS uploads re-presign by key (pure local signing),
+// legacy asset:// refs ask the asset library — and the same refreshed items
+// are what Reuse hands back to the prompt bar.
 function RefAssets({ refs, onReuse }) {
     const [items, setItems] = useState(refs);
     useEffect(() => {
         let alive = true;
         Promise.all(refs.map(async (r) => {
-            if (!r?.assetId) return r;
             try {
+                if (r?.tosKey) {
+                    const res = await fetch(`/api/byteplus/archive?key=${encodeURIComponent(r.tosKey)}`);
+                    const d = res.ok ? await res.json() : null;
+                    // Refresh url too — Reuse re-attaches it as the reference.
+                    return d?.url ? { ...r, url: d.url, previewUrl: d.url } : r;
+                }
+                if (!r?.assetId) return r;
                 const a = await getAsset(r.assetId);
                 return a?.previewUrl ? { ...r, previewUrl: a.previewUrl } : r;
             } catch {

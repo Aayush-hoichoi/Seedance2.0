@@ -30,6 +30,9 @@ function sanitizeRefs(refs) {
             previewUrl: clean(r.previewUrl, 4096),
             name: clean(r.name, 200),
             assetId: clean(r.assetId, 200),
+            // TOS object key ("uploads/…") — lets any browser re-presign the
+            // reference URL forever via GET /api/byteplus/archive?key=.
+            tosKey: clean(r.tosKey, 200),
         }];
     });
     return out.length ? out : null;
