@@ -82,7 +82,17 @@ export default function SeedanceStudio() {
         [selectedModel],
     );
 
-    const setOpt = (k, v) => setOptions((o) => ({ ...o, [k]: v }));
+    const setOpt = (k, v) => setOptions((o) => {
+        const next = { ...o, [k]: v };
+        // A model switch can strand a resolution the new model doesn't offer
+        // (e.g. 4k on Seedance 2.0 → Mini/Fast); clamp to their 720p ceiling.
+        if (k === 'model') {
+            const m = MODELS.find((x) => x.id === v);
+            if ((next.resolution === '4k' && !m?.supports4k)
+                || (next.resolution === '1080p' && !m?.supports1080p)) next.resolution = '720p';
+        }
+        return next;
+    });
 
     // Persist every jobs change; functional setter keeps concurrent pollers safe.
     const updateJobs = (fn) => setJobs((prev) => { const next = fn(prev); saveJobs(next); return next; });
@@ -559,6 +569,7 @@ export default function SeedanceStudio() {
             ratios: RATIOS,
             resolutions: RESOLUTIONS,
             modelSupports1080p: (id) => !!MODELS.find((m) => m.id === id)?.supports1080p,
+            modelSupports4k: (id) => !!MODELS.find((m) => m.id === id)?.supports4k,
         }));
         // The stored prompt was normalised for the API ("@Video1" → "Video 1"),
         // so re-tokenise it against the restored refs to bring back the exact

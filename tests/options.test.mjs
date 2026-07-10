@@ -10,6 +10,7 @@ const CATALOG = {
     ratios: ['adaptive', '16:9', '9:16', '1:1'],
     resolutions: ['480p', '720p', '1080p', '4k'],
     modelSupports1080p: (id) => id === 'pro',
+    modelSupports4k: (id) => id === 'pro',
 };
 
 test('restores a full valid snapshot verbatim', () => {
@@ -23,11 +24,10 @@ test('clamps 1080p to 720p when the model does not support it', () => {
     assert.equal(out.model, 'fast');
 });
 
-test('passes 4k through unchanged (4k is gated in the UI, not clamped here)', () => {
-    // 4k is offered only on supporting models via the dropdown filter; the
-    // sanitizer just accepts it as a valid resolution and never steps it down.
+test('clamps 4k to 720p when the model does not support it', () => {
+    // e.g. a snapshot made on Seedance 2.0 restored while Fast/Mini is picked.
     assert.equal(sanitizeOptions({ model: 'pro', resolution: '4k' }, CATALOG).resolution, '4k');
-    assert.equal(sanitizeOptions({ model: 'fast', resolution: '4k' }, CATALOG).resolution, '4k');
+    assert.equal(sanitizeOptions({ model: 'fast', resolution: '4k' }, CATALOG).resolution, '720p');
 });
 
 test('fills missing fields from defaults (partial server-card snapshot)', () => {
