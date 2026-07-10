@@ -113,6 +113,7 @@
     }
   },
   "dependencies": {
+    "@clerk/nextjs": "^7.5.16",
     "@neondatabase/serverless": "^1.1.0",
     "ai-agent": "file:./packages/Open-Poe-AI/packages/agents",
     "axios": "^1.7.0",
