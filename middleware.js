@@ -1,8 +1,9 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 
-// Reachable without a session so the gate can be passed.
-const isPublicRoute = createRouteMatcher(['/sign-in(.*)', '/sign-up(.*)']);
+// Reachable without a session: the auth pages, and the Clerk webhook (called
+// server-to-server by Clerk with a Svix signature, no user session).
+const isPublicRoute = createRouteMatcher(['/sign-in(.*)', '/sign-up(.*)', '/api/webhooks(.*)']);
 
 export default clerkMiddleware(async (auth, request) => {
     const { pathname, search } = request.nextUrl;
