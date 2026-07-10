@@ -78,11 +78,12 @@ export default function SeedanceStudio() {
     // null = still loading; then string[]. Gated models the user lacks are locked
     // in the picker with a "request access" action.
     const [allowedModelIds, setAllowedModelIds] = useState(null);
+    const [isAdmin, setIsAdmin] = useState(false); // shows the /admin shortcut (server still enforces)
     useEffect(() => {
         let alive = true;
         fetch('/api/access/me')
             .then((r) => (r.ok ? r.json() : null))
-            .then((d) => { if (alive && d) setAllowedModelIds(d.allowedModelIds); })
+            .then((d) => { if (alive && d) { setAllowedModelIds(d.allowedModelIds); setIsAdmin(!!d.isAdmin); } })
             .catch(() => {});
         return () => { alive = false; };
     }, []);
@@ -727,8 +728,18 @@ export default function SeedanceStudio() {
                 </span>
             </div>
 
-            {/* Top-right: community gallery + own assets + account menu. */}
+            {/* Top-right: admin (role-gated) + community gallery + assets + account menu. */}
             <div className="fixed top-5 right-6 z-30 flex items-center gap-2.5">
+                {isAdmin && (
+                    <Link
+                        href="/admin"
+                        title="Access requests & usage dashboard"
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-amber-400/25 bg-amber-400/[0.06] text-amber-300/80 hover:text-amber-200 hover:border-amber-400/50 hover:bg-amber-400/[0.12] transition-colors text-xs font-semibold"
+                    >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
+                        <span>Admin</span>
+                    </Link>
+                )}
                 <Link
                     href="/gallery"
                     title="Browse every creator's work and reuse any setup"
