@@ -11,7 +11,7 @@ import { sanitizeOptions } from '../../lib/seedance/options.mjs';
 import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js';
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
 import { buildTags, modeSupportsTags, normalizePromptForApi, restorePromptTokens, validatePromptReferences } from '../../lib/seedance/tags.js';
-import { getAsset } from '../../lib/seedance/assetsClient.js';
+import { getAsset, resolveVideoRefs, cleanupOldAssets } from '../../lib/seedance/assetsClient.js';
 import { enhancePrompt } from '../../lib/seedance/enhance.js';
 import { savePromptRecord, fetchPromptRecords, setLikeRecord, setBinRecord, deletePromptRecord } from '../../lib/seedance/promptsClient.js';
 import { uploadToCdn } from '../../lib/seedance/upload.js';
@@ -131,6 +131,10 @@ export default function SeedanceStudio() {
         for (const j of inFlight) watchJob(j.id, j.taskId);
         if (inFlight[0]) setSelectedId(inFlight[0].id);
         hydratePrompts(restored.filter((j) => !j.userPrompt).map((j) => j.taskId));
+
+        // Sweep day-old studio assets so the tiny shared pool never fills up
+        // again (a full pool is what broke uploads in the first place).
+        cleanupOldAssets().catch(() => {});
 
         // Archived videos live in the user's own TOS bucket forever — refresh
         // their presigned URLs (pure local signing on the server, instant).
@@ -452,9 +456,27 @@ export default function SeedanceStudio() {
             }
         }
 
+        // Source videos must go through the Asset Library: ModelArk's input
+        // scan rejects real-person footage referenced by raw URL, but the same
+        // file passes as a verified asset:// ref (10–30s verification).
+        let resolvedItems = mediaItems;
+        if (mediaItems.some((m) => m.kind === 'video' && !String(m.url).startsWith('asset://'))) {
+            setEnhancing(true);
+            setNotice('Verifying source video with BytePlus (takes ~30s)…');
+            try {
+                resolvedItems = await resolveVideoRefs(mediaItems);
+            } catch (e) {
+                setError(`Source video verification failed — ${e.message}`);
+                return;
+            } finally {
+                setEnhancing(false);
+                setNotice(null);
+            }
+        }
+
         let payload;
         try {
-            payload = buildPayload({ options, prompt: apiPrompt, mediaItems });
+            payload = buildPayload({ options, prompt: apiPrompt, mediaItems: resolvedItems });
         } catch (e) {
             setError(e.message);
             return;
@@ -463,7 +485,7 @@ export default function SeedanceStudio() {
         // Snapshot the attached reference assets (asset:// links live in the
         // BytePlus library, so they stay reusable from history; data: URLs
         // would bloat storage and are skipped). Powers the panel + Reuse.
-        const refs = mediaItems
+        const refs = resolvedItems
             .filter((m) => typeof m.url === 'string' && !m.url.startsWith('data:'))
             .map((m) => ({
                 kind: m.kind,
