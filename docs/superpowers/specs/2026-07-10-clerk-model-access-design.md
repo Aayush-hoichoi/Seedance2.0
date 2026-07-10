@@ -27,6 +27,7 @@ see per-user generation usage.
 
 **In scope (website):**
 - Clerk sign-in/up, allowlist-restricted registration, admin role.
+- Clerk → Neon webhook keeping a canonical `users` table + child-table emails in sync.
 - Per-model gating driven by a `gated` flag in the model catalog.
 - Request / approve / revoke flow for gated models.
 - Per-generation usage logging **with real USD cost** + admin usage view.
@@ -227,6 +228,35 @@ dependency-injected or mocked:
   picks the right rate per (model, tier, hasVideoInput); `costFromTokens` matches
   the official per-video example figures within rounding
   (e.g. full 720p 5s no-video ≈ $0.76, Mini 480p 5s ≈ $0.18).
+
+## Clerk → Neon webhook sync
+
+The app reads Clerk identity live per-request, so no webhook is required for
+correctness. A webhook is added purely to keep a **canonical `users` mirror** and
+avoid stale/orphaned rows.
+
+```sql
+users (
+  id text PRIMARY KEY,          -- Clerk userId
+  email text, name text, role text,
+  created_at timestamptz, updated_at timestamptz NOT NULL DEFAULT now(),
+  deleted_at timestamptz         -- soft-delete so usage history keeps an identity
+)
+```
+
+- **Endpoint:** `POST /api/webhooks/clerk`, Svix-verified via `verifyWebhook`
+  (`@clerk/nextjs/webhooks`, secret `CLERK_WEBHOOK_SIGNING_SECRET`). Public route
+  (server-to-server, no session) — allow-listed in `middleware.js`.
+- **`user.created` / `user.updated`** → upsert `users`; propagate the current
+  email into `model_access_requests` + `usage_events` (keeps admin display fresh).
+- **`user.deleted`** → soft-delete the `users` row and delete that user's access
+  grants (void); `usage_events` are **retained** for accounting.
+- Pure parser `lib/access/clerkUser.mjs` `userFromClerkEvent(data)` (unit-tested);
+  DB writes in `lib/access/db.js` (`upsertUser`, `deleteUserData`).
+- **Setup:** create the webhook in the Clerk dashboard (events: `user.created`,
+  `user.updated`, `user.deleted`), point it at `/api/webhooks/clerk`, and set
+  `CLERK_WEBHOOK_SIGNING_SECRET`. Local dev needs a tunnel (e.g. ngrok) since
+  Clerk can't reach `localhost`.
 
 ## Pricing reference
 
