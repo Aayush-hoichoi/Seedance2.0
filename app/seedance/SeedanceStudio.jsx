@@ -19,6 +19,7 @@ import { validateMediaFile } from '../../lib/seedance/inspectMedia.js';
 import { fitImageToLimits } from '../../lib/seedance/downscaleImage.js';
 import { loadJobs, saveJobs, newJob, loadPrompts, savePrompt, removePrompt } from '../../lib/seedance/jobs.js';
 import PromptBar from './PromptBar.jsx';
+import { UserButton } from '@clerk/nextjs';
 import MediaHoverPreview from './MediaHoverPreview.jsx';
 import AssetsPanel from './AssetsPanel.jsx';
 
@@ -707,17 +708,20 @@ export default function SeedanceStudio() {
                 </span>
             </div>
 
-            {/* Top-right: open the "All assets" gallery (select many → download zip). */}
-            <button
-                type="button"
-                onClick={() => setShowAssets(true)}
-                title="Browse all your generated videos"
-                className="fixed top-5 right-6 z-30 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-white/10 bg-white/[0.04] text-white/70 hover:text-white hover:border-white/25 hover:bg-white/[0.08] transition-colors text-xs font-semibold"
-            >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>
-                <span>Assets</span>
-                {doneCount > 0 && <span className="ml-0.5 text-white/35">{doneCount}</span>}
-            </button>
+            {/* Top-right: assets gallery + account menu (profile / sign out). */}
+            <div className="fixed top-5 right-6 z-30 flex items-center gap-2.5">
+                <button
+                    type="button"
+                    onClick={() => setShowAssets(true)}
+                    title="Browse all your generated videos"
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-white/10 bg-white/[0.04] text-white/70 hover:text-white hover:border-white/25 hover:bg-white/[0.08] transition-colors text-xs font-semibold"
+                >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>
+                    <span>Assets</span>
+                    {doneCount > 0 && <span className="ml-0.5 text-white/35">{doneCount}</span>}
+                </button>
+                <UserButton />
+            </div>
 
             {/* Center stage: hero when empty, else the selected job plays big.
                 Finished generations live in the right-side history rail. */}
