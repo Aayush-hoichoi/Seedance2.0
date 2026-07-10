@@ -238,15 +238,16 @@ export function costFromTokens(kind, resolution, hasVideoInput, completionTokens
     return Number((up / 1_000_000 * completionTokens).toFixed(4));
 }
 
-export function estimateCost({ kind, resolution, duration, hasVideoInput }) {
+// Rough pre-finalize placeholder: the 5s example scaled by duration. Video-input
+// isn't factored in (it needs width/height/fps we don't have here) — the finalize
+// step replaces this with the exact token-based cost anyway.
+export function estimateCost({ kind, resolution, duration }) {
     const table = EXAMPLE_5S[kind];
     if (!table) return null;
     const base = table[resolution] ?? table['720p'] ?? null;
     if (base == null) return null;
     const dur = typeof duration === 'number' && duration > 0 ? duration : 5;
-    let cost = base * (dur / 5);
-    if (hasVideoInput) cost *= 1.1; // ponytail: rough +10% for video input; finalize corrects it
-    return Number(cost.toFixed(4));
+    return Number((base * (dur / 5)).toFixed(4));
 }
 ```
 
@@ -520,10 +521,9 @@ export async function getUsagePerUserModel() {
 }
 ```
 
-- [ ] **Step 2: Verify it imports (syntax check)**
+- [ ] **Step 2: Verify it parses as an ES module**
 
-Run: `node --check lib/access/db.js`
-Expected: no output (valid syntax). (Runtime behavior is exercised by the routes in later tasks.)
+Do **not** use `node --check lib/access/db.js` — with no `"type": "module"` in package.json, Node parses `.js` as CommonJS and falsely errors on the `import` lines. This ESM `.js` is validated by Next's bundler through its consumers (the routes in Tasks 11–14) and by `npm run build` in Final verification. No standalone check here.
 
 - [ ] **Step 3: Commit**
 
@@ -785,10 +785,9 @@ export async function isAdmin() {
 }
 ```
 
-- [ ] **Step 2: Verify syntax**
+- [ ] **Step 2: Verify via its consumers**
 
-Run: `node --check lib/auth/user.js`
-Expected: no output.
+Same as `lib/access/db.js`: `node --check` would misparse this ESM `.js` as CommonJS. It's validated by the routes that import it (Tasks 11+) and by `npm run build`.
 
 - [ ] **Step 3: Commit**
 
@@ -970,7 +969,7 @@ export async function POST(request, { params }) {
             mode: request.headers.get('x-seedance-mode') || null,
             hasVideoInput: withVideo,
             taskId: data.id,
-            estCostUsd: kind ? estimateCost({ kind, resolution: parsed?.resolution, duration: parsed?.duration, hasVideoInput: withVideo }) : null,
+            estCostUsd: kind ? estimateCost({ kind, resolution: parsed?.resolution, duration: parsed?.duration }) : null,
         });
     }
 
@@ -1080,11 +1079,11 @@ git commit -m "feat: finalize usage cost from the terminal task state"
 ### Task 14: Admin routes
 
 **Files:**
-- Create: `app/api/admin/requests/route.js`, `app/api/admin/requests/[id]/approve/route.js`, `app/api/admin/requests/[id]/revoke/route.js`, `app/api/admin/usage/route.js`
+- Create: `app/api/admin/requests/route.js`, `app/api/admin/requests/[id]/[action]/route.js`, `app/api/admin/usage/route.js`
 
 **Interfaces:**
 - Consumes: `getUser`, `isAdmin`; `listRequests`, `setRequestStatus`, `getUsagePerUser`, `getUsagePerUserModel`; `nextStatus`.
-- Produces: admin-only list/approve/revoke/usage endpoints (403 for non-admins).
+- Produces: admin-only list/approve/revoke/usage endpoints (403 for non-admins). Approve and revoke share ONE dynamic `[action]` route — the client already posts to `/api/admin/requests/<id>/<action>`.
 
 - [ ] **Step 1: List requests**
 
@@ -1103,31 +1102,9 @@ export async function GET() {
 }
 ```
 
-- [ ] **Step 2: Approve**
+- [ ] **Step 2: Approve / revoke (one dynamic route)**
 
-Create `app/api/admin/requests/[id]/approve/route.js`:
-
-```js
-import { NextResponse } from 'next/server';
-import { getUser, isAdmin } from '../../../../../../lib/auth/user.js';
-import { setRequestStatus } from '../../../../../../lib/access/db.js';
-import { nextStatus } from '../../../../../../lib/access/requestStatus.mjs';
-
-export const runtime = 'nodejs';
-
-export async function POST(_request, { params }) {
-    const admin = await getUser();
-    if (!admin || admin.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    const { id } = await params;
-    const row = await setRequestStatus(Number(id), nextStatus('approve'), admin.email);
-    if (!row) return NextResponse.json({ error: 'Request not found' }, { status: 404 });
-    return NextResponse.json({ ok: true, request: row });
-}
-```
-
-- [ ] **Step 3: Revoke**
-
-Create `app/api/admin/requests/[id]/revoke/route.js` (identical except the action):
+Create `app/api/admin/requests/[id]/[action]/route.js`. `nextStatus` (Task 4) is the single source of the action→status mapping and rejects anything but `approve`/`revoke`:
 
 ```js
 import { NextResponse } from 'next/server';
@@ -1140,14 +1117,17 @@ export const runtime = 'nodejs';
 export async function POST(_request, { params }) {
     const admin = await getUser();
     if (!admin || admin.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    const { id } = await params;
-    const row = await setRequestStatus(Number(id), nextStatus('revoke'), admin.email);
+    const { id, action } = await params;
+    if (action !== 'approve' && action !== 'revoke') {
+        return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
+    }
+    const row = await setRequestStatus(Number(id), nextStatus(action), admin.email);
     if (!row) return NextResponse.json({ error: 'Request not found' }, { status: 404 });
     return NextResponse.json({ ok: true, request: row });
 }
 ```
 
-- [ ] **Step 4: Usage aggregates**
+- [ ] **Step 3: Usage aggregates**
 
 Create `app/api/admin/usage/route.js`:
 
@@ -1165,12 +1145,12 @@ export async function GET() {
 }
 ```
 
-- [ ] **Step 5: Verify (manual)**
+- [ ] **Step 4: Verify (manual)**
 
 As a non-admin: `curl -i` (with session cookie) `/api/admin/requests` → `403`.
-As an admin (set `publicMetadata.role='admin'` in Clerk dashboard): same → `200` with the pending request from Task 11. POST to `/api/admin/requests/<id>/approve` → `{ ok: true }`; re-fetch `/api/access/me` as that user shows the model approved.
+As an admin (set `publicMetadata.role='admin'` in Clerk dashboard): same → `200` with the pending request from Task 11. POST to `/api/admin/requests/<id>/approve` → `{ ok: true }`; POST to `.../<id>/bogus` → `400`; re-fetch `/api/access/me` as that user shows the model approved.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add app/api/admin
@@ -1356,26 +1336,18 @@ const taskId = await createTask(payload, creation.modeId ?? modeId);
 
 - [ ] **Step 3: Ping usage-complete when a job reaches a terminal state**
 
-In `app/seedance/SeedanceStudio.jsx` `watchJob`, add the fire-and-forget ping in both the success and error handlers. Replace the `.then(...).catch(...)` block with:
+In `app/seedance/SeedanceStudio.jsx` `watchJob`, the existing `.finally(...)` already runs on **both** success and failure — put the single fire-and-forget finalizer there (the server re-fetches the task to decide succeeded vs failed, so one call covers both). Leave the `.then`/`.catch` bodies as they are and extend `.finally`:
 
 ```js
-        .then(({ url }) => {
-            patchJob(jobId, { status: 'done', videoUrl: url });
-            archiveJob(jobId, taskId, url);
+        .finally(() => {
+            delete controllersRef.current[jobId];
+            // Best-effort cost finalization on either terminal outcome.
             fetch('/api/usage/complete', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ taskId }),
-            }).catch(() => {}); // best-effort cost finalization
-        })
-        .catch((e) => {
-            patchJob(jobId, { status: 'error', error: e.message });
-            fetch('/api/usage/complete', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ taskId }),
-            }).catch(() => {}); // marks the row failed (cost 0)
-        })
+            }).catch(() => {});
+        });
 ```
 
 - [ ] **Step 4: Fetch the user's allowed models on mount**
