@@ -1,29 +1,26 @@
+import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
-import { AUTH_COOKIE, cookieMatches } from './lib/auth/credentials.js';
-import { isPublicPath } from './lib/auth/publicPaths.js';
 
-export async function middleware(request) {
-    const url = request.nextUrl;
-    const { pathname, search } = url;
+// Reachable without a session so the gate can be passed.
+const isPublicRoute = createRouteMatcher(['/sign-in(.*)', '/sign-up(.*)']);
 
-    // 1) Auth gate (skip public paths).
-    if (!isPublicPath(pathname)) {
-        const cookie = request.cookies.get(AUTH_COOKIE)?.value;
-        const authed = await cookieMatches(cookie);
-        if (!authed) {
-            if (pathname.startsWith('/api/')) {
-                return NextResponse.json(
-                    { success: false, error: 'Unauthorized' },
-                    { status: 401 },
-                );
-            }
-            const loginUrl = new URL('/login', url);
-            loginUrl.searchParams.set('next', pathname + search);
-            return NextResponse.redirect(loginUrl, 307);
+export default clerkMiddleware(async (auth, request) => {
+    const { pathname, search } = request.nextUrl;
+
+    if (isPublicRoute(request)) return NextResponse.next();
+
+    // 1) Per-user auth gate.
+    const { userId } = await auth();
+    if (!userId) {
+        if (pathname.startsWith('/api/')) {
+            return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
         }
+        const signIn = new URL('/sign-in', request.url);
+        signIn.searchParams.set('redirect_url', pathname + search);
+        return NextResponse.redirect(signIn, 307);
     }
 
-    // 2) Existing muapi proxy logic (unchanged behaviour).
+    // 2) Existing muapi proxy logic (unchanged behaviour), now behind auth.
     const isMuApi =
         pathname.startsWith('/api/workflow') ||
         pathname.startsWith('/api/app') ||
@@ -40,7 +37,7 @@ export async function middleware(request) {
     }
 
     return NextResponse.next();
-}
+});
 
 // Run on every route except Next internals and the favicon.
 export const config = {
