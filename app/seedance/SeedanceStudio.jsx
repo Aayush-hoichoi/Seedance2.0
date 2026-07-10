@@ -11,7 +11,7 @@ import { sanitizeOptions } from '../../lib/seedance/options.mjs';
 import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js';
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
 import { buildTags, modeSupportsTags, normalizePromptForApi, restorePromptTokens, validatePromptReferences } from '../../lib/seedance/tags.js';
-import { getAsset, resolveVideoRefs, cleanupOldAssets } from '../../lib/seedance/assetsClient.js';
+import { getAsset, resolveVideoRefs, resolveSensitiveRefs, cleanupOldAssets } from '../../lib/seedance/assetsClient.js';
 import { enhancePrompt } from '../../lib/seedance/enhance.js';
 import { savePromptRecord, fetchPromptRecords, setLikeRecord, setBinRecord, deletePromptRecord } from '../../lib/seedance/promptsClient.js';
 import { uploadToCdn } from '../../lib/seedance/upload.js';
@@ -50,6 +50,9 @@ const STATUS_TEXT = { submitting: 'Submitting…', waiting: 'Waiting for a free 
 const ACTIVE_STATUSES = ['submitting', 'waiting', 'queued', 'running'];
 // Quota / rate-limit shaped errors → auto-retry instead of failing the card.
 const RATE_LIMIT_RE = /rate.?limit|quota|too many|429|concurren|throttl/i;
+// ModelArk's input scan rejecting raw-URL refs that show a (possibly) real
+// person — recoverable by re-referencing the media through the Asset Library.
+const SENSITIVE_RE = /may contain real person/i;
 
 export default function SeedanceStudio() {
     // Default to Motion Capture — the studio's headline styled mode; the
@@ -374,6 +377,7 @@ export default function SeedanceStudio() {
         setSelectedId(job.id); // a fresh generation takes the big stage
         const MAX_ATTEMPTS = 6;
         const RETRY_DELAY_MS = 15000;
+        let resolvedSensitive = false;
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
                 const taskId = await createTask(payload);
@@ -389,6 +393,19 @@ export default function SeedanceStudio() {
                 watchJob(job.id, taskId);
                 return;
             } catch (e) {
+                // Real-person refs rejected via raw URL pass as verified
+                // library assets — re-reference once and retry immediately.
+                if (SENSITIVE_RE.test(e.message) && !resolvedSensitive) {
+                    resolvedSensitive = true;
+                    patchJob(job.id, { status: 'waiting' });
+                    try {
+                        payload = await resolveSensitiveRefs(payload);
+                        continue;
+                    } catch (e2) {
+                        patchJob(job.id, { status: 'error', error: `Reference verification failed — ${e2.message}` });
+                        return;
+                    }
+                }
                 if (RATE_LIMIT_RE.test(e.message) && attempt < MAX_ATTEMPTS) {
                     patchJob(job.id, { status: 'waiting' });
                     await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));

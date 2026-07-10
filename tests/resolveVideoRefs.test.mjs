@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveVideoRefs } from '../lib/seedance/assetsClient.js';
+import { resolveVideoRefs, resolveSensitiveRefs } from '../lib/seedance/assetsClient.js';
 
 const fakeRegister = async ({ url }) => ({ url: 'asset://asset-test-1', assetId: 'asset-test-1', from: url });
 
@@ -34,4 +34,30 @@ test('propagates registration failures', async () => {
         () => resolveVideoRefs(items, async () => { throw new Error('quota'); }),
         /quota/,
     );
+});
+
+test('resolveSensitiveRefs swaps raw image and video URLs in a payload', async () => {
+    let n = 0;
+    const register = async ({ kind }) => ({ url: `asset://a-${kind}-${++n}`, assetId: `a-${kind}-${n}` });
+    const payload = {
+        model: 'm',
+        content: [
+            { type: 'text', text: 'hi' },
+            { type: 'image_url', image_url: { url: 'https://tos.example/i.png' }, role: 'reference_image' },
+            { type: 'video_url', video_url: { url: 'https://tos.example/v.mp4' }, role: 'reference_video' },
+            { type: 'image_url', image_url: { url: 'asset://already' } },
+            { type: 'image_url', image_url: { url: 'data:image/png;base64,xx' } },
+        ],
+        duration: 4,
+    };
+    const out = await resolveSensitiveRefs(payload, register);
+    assert.equal(out.content[0].text, 'hi');
+    assert.equal(out.content[1].image_url.url, 'asset://a-image-1');
+    assert.equal(out.content[1].role, 'reference_image'); // role preserved
+    assert.equal(out.content[2].video_url.url, 'asset://a-video-2');
+    assert.equal(out.content[3].image_url.url, 'asset://already'); // untouched
+    assert.equal(out.content[4].image_url.url, 'data:image/png;base64,xx'); // untouched
+    assert.equal(out.duration, 4);
+    // input payload not mutated
+    assert.equal(payload.content[1].image_url.url, 'https://tos.example/i.png');
 });
