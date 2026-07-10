@@ -305,8 +305,8 @@ const BATCH_OPTIONS = [1, 2, 4];
 
 export default function PromptBar({
     mode, onChangeMode, prompt, onPromptChange, options, setOpt,
-    mediaByRole, setMediaByRole, models, resolutions, selectedModel,
-    error, notice, onGenerate, enhancing = false, batch = 1, setBatch,
+    mediaByRole, setMediaByRole, models, allowedModelIds, resolutions, selectedModel,
+    error, notice, setNotice, onGenerate, enhancing = false, batch = 1, setBatch,
     onMediaError, onUploadFiles, tags,
 }) {
     const [openKey, setOpenKey] = useState(null);
@@ -521,7 +521,23 @@ export default function PromptBar({
                         />
                         <PillSelect
                             id="model" openKey={openKey} setOpenKey={setOpenKey}                            display={selectedModel?.name || 'Model'} label="Model" value={options.model}
-                            options={models.map((m) => ({ value: m.id, label: m.name }))} onSelect={(v) => setOpt('model', v)}
+                            options={models.map((m) => {
+                                const locked = m.gated && allowedModelIds && !allowedModelIds.includes(m.id);
+                                return { value: m.id, label: locked ? `${m.name} 🔒 (request access)` : m.name, disabled: locked };
+                            })}
+                            onSelect={(v) => {
+                                const m = models.find((x) => x.id === v);
+                                const locked = m?.gated && allowedModelIds && !allowedModelIds.includes(v);
+                                if (locked) {
+                                    fetch('/api/access/request', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ modelId: v }),
+                                    }).then(() => setNotice?.('Access requested — pending admin approval.')).catch(() => {});
+                                    return;
+                                }
+                                setOpt('model', v);
+                            }}
                         />
                         <PillSelect
                             id="ar" openKey={openKey} setOpenKey={setOpenKey}                            badge={<AspectIcon />} display={options.ratio} label="Aspect Ratio" value={options.ratio}

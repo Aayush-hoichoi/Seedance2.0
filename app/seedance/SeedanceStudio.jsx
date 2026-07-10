@@ -72,6 +72,19 @@ export default function SeedanceStudio() {
     const controllersRef = useRef({}); // jobId -> AbortController (not persisted)
     const pendingRef = useRef(0);
 
+    // Which models this user may use (Mini/Fast always; gated 2.0 only if granted).
+    // null = still loading; then string[]. Gated models the user lacks are locked
+    // in the picker with a "request access" action.
+    const [allowedModelIds, setAllowedModelIds] = useState(null);
+    useEffect(() => {
+        let alive = true;
+        fetch('/api/access/me')
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => { if (alive && d) setAllowedModelIds(d.allowedModelIds); })
+            .catch(() => {});
+        return () => { alive = false; };
+    }, []);
+
     const mode = useMemo(() => MODES.find((m) => m.id === modeId), [modeId]);
     const tags = useMemo(() => buildTags(mode, mediaByRole), [mode, mediaByRole]);
     const selectedModel = useMemo(() => MODELS.find((m) => m.id === options.model), [options.model]);
@@ -124,7 +137,16 @@ export default function SeedanceStudio() {
                 archiveJob(jobId, taskId, url);
             })
             .catch((e) => patchJob(jobId, { status: 'error', error: e.message }))
-            .finally(() => { delete controllersRef.current[jobId]; });
+            .finally(() => {
+                delete controllersRef.current[jobId];
+                // Best-effort cost finalization on either terminal outcome — the
+                // server re-fetches the task to decide succeeded vs failed.
+                fetch('/api/usage/complete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ taskId }),
+                }).catch(() => {});
+            });
     };
 
     // On reload, restore history into the side rail and resume polling for
@@ -390,7 +412,7 @@ export default function SeedanceStudio() {
         let resolvedSensitive = false;
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
-                const taskId = await createTask(payload);
+                const taskId = await createTask(payload, creation.modeId ?? modeId);
                 savePrompt(taskId, promptText); // survives any history wipe
                 savePromptRecord({
                     taskId,
@@ -733,10 +755,12 @@ export default function SeedanceStudio() {
                 mediaByRole={mediaByRole}
                 setMediaByRole={setMediaByRole}
                 models={MODELS}
+                allowedModelIds={allowedModelIds}
                 resolutions={resolutions}
                 selectedModel={selectedModel}
                 error={error}
                 notice={notice}
+                setNotice={setNotice}
                 onGenerate={onGenerate}
                 enhancing={enhancing}
                 batch={batch}
