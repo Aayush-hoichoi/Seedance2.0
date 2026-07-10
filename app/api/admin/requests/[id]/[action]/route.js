@@ -12,7 +12,11 @@ export async function POST(_request, { params }) {
     if (action !== 'approve' && action !== 'revoke') {
         return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
     }
-    const row = await setRequestStatus(Number(id), nextStatus(action), admin.email);
+    const requestId = Number(id);
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+        return NextResponse.json({ error: 'Invalid request id' }, { status: 400 });
+    }
+    const row = await setRequestStatus(requestId, nextStatus(action), admin.email);
     if (!row) return NextResponse.json({ error: 'Request not found' }, { status: 404 });
     return NextResponse.json({ ok: true, request: row });
 }

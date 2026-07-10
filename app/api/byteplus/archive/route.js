@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { signTosRequest, presignGetUrl, encodePath, TOS_ENDPOINT } from '../../../../lib/byteplus/tosSign.js';
+import { archiveKeyForTask } from '../../../../lib/seedance/archiveKey.mjs';
 
 // Archive a finished generation into the user's own TOS bucket so it outlives
 // ModelArk's ~24h signed URLs / ~48h task records. POST { url, taskId } —
@@ -55,7 +56,7 @@ export async function POST(request) {
         }
 
         const host = `${BUCKET}.${TOS_ENDPOINT}`;
-        const key = `videos/${taskId.replace(/[^\w.-]+/g, '_')}.mp4`;
+        const key = archiveKeyForTask(taskId);
         const path = `/${encodePath(key)}`;
         const headers = signTosRequest({
             method: 'PUT', host, path,

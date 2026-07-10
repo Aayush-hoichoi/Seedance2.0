@@ -19,6 +19,7 @@ import { validateMediaFile } from '../../lib/seedance/inspectMedia.js';
 import { fitImageToLimits } from '../../lib/seedance/downscaleImage.js';
 import { loadJobs, saveJobs, newJob, loadPrompts, savePrompt, removePrompt } from '../../lib/seedance/jobs.js';
 import PromptBar from './PromptBar.jsx';
+import Link from 'next/link';
 import { UserButton } from '@clerk/nextjs';
 import MediaHoverPreview from './MediaHoverPreview.jsx';
 import AssetsPanel from './AssetsPanel.jsx';
@@ -156,6 +157,21 @@ export default function SeedanceStudio() {
     // History is SERVER-BACKED: recent tasks are fetched from ModelArk itself
     // and merged in, so the rail survives cleared localStorage / other browsers.
     useEffect(() => {
+        // "Reuse" handoff from the Community Gallery: apply the saved setup
+        // (prompt + refs + settings + mode) once, then clear it.
+        try {
+            const raw = localStorage.getItem('seedance:reuse');
+            if (raw) {
+                localStorage.removeItem('seedance:reuse');
+                const r = JSON.parse(raw);
+                onReuseRefs(
+                    { modeId: r.modeId, style: r.style, userPrompt: r.userPrompt, prompt: r.prompt, options: r.options },
+                    Array.isArray(r.refs) ? r.refs : [],
+                );
+                setNotice('Loaded from the gallery — tweak anything and hit Generate.');
+            }
+        } catch { /* corrupt handoff — open the studio blank */ }
+
         const restored = loadJobs().map((j) =>
             ACTIVE_STATUSES.includes(j.status) && !j.taskId
                 ? { ...j, status: 'error', error: 'Interrupted before the task was created.' }
@@ -617,11 +633,14 @@ export default function SeedanceStudio() {
         if (selectedId === id) setSelectedId(null);
         patchJob(id, { deleted: true, deletedAt: Date.now() });
         // Persist the bin flag to Neon so the item stays hidden in EVERY browser.
-        // Without this it was localStorage-only, so another user's reload
-        // re-merged the task from ModelArk's list and showed it again.
+        // On rejection (e.g. another creator's generation — everyone can view
+        // and reuse, only the owner can bin) revert the optimistic flag.
         if (job?.taskId) {
-            const ok = await setBinRecord({ taskId: job.taskId, deleted: true });
-            if (!ok) setError('Moved to the bin here, but the server update failed — it may still appear in other browsers.');
+            const res = await setBinRecord({ taskId: job.taskId, deleted: true });
+            if (!res.ok) {
+                patchJob(id, { deleted: false, deletedAt: null });
+                setError(res.error || 'Could not move it to the bin — it may still appear in other browsers.');
+            }
         }
     };
 
@@ -630,8 +649,8 @@ export default function SeedanceStudio() {
         const job = jobs.find((j) => j.id === id);
         patchJob(id, { deleted: false, deletedAt: null });
         if (job?.taskId) {
-            const ok = await setBinRecord({ taskId: job.taskId, deleted: false });
-            if (!ok) setError('Restored here, but the server update failed — it may still be binned in other browsers.');
+            const res = await setBinRecord({ taskId: job.taskId, deleted: false });
+            if (!res.ok) setError(res.error || 'Restored here, but the server update failed — it may still be binned in other browsers.');
         }
     };
 
@@ -649,8 +668,8 @@ export default function SeedanceStudio() {
         updateJobs((prev) => prev.filter((j) => j.id !== id));
         if (job?.taskId) {
             removePrompt(job.taskId);
-            const ok = await deletePromptRecord({ taskId: job.taskId });
-            if (!ok) setError('Removed here, but the server delete failed — it may reappear on reload.');
+            const res = await deletePromptRecord({ taskId: job.taskId });
+            if (!res.ok) setError(res.error || 'Removed here, but the server delete failed — it may reappear on reload.');
         }
     };
 
@@ -708,8 +727,16 @@ export default function SeedanceStudio() {
                 </span>
             </div>
 
-            {/* Top-right: assets gallery + account menu (profile / sign out). */}
+            {/* Top-right: community gallery + own assets + account menu. */}
             <div className="fixed top-5 right-6 z-30 flex items-center gap-2.5">
+                <Link
+                    href="/gallery"
+                    title="Browse every creator's work and reuse any setup"
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-white/10 bg-white/[0.04] text-white/70 hover:text-white hover:border-white/25 hover:bg-white/[0.08] transition-colors text-xs font-semibold"
+                >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" /></svg>
+                    <span>Gallery</span>
+                </Link>
                 <button
                     type="button"
                     onClick={() => setShowAssets(true)}

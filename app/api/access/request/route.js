@@ -15,6 +15,6 @@ export async function POST(request) {
         return NextResponse.json({ error: 'That model does not require a request.' }, { status: 400 });
     }
     if (!user.email) return NextResponse.json({ error: 'No email on your account.' }, { status: 400 });
-    await requestAccess(user.userId, user.email, modelId, typeof note === 'string' ? note.slice(0, 500) : null);
-    return NextResponse.json({ ok: true, status: 'pending' });
+    const status = await requestAccess(user.userId, user.email, modelId, typeof note === 'string' ? note.slice(0, 500) : null);
+    return NextResponse.json({ ok: true, status });
 }

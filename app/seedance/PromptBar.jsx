@@ -533,7 +533,15 @@ export default function PromptBar({
                                         method: 'POST',
                                         headers: { 'Content-Type': 'application/json' },
                                         body: JSON.stringify({ modelId: v }),
-                                    }).then(() => setNotice?.('Access requested — pending admin approval.')).catch(() => {});
+                                    })
+                                        .then(async (r) => {
+                                            const d = await r.json().catch(() => null);
+                                            if (!r.ok) { setNotice?.(d?.error || 'Could not send the access request — try again.'); return; }
+                                            setNotice?.(d?.status === 'approved'
+                                                ? 'You already have access — reload the page to unlock this model.'
+                                                : 'Access requested — pending admin approval.');
+                                        })
+                                        .catch(() => setNotice?.('Could not send the access request — check your connection.'));
                                     return;
                                 }
                                 setOpt('model', v);
