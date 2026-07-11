@@ -37,3 +37,4 @@ out/
 .env.*
 !.env.example
 .gstack/
+.vercel
