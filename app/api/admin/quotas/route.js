@@ -1,20 +1,26 @@
 import { NextResponse } from 'next/server';
 import { gatewayContext, clientIp } from '../../../../lib/gateway/authz.js';
 import { apiError } from '../../../../lib/gateway/httpError.mjs';
-import { writeAudit } from '../../../../lib/gateway/db.js';
+import { writeAudit, usageForQuotas } from '../../../../lib/gateway/db.js';
 
 export const runtime = 'nodejs';
 
 const TYPES = ['usd', 'credits', 'image_count', 'video_seconds', 'request_count'];
 const WINDOWS = ['daily', 'monthly', 'lifetime'];
 
-export async function GET() {
+export async function GET(request) {
     const auth = await gatewayContext({ permission: 'quota.manage' });
     if (!auth.ok) return auth.response;
     const { sql, org } = auth.ctx;
     const items = await sql`SELECT q.*, p.name AS project_name FROM quotas q
         LEFT JOIN projects p ON p.id = q.project_id
         WHERE q.org_id = ${org.id} AND q.deleted_at IS NULL ORDER BY q.created_at DESC`;
+    if (new URL(request.url).searchParams.get('withUsage')) {
+        const { usedByQuota, reservedByQuota } = await usageForQuotas(sql, items);
+        return NextResponse.json({
+            items: items.map((q) => ({ ...q, used: usedByQuota[q.id] ?? 0, reserved: reservedByQuota[q.id] ?? 0 })),
+        });
+    }
     return NextResponse.json({ items });
 }
 

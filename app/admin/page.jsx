@@ -1,10 +1,7 @@
-import { notFound } from 'next/navigation';
-import { isAdmin } from '../../lib/auth/user.js';
-import AdminClient from './AdminClient.jsx';
+import { redirect } from 'next/navigation';
 
-export const dynamic = 'force-dynamic';
-
-export default async function AdminPage() {
-  if (!(await isAdmin())) notFound();
-  return <AdminClient />;
+// The admin panel grew into the full governance console (/console) — this
+// route survives only so old links keep working.
+export default function AdminPage() {
+    redirect('/console');
 }
