@@ -13,12 +13,17 @@ async function settleGatewayJob(taskId, task, status) {
         const [job] = await sql`SELECT * FROM jobs WHERE provider_task_id = ${taskId} AND status IN ('queued', 'running')`;
         if (!job) return; // pre-migration task or already settled
         if (status === 'succeeded') {
+            // Kind from the catalog, not the client-shaped request_body —
+            // fall back to it only for jobs that predate model_version_id.
+            const [version] = job.model_version_id
+                ? await sql`SELECT kind FROM model_versions WHERE id = ${job.model_version_id}`
+                : [];
             await settleSuccess(sql, job, {
                 route: { provider_id: 'byteplus', mode: 'interactive' },
                 apiKeyId: null,
                 result: { video_url: task?.content?.video_url || null },
                 usage: task?.usage || null,
-                kind: job.request_body?.options?.kind,
+                kind: version?.kind ?? job.request_body?.options?.kind,
             });
         } else {
             await settleFailure(sql, job, { status: 400, message: task?.error?.message || status });
