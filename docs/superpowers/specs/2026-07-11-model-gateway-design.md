@@ -90,6 +90,8 @@ CREATE TABLE IF NOT EXISTS provider_routes (
     provider_model_id text NOT NULL,            -- what the provider API expects
     priority integer NOT NULL DEFAULT 1,        -- failover order (PRD §6)
     status text NOT NULL DEFAULT 'active',      -- active | disabled
+    mode text NOT NULL DEFAULT 'interactive',   -- interactive | batch (Gemini Batch API)
+    timeout_seconds integer,                    -- overrides class timeout (batch: 86400)
     UNIQUE (model_version_id, provider_id)
 );
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -262,7 +264,7 @@ POST /api/generations
 3. Submit to provider via routing (§5); store `provider_task_id`; poll ModelArk until done/`timeout_at`.
 4. Terminal: write settlement/failure billing event, `job.status_changed` event, run `checkThresholds()`.
 5. Retries: 3 attempts, exponential backoff (re-queue with `created_at=now()+delay`); provider failover consumes the same attempt budget; non-retryable errors (content policy, bad input) fail immediately.
-6. Timeouts: images 5 min, video 30 min (`timeout_at`); sweeper marks `timed_out`, records any provider-billed cost.
+6. Timeouts: images 5 min, video 30 min (`timeout_at`), unless the serving provider route defines its own (Gemini Batch: 24 h); sweep marks `timed_out`, records any provider-billed cost.
 7. Cancel: queued → cancelled free (release reservation, cancel event); running → provider cancel attempted, else completes with cost recorded and result discarded.
 8. Pause: `projects.paused` — queued jobs hold, new submissions get `409 PROJECT_PAUSED`.
 9. Depth cap: 100 queued per project → `429 QUEUE_FULL`.
@@ -272,7 +274,9 @@ The existing direct `/api/byteplus` create-task path is **replaced** by `/api/ge
 ## 5. Providers, routing, failover, keys (PRD §6)
 
 - `submitGeneration(job)` resolves alias → `current_version_id` → `provider_routes` ordered by priority, skipping `disabled`; tries each on 5xx/timeout/unavailable; cost attributed to the provider that served it.
-- Provider adapters (one module each, same interface `create/poll/cancel`): **byteplus** (Seedance video + Seedream image — same ModelArk API) complete; **google** (Nano Banana Pro/2) via the **Gemini Batch API** — decided: batch mode is 50% of interactive pricing and its async shape (submit batch → poll job → retrieve) maps 1:1 onto the adapter interface and our queue; routes `disabled` until a Google key is configured. Batch-mode unit rates go into `pricing.mjs` and every event's `pricing_snapshot`.
+- Provider adapters (one module each, same interface `create/poll/cancel`): **byteplus** (Seedance video + Seedream image — same ModelArk API) complete; **google** (Nano Banana Pro/2) via the **Gemini Batch API** — decided: batch mode is 50% of interactive pricing and its async shape (submit batch → poll job → retrieve) maps 1:1 onto the adapter interface and our queue. **Built in full; the owner adds `GOOGLE_API_KEY` later** — routes flip from `disabled` to `active` the moment the key exists. Batch-mode unit rates go into `pricing.mjs` and every event's `pricing_snapshot`.
+- **Burst handling / batch coalescing:** when a user submits many image jobs at once (e.g. 30), each job stays one `jobs` row (own reservation, own billing event, own cancel), but the google adapter coalesces all queued Nano Banana jobs into a **single Gemini batch submission** per processor pass — one submit + one poll covers the whole burst. Jobs store the shared batch job name + their item index. Reservations make bursts budget-safe: enqueue N+1 sees the N reservations before it.
+- **Per-route timeout override:** the §4 class timeouts (images 5 min) apply to interactive routes; batch routes carry their own `timeout` (Gemini Batch targets ≤24 h, typically minutes) stored on `provider_routes`.
 - Keys: `api_keys` ciphertext via AES-256-GCM (`lib/crypto/keybox.mjs`, pure, tested); resolution order project-scoped → org-scoped → env fallback (`ARK_API_KEY` etc.); rotation = new active key, old → `retiring`, delete after drain. Never serialized to clients — admin UI shows label + last4 only.
 - Alias repoint (`models.current_version_id`) is an admin action + audit row — config change, no migration.
 
@@ -339,7 +343,7 @@ The current `/admin` page's features (access requests, users, usage) migrate int
 
 ## 10. Migration & seeds (one-time, idempotent script)
 
-1. Enable Clerk **Organizations** (manual, both instances); create the hoichoi org; webhook additions `organization.*` mirror into `organizations`.
+1. Clerk **Organizations** — already enabled in the Clerk dashboard (done 2026-07-11); create the hoichoi org; webhook additions `organization.*` mirror into `organizations`.
 2. Seed `roles`/`permissions`/`role_permissions`; seed `providers` (byteplus, google); seed `models`/`model_versions`/`provider_routes` from `constants.js` `MODELS` + PRD catalog (Seedream 5.0-pro default image, Nano Banana routes disabled until key). `GATED_MODEL_IDS` and the `gated` flag are deleted from code — gating is now purely rows.
 3. Create project **"Default"**, enroll all existing `users`.
 4. `model_access_requests.approved` → ALLOW overrides on Default; `pending` untouched; `revoked` → nothing.
