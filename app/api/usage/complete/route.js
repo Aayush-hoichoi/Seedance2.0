@@ -1,6 +1,30 @@
 import { NextResponse } from 'next/server';
 import { getUser } from '../../../../lib/auth/user.js';
 import { finalizeUsage } from '../../../../lib/access/db.js';
+import { getDb } from '../../../../lib/db/neon.js';
+import { settleSuccess, settleFailure } from '../../../../lib/gateway/processor.mjs';
+
+// Settle the gateway job that wraps this ModelArk task: settlement/failure
+// billing event, job terminal state, SSE event, budget threshold alerts.
+async function settleGatewayJob(taskId, task, status) {
+    try {
+        const sql = await getDb();
+        if (!sql) return;
+        const [job] = await sql`SELECT * FROM jobs WHERE provider_task_id = ${taskId} AND status IN ('queued', 'running')`;
+        if (!job) return; // pre-migration task or already settled
+        if (status === 'succeeded') {
+            await settleSuccess(sql, job, {
+                route: { provider_id: 'byteplus', mode: 'interactive' },
+                apiKeyId: null,
+                result: { video_url: task?.content?.video_url || null },
+                usage: task?.usage || null,
+                kind: job.request_body?.options?.kind,
+            });
+        } else {
+            await settleFailure(sql, job, { status: 400, message: task?.error?.message || status });
+        }
+    } catch { /* settlement is retried on the next poll; never block the client */ }
+}
 
 export const runtime = 'nodejs';
 const ARK_BASE = 'https://ark.ap-southeast.bytepluses.com/api/v3';
@@ -35,10 +59,12 @@ export async function POST(request) {
     if (status === 'succeeded') {
         const tokens = task?.usage?.completion_tokens ?? null;
         const result = await finalizeUsage(taskId, user.userId, { status: 'succeeded', completionTokens: tokens });
+        await settleGatewayJob(taskId, task, 'succeeded');
         return NextResponse.json({ ok: true, status: 'succeeded', costUsd: result?.costUsd ?? null });
     }
     if (status === 'failed' || status === 'cancelled' || status === 'canceled' || status === 'expired') {
         await finalizeUsage(taskId, user.userId, { status: 'failed', completionTokens: null });
+        await settleGatewayJob(taskId, task, 'failed');
         return NextResponse.json({ ok: true, status: 'failed' });
     }
     return NextResponse.json({ ok: true, status: status || 'pending' }); // not terminal — no-op

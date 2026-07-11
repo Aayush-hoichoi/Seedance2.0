@@ -12,6 +12,7 @@ import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
 import { buildTags, modeSupportsTags, normalizePromptForApi, restorePromptTokens, validatePromptReferences } from '../../lib/seedance/tags.js';
 import { getAsset, resolveVideoRefs, resolveSensitiveRefs, cleanupOldAssets } from '../../lib/seedance/assetsClient.js';
+import { useEvents } from '../hooks/useEvents.js';
 import { enhancePrompt } from '../../lib/seedance/enhance.js';
 import { savePromptRecord, fetchPromptRecords, setLikeRecord, setBinRecord, deletePromptRecord } from '../../lib/seedance/promptsClient.js';
 import { uploadToCdn } from '../../lib/seedance/upload.js';
@@ -79,14 +80,63 @@ export default function SeedanceStudio() {
     // in the picker with a "request access" action.
     const [allowedModelIds, setAllowedModelIds] = useState(null);
     const [isAdmin, setIsAdmin] = useState(false); // shows the /admin shortcut (server still enforces)
+    // Gateway projects: model access + budgets are scoped per project. The
+    // picker only appears when the user belongs to more than one.
+    const [projects, setProjects] = useState([]);
+    const [projectId, setProjectId] = useState(null);
+    const [permsVersion, setPermsVersion] = useState(0); // bump → refetch access
+
     useEffect(() => {
         let alive = true;
         fetch('/api/access/me')
             .then((r) => (r.ok ? r.json() : null))
             .then((d) => { if (alive && d) { setAllowedModelIds(d.allowedModelIds); setIsAdmin(!!d.isAdmin); } })
             .catch(() => {});
+        fetch('/api/projects')
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => {
+                if (!alive || !Array.isArray(d?.items) || !d.items.length) return;
+                setProjects(d.items);
+                const stored = Number(localStorage.getItem('seedance:project')) || null;
+                setProjectId(d.items.some((p) => p.id === stored) ? stored : d.items[0].id);
+            })
+            .catch(() => {});
         return () => { alive = false; };
     }, []);
+
+    // Per-project effective model list (precedence-aware). Falls back to the
+    // /api/access/me answer above when the gateway isn't migrated yet.
+    useEffect(() => {
+        if (!projectId) return;
+        let alive = true;
+        fetch(`/api/models?projectId=${projectId}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => {
+                if (!alive || !Array.isArray(d?.items)) return;
+                const allowedKinds = new Set(d.items.filter((m) => m.allowed).map((m) => m.kind));
+                setAllowedModelIds(MODELS.filter((m) => allowedKinds.has(m.kind)).map((m) => m.id));
+            })
+            .catch(() => {});
+        return () => { alive = false; };
+    }, [projectId, permsVersion]);
+
+    // Live governance: revokes/expiries flip the picker instantly; budget
+    // alerts surface as the studio's notice banner.
+    useEvents('*', ({ type, data }) => {
+        if (type === 'access.revoked' || type === 'access.expired' || type === 'access.granted') {
+            setPermsVersion((v) => v + 1);
+            if (type !== 'access.granted') setNotice(`Model access changed: ${data?.modelId || ''} was ${type === 'access.expired' ? 'auto-expired' : 'revoked'}.`);
+        }
+        if (type === 'budget.threshold_crossed') {
+            setNotice(`Budget alert — ${data?.threshold}% of the ${data?.window} ${data?.type} limit is used.`);
+        }
+        if (type === 'project.paused') setNotice('This project was paused by an admin — new generations are held.');
+    });
+
+    const selectProject = (id) => {
+        setProjectId(id);
+        try { localStorage.setItem('seedance:project', String(id)); } catch { /* private mode */ }
+    };
 
     const mode = useMemo(() => MODES.find((m) => m.id === modeId), [modeId]);
     const tags = useMemo(() => buildTags(mode, mediaByRole), [mode, mediaByRole]);
@@ -430,7 +480,7 @@ export default function SeedanceStudio() {
         let resolvedSensitive = false;
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
-                const taskId = await createTask(payload, creation.modeId ?? modeId);
+                const taskId = await createTask(payload, creation.modeId ?? modeId, projectId);
                 savePrompt(taskId, promptText); // survives any history wipe
                 savePromptRecord({
                     taskId,
@@ -728,16 +778,26 @@ export default function SeedanceStudio() {
                 </span>
             </div>
 
-            {/* Top-right: admin (role-gated) + community gallery + assets + account menu. */}
+            {/* Top-right: project scope + admin (role-gated) + community gallery + assets + account menu. */}
             <div className="fixed top-5 right-6 z-30 flex items-center gap-2.5">
+                {projects.length > 1 && (
+                    <select
+                        value={projectId ?? ''}
+                        onChange={(e) => selectProject(Number(e.target.value))}
+                        title="Project — model access and budgets are scoped per project"
+                        className="px-2 py-1.5 rounded-md border border-white/10 bg-white/[0.04] text-white/70 hover:border-white/25 text-xs font-semibold focus:outline-none [&>option]:bg-zinc-900"
+                    >
+                        {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                )}
                 {isAdmin && (
                     <Link
-                        href="/admin"
-                        title="Access requests & usage dashboard"
+                        href="/console"
+                        title="Governance console — access, budgets, queue, audit"
                         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-amber-400/25 bg-amber-400/[0.06] text-amber-300/80 hover:text-amber-200 hover:border-amber-400/50 hover:bg-amber-400/[0.12] transition-colors text-xs font-semibold"
                     >
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
-                        <span>Admin</span>
+                        <span>Console</span>
                     </Link>
                 )}
                 <Link
