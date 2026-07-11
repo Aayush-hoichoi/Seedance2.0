@@ -351,7 +351,29 @@ The current `/admin` page's features (access requests, users, usage) migrate int
 - **Route-level:** authz matrix per endpoint (each role × each route), error-code contract.
 - **E2E (Playwright, critical flows):** grant → generate → revoke mid-queue → SSE banner → 403 on retry; budget crossing → alert + hard stop.
 
-## 12. Build order (dependency order — everything ships)
+## 12. PRD coverage — final decisions, deferrals, simplifications
+
+**Open questions (PRD §17) — all now decided:**
+- Q1 user-level ALLOW: yes, both ALLOW and DENY (deny wins) — preserves the live approve flow 1:1.
+- Q2 credits vs USD: USD. Consequence: no separate `internal_cost`/markup — `cost_usd` is the provider cost (a markup column can be added to `billing_events` later without breaking append-only history).
+- Q3 orchestration: Neon jobs table + guarded sweep; Inngest is the agreed fallback.
+- Q4 soft-limit default overage: 5% (`soft_overage_pct` default).
+- Q5 viewer prompt privacy: **Viewers see costs/units/metadata only. Prompts are visible to the generation's creator and to manager/admin/owner roles.** Enforced in the usage/history APIs, not just the UI.
+- Q6 projects: our own table keyed to the Clerk org.
+- Q7 time-based grants: schema has `valid_from` + `valid_until`; UI exposes expiry only.
+
+**Deferred (the PRD itself marks these v2 / non-goals):**
+- Public / service-to-service API and caller API keys — AuthN is Clerk sessions only; `billing_events.api_key_id` refers to the *provider* key used. When a machine API is wanted, it slots in at the same AuthN step.
+- Outbound webhooks — the events outbox already holds everything a webhook dispatcher would send; bolt-on later.
+- Payments/Stripe, content-moderation policy — PRD non-goals, unchanged.
+
+**Deliberate simplifications (documented, upgrade path clear):**
+- `Notification` entity = the events feed (no read/unread table until someone asks for it).
+- No Redis permission cache for the <50 ms authz target — indexed Neon lookups meet it at our scale; add caching only if measured otherwise.
+- Org *membership* stays in Clerk (not mirrored); project membership is ours.
+- 12-month hot / S3 cold retention → Neon-only until row counts warrant it.
+
+## 13. Build order (dependency order — everything ships)
 
 1. Schema + seeds + migration script; Clerk Organizations + webhooks
 2. `effectiveAccess` + roles/permissions helpers (pure, tested)
