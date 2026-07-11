@@ -353,6 +353,25 @@ The current `/admin` page's features (access requests, users, usage) migrate int
 
 ## 12. PRD coverage — final decisions, deferrals, simplifications
 
+**Feature coverage (PRD section → where it lives in this spec):**
+
+| PRD | Status / where |
+|---|---|
+| §3 Roles — 5 roles, role→permission mapping as data | ✅ §1 `roles`/`permissions`/`role_permissions` + §2 `hasPermission()`; ≥1 owner enforced in users API |
+| §4 Hierarchy + model catalog (6 models) | ✅ §1 orgs → projects → memberships; §10 seeds all 6 models (Nano Banana routes disabled until Google key) |
+| §5 AuthZ precedence + worked example + time-based grants | ✅ §2 `effectiveAccess()`; expiry evaluated per-request in SQL and pushed via sweep |
+| §6 Alias → version → provider route, failover, API keys (encrypted, rotation) | ✅ §5, incl. Gemini **Batch API** for Nano Banana Pro |
+| §7 Quotas: 5 types × 3 windows, layering, soft/hard + overage %, in-flight reservations, threshold alerts | ✅ §3 (alerts in-app only — decided) |
+| §8 Immutable billing events, pricing snapshots, failure events, reporting dimensions, user usage history | ✅ §1 `billing_events` + §3 + §9 |
+| §9 Queue: interactive>batch, org fairness, 3 retries + backoff, class timeouts, cancel, pause, depth cap, provider + tenant concurrency | ✅ §4 |
+| §10 Revocation semantics + all SSE event types | ✅ §6 (queued cancelled, running completes, server-side always) |
+| §11 API endpoints + machine-readable error contract | ✅ §7 |
+| §13 Audit log (all listed actions, queryable, exportable) | ✅ §1 + §7 |
+| §14 Org/project/operational dashboards | ✅ §8 console + §9 metrics |
+| §15 NFRs: revoke <2s, authz <50ms, zero lost billing events, tenant isolation | ✅ §0/§3/§6/§11 (indexed Neon instead of Redis cache) |
+| §16 All milestones | ✅ single delivery, §13 build order |
+| §17 Open questions | ✅ all decided below |
+
 **Open questions (PRD §17) — all now decided:**
 - Q1 user-level ALLOW: yes, both ALLOW and DENY (deny wins) — preserves the live approve flow 1:1.
 - Q2 credits vs USD: USD. Consequence: no separate `internal_cost`/markup — `cost_usd` is the provider cost (a markup column can be added to `billing_events` later without breaking append-only history).
