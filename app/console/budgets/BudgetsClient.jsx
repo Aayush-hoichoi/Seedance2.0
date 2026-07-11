@@ -34,6 +34,8 @@ export default function BudgetsClient() {
 
     const items = quotas.data?.items ?? [];
     const fmt = (q, v) => (q.type === 'usd' ? fmtUsd(v) : fmtInt(v));
+    // Quotas store the Clerk user id; show the email humans recognize.
+    const emailOf = (id) => (users.data?.users ?? []).find((u) => u.id === id)?.email || `${id.slice(0, 14)}…`;
 
     return (
         <div>
@@ -52,7 +54,7 @@ export default function BudgetsClient() {
                                     <Card key={q.id}>
                                         <div className="mb-1 flex items-center justify-between">
                                             <div className="text-sm font-medium text-zinc-200">
-                                                {q.user_id ? `User · ${q.user_id.slice(0, 14)}…` : q.project_name ? `Project · ${q.project_name}` : 'Whole organization'}
+                                                {q.user_id ? `User · ${emailOf(q.user_id)}` : q.project_name ? `Project · ${q.project_name}` : 'Whole organization'}
                                             </div>
                                             <div className="flex items-center gap-1.5">
                                                 <Badge tone={q.policy === 'hard' ? 'red' : 'amber'}>{q.policy}{q.policy === 'soft' ? ` +${q.soft_overage_pct}%` : ''}</Badge>

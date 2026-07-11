@@ -35,6 +35,8 @@ export default function ProjectDetailClient({ projectId }) {
     }
 
     const projectQuotas = (quotas.data?.items ?? []).filter((q) => q.project_id === project.id);
+    // Quotas store the Clerk user id; show the email humans recognize.
+    const emailOf = (id) => (usersApi.data?.users || usersApi.data?.items || []).find((u) => (u.id || u.user_id) === id)?.email || `${id.slice(0, 12)}…`;
 
     return (
         <div>
@@ -67,7 +69,7 @@ export default function ProjectDetailClient({ projectId }) {
                         {projectQuotas.length ? projectQuotas.map((q) => (
                             <Card key={q.id}>
                                 <div className="mb-1 flex items-center justify-between text-sm">
-                                    <span className="text-zinc-300">{q.user_id ? `User ${q.user_id.slice(0, 12)}…` : 'Whole project'} · {q.type} · {q.window}</span>
+                                    <span className="text-zinc-300">{q.user_id ? `User ${emailOf(q.user_id)}` : 'Whole project'} · {q.type} · {q.window}</span>
                                     <Badge tone={q.policy === 'hard' ? 'red' : 'amber'}>{q.policy}{q.policy === 'soft' ? ` +${q.soft_overage_pct}%` : ''}</Badge>
                                 </div>
                                 <div className="mb-2 text-xs text-zinc-500">
