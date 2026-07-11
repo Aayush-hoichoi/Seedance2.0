@@ -19,6 +19,7 @@ import { uploadToCdn } from '../../lib/seedance/upload.js';
 import { validateMediaFile } from '../../lib/seedance/inspectMedia.js';
 import { fitImageToLimits } from '../../lib/seedance/downscaleImage.js';
 import { loadJobs, saveJobs, newJob, loadPrompts, savePrompt, removePrompt } from '../../lib/seedance/jobs.js';
+import { resolveFreshVideoUrl } from '../../lib/seedance/videoUrl.js';
 import PromptBar from './PromptBar.jsx';
 import Link from 'next/link';
 import { UserButton } from '@clerk/nextjs';
@@ -56,6 +57,9 @@ const RATE_LIMIT_RE = /rate.?limit|quota|too many|429|concurren|throttl/i;
 // ModelArk's input scan rejecting raw-URL refs that show a (possibly) real
 // person — recoverable by re-referencing the media through the Asset Library.
 const SENSITIVE_RE = /may contain real person/i;
+// A done job whose only link is the ~24h ModelArk task URL is refreshed
+// proactively once it's ~20h old, instead of letting the player hit a 403.
+const STALE_URL_MS = 20 * 60 * 60 * 1000;
 
 export default function SeedanceStudio() {
     // Default to Motion Capture — the studio's headline styled mode; the
@@ -164,6 +168,28 @@ export default function SeedanceStudio() {
     const updateJobs = (fn) => setJobs((prev) => { const next = fn(prev); saveJobs(next); return next; });
     const patchJob = (id, patch) => updateJobs((prev) => prev.map((j) => (j.id === id ? { ...j, ...patch } : j)));
 
+    // Expired-link recovery: stored videoUrls outlive their signatures
+    // (ModelArk ~24h, TOS presigns ≤7d). One refresh per job per session via
+    // the archived→live fallback; `fromError` means the <video> actually
+    // failed, so a refresh that finds nothing — or a second failure after a
+    // refresh — marks the job `expired` instead of looping on a dead link.
+    const refreshedRef = useRef(new Set()); // job ids already refreshed this session
+    const refreshVideoUrl = (job, { fromError = false } = {}) => {
+        if (!job || job.status !== 'done' || job.expired) return;
+        // No taskId to refresh with, or the one shot is spent — a failing
+        // link is now final.
+        if (!job.taskId || refreshedRef.current.has(job.id)) {
+            if (fromError) patchJob(job.id, { videoUrl: null, expired: true });
+            return;
+        }
+        refreshedRef.current.add(job.id);
+        if (fromError) patchJob(job.id, { videoUrl: null }); // dead link → show the loading treatment meanwhile
+        resolveFreshVideoUrl(job.taskId).then((url) => {
+            if (url) patchJob(job.id, { videoUrl: url });
+            else if (fromError) patchJob(job.id, { expired: true });
+        });
+    };
+
     // Archive a finished video into the user's own TOS bucket so it outlives
     // ModelArk's ~24h links. Fire-and-forget — the original URL stays if it fails.
     const archiveJob = (jobId, taskId, url) => {
@@ -223,11 +249,14 @@ export default function SeedanceStudio() {
             }
         } catch { /* corrupt handoff — open the studio blank */ }
 
-        const restored = loadJobs().map((j) =>
-            ACTIVE_STATUSES.includes(j.status) && !j.taskId
+        const restored = loadJobs().map((raw) => {
+            // Expired marks are session-local — re-probe next visit (the
+            // archive may exist by now, or the failure was transient).
+            const j = raw.expired ? { ...raw, expired: false } : raw;
+            return ACTIVE_STATUSES.includes(j.status) && !j.taskId
                 ? { ...j, status: 'error', error: 'Interrupted before the task was created.' }
-                : j,
-        );
+                : j;
+        });
         setJobs(restored);
         saveJobs(restored);
         const inFlight = restored.filter((j) => ACTIVE_STATUSES.includes(j.status) && j.taskId);
@@ -767,6 +796,16 @@ export default function SeedanceStudio() {
     // old history after a reload. A binned job never plays on the stage.
     const selectedJob = jobs.find((j) => j.id === selectedId && !j.deleted) || null;
 
+    // A selected card can carry a link that's already gone (restored from
+    // localStorage) or about to die (~20h-old ModelArk URL): recover it up
+    // front instead of letting the big stage spin forever at 0:00.
+    useEffect(() => {
+        if (!selectedJob || selectedJob.status !== 'done' || selectedJob.expired) return;
+        if (!selectedJob.videoUrl) refreshVideoUrl(selectedJob, { fromError: true });
+        else if (!selectedJob.archiveKey && Date.now() - (selectedJob.createdAt || 0) > STALE_URL_MS) refreshVideoUrl(selectedJob);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedId]);
+
     return (
         <div className="relative min-h-screen w-full bg-app-bg text-white">
             <div className="fixed top-5 left-6 z-30 flex items-center gap-3 text-xs font-medium tracking-wide text-white/40">
@@ -850,6 +889,7 @@ export default function SeedanceStudio() {
                         onCancel={() => onCancelJob(selectedJob.id)}
                         onFullscreen={() => selectedJob.videoUrl && setFullscreen(selectedJob.videoUrl)}
                         onReuse={onReuseRefs}
+                        onRefresh={() => refreshVideoUrl(selectedJob, { fromError: true })}
                     />
                 )}
             </div>
@@ -861,6 +901,7 @@ export default function SeedanceStudio() {
                     onSelect={setSelectedId}
                     onRemove={onBinJob}
                     onToggleLike={onToggleLike}
+                    onRefresh={refreshVideoUrl}
                 />
             )}
 
@@ -907,8 +948,38 @@ export default function SeedanceStudio() {
 
 // The selected generation, big in the center (higgsfield-style stage):
 // video when done, live progress while rendering, error otherwise.
-function BigStage({ job, onCancel, onFullscreen, onReuse }) {
+function BigStage({ job, onCancel, onFullscreen, onReuse, onRefresh }) {
     const active = ACTIVE_STATUSES.includes(job.status);
+    // The stored link expired and neither the archived copy nor the live task
+    // record could revive it — a clean dead-end card instead of a player
+    // spinning forever at 0:00. Reuse still restores the full setup.
+    if (job.status === 'done' && job.expired) {
+        const hasPrompt = !!(job.prompt || job.userPrompt || job.refs?.length);
+        const card = (
+            <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-black/40 aspect-video flex flex-col items-center justify-center gap-3 px-8 text-center">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-white/25"><path d="M16 16v1a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h2m5.66 0H14a2 2 0 012 2v3.34l1 1L23 7v10" /><line x1="1" y1="1" x2="23" y2="23" /></svg>
+                <p className="text-sm text-white/45 leading-relaxed max-w-sm">This video’s link expired and no archived copy exists — use Reuse to regenerate it.</p>
+                <button
+                    type="button"
+                    onClick={() => onReuse(job, job.refs || [])}
+                    title="Load this prompt, references and settings back into the prompt bar"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-primary/15 border border-primary/40 text-primary text-xs font-bold hover:bg-primary/25 transition-colors"
+                >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M1 4v6h6M23 20v-6h-6" /><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15" /></svg>
+                    Reuse
+                </button>
+            </div>
+        );
+        if (!hasPrompt) return <div className="w-full max-w-3xl animate-fade-in-up">{card}</div>;
+        return (
+            <div className="w-full max-w-6xl animate-fade-in-up">
+                <div className="flex flex-col lg:flex-row gap-4 justify-center lg:items-start">
+                    <div className="flex-1 min-w-0 max-w-3xl mx-auto lg:mx-0">{card}</div>
+                    <PromptTabs job={job} onReuse={onReuse} />
+                </div>
+            </div>
+        );
+    }
     if (job.status === 'done' && job.videoUrl) {
         const hasPrompt = !!(job.prompt || job.userPrompt || job.refs?.length);
         return (
@@ -917,7 +988,7 @@ function BigStage({ job, onCancel, onFullscreen, onReuse }) {
                 <div className="flex flex-col lg:flex-row gap-4 justify-center lg:items-start">
                     <div className="flex-1 min-w-0 max-w-3xl mx-auto lg:mx-0">
                         <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-black shadow-2xl">
-                            <video key={job.id} src={job.videoUrl} controls autoPlay loop muted playsInline className="w-full max-h-[64vh] object-contain bg-black" />
+                            <video key={job.id} src={job.videoUrl} controls autoPlay loop muted playsInline onError={onRefresh} className="w-full max-h-[64vh] object-contain bg-black" />
                             <div className="absolute top-3 right-3 flex gap-2">
                                 <button type="button" onClick={onFullscreen} title="Fullscreen" className="p-2 rounded-full bg-black/60 border border-white/10 text-white/80 hover:text-white hover:bg-black/80 transition-colors backdrop-blur-sm">
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 3H5a2 2 0 00-2 2v3M16 3h3a2 2 0 012 2v3M16 21h3a2 2 0 002-2v-3M8 21H5a2 2 0 01-2-2v-3" /></svg>
@@ -930,6 +1001,18 @@ function BigStage({ job, onCancel, onFullscreen, onReuse }) {
                         {!hasPrompt && <p className="mt-3 text-center text-xs text-white/35 truncate px-6" title={job.meta}>{job.meta}</p>}
                     </div>
                     {hasPrompt && <PromptTabs job={job} onReuse={onReuse} />}
+                </div>
+            </div>
+        );
+    }
+    if (job.status === 'done' && !job.videoUrl) {
+        // Link refresh in flight (archived→live fallback, sub-second) — a
+        // light spinner card, not the full "Rendering…" treatment.
+        return (
+            <div className="w-full max-w-3xl animate-fade-in-up">
+                <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-black/30 aspect-video flex flex-col items-center justify-center gap-2">
+                    <span className="animate-spin inline-block text-primary text-xl">◌</span>
+                    <span className="text-xs font-semibold text-white/40">Refreshing the video link…</span>
                 </div>
             </div>
         );
@@ -1118,9 +1201,34 @@ function RefThumb({ r }) {
     );
 }
 
+// Rail tile stand-in: subtle gradient + film glyph, so a tile never renders
+// as an empty black void; `expired` adds the tiny badge for dead links.
+function TilePlaceholder({ expired }) {
+    return (
+        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-white/[0.07] via-black/40 to-black/70 text-white/20">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="M7 4v16M17 4v16M2 9h5M2 15h5M17 9h5M17 15h5" /></svg>
+            {expired && <span className="absolute bottom-1 right-1 px-1 py-px rounded bg-black/70 border border-white/10 text-[7px] font-bold uppercase tracking-wider text-white/50">expired</span>}
+        </div>
+    );
+}
+
+// Rail tile video with the placeholder on top until a frame is decodable —
+// black-void tiles were dead links rendering nothing — and the one-shot URL
+// refresh when the link errors.
+function RailVideo({ job, onError }) {
+    const [ready, setReady] = useState(false);
+    useEffect(() => { setReady(false); }, [job.videoUrl]); // a refreshed URL reloads from scratch
+    return (
+        <>
+            <video src={job.videoUrl} muted playsInline preload="metadata" onLoadedData={() => setReady(true)} onError={onError} className="w-full h-full object-cover bg-black" />
+            {!ready && <TilePlaceholder />}
+        </>
+    );
+}
+
 // Right-side history rail (higgsfield-style): every generation as a compact
 // thumbnail — click to play it big on the center stage.
-function HistoryRail({ jobs, selectedId, onSelect, onRemove, onToggleLike }) {
+function HistoryRail({ jobs, selectedId, onSelect, onRemove, onToggleLike, onRefresh }) {
     return (
         <div className="fixed right-3 top-14 bottom-40 z-20 hidden sm:flex w-44 flex-col">
             <p className="px-1 pb-2 text-[10px] font-bold uppercase tracking-wider text-white/30">History · {jobs.length}</p>
@@ -1138,8 +1246,10 @@ function HistoryRail({ jobs, selectedId, onSelect, onRemove, onToggleLike }) {
                             title={job.prompt || job.meta || job.taskId}
                             className={`group relative shrink-0 aspect-video rounded-lg overflow-hidden border cursor-pointer transition-all ${selected ? 'border-primary/70 ring-1 ring-primary/40' : 'border-white/10 hover:border-white/30'}`}
                         >
-                            {job.status === 'done' && job.videoUrl ? (
-                                <video src={job.videoUrl} muted playsInline preload="metadata" className="w-full h-full object-cover bg-black" />
+                            {job.status === 'done' && job.videoUrl && !job.expired ? (
+                                <RailVideo job={job} onError={() => onRefresh(job, { fromError: true })} />
+                            ) : job.status === 'done' ? (
+                                <TilePlaceholder expired={!!job.expired} />
                             ) : (
                                 <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-black/50 px-2 text-center">
                                     {active ? (
