@@ -750,6 +750,15 @@ export default function SeedanceStudio() {
     // Binned jobs stay in `jobs` (so they persist + can be restored) but are
     // hidden from every main view. The Bin tab in the Assets overlay shows them.
     const visibleJobs = jobs.filter((j) => !j.deleted);
+
+    // Never open onto a blank hero when work exists: with nothing selected,
+    // put the newest finished creation on the big stage.
+    useEffect(() => {
+        if (selectedId || !visibleJobs.length) return;
+        const latest = visibleJobs.find((j) => j.status === 'done' && j.videoUrl) || visibleJobs[0];
+        if (latest) setSelectedId(latest.id);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedId, visibleJobs.length]);
     const binnedJobs = jobs.filter((j) => j.deleted);
     const activeCount = visibleJobs.filter((j) => ACTIVE_STATUSES.includes(j.status)).length;
     const doneCount = visibleJobs.filter((j) => j.status === 'done' && j.videoUrl).length;
@@ -1168,7 +1177,7 @@ function HistoryRail({ jobs, selectedId, onSelect, onRemove, onToggleLike }) {
                     );
                 })}
             </div>
-            <p className="pt-2 px-1 text-[9px] leading-relaxed text-white/20">Saved on this device · links expire ~24h — download keepers</p>
+            <p className="pt-2 px-1 text-[9px] leading-relaxed text-white/20">Synced to your account · videos auto-archived to team storage</p>
         </div>
     );
 }
@@ -1200,7 +1209,7 @@ function Hero() {
                 <span className="text-white">SEEDANCE 2.0</span>
             </h1>
             <p className="text-white/40 text-sm md:text-base font-medium tracking-wide text-center max-w-lg leading-relaxed">
-                Turn text, images, or references into cinematic AI video — on your BytePlus ModelArk key.
+                Turn text, images, or references into cinematic AI video — governed, budgeted, and shared with your team.
             </p>
         </div>
     );

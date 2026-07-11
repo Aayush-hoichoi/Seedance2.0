@@ -50,7 +50,7 @@ function arkHeaders(extra = {}) {
 async function resolveGateway(request, user, modelId) {
     const sql = await getDb();
     if (!sql) return null;
-    const org = await resolveOrgForUser(sql, user.orgId);
+    const org = await resolveOrgForUser(sql, user.orgId, user.userId);
     if (!org) return null;
     const [version] = await sql`SELECT v.*, m.category FROM model_versions v
         JOIN models m ON m.id = v.model_id WHERE v.version_tag = ${modelId} LIMIT 1`;

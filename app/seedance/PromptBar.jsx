@@ -6,6 +6,7 @@
 
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { MODES, RATIOS } from '../../lib/seedance/constants.js';
+import { estimateCost } from '../../lib/seedance/pricing.mjs';
 import { filterTags, tagLabelFor, tagToken, TOKEN_RE } from '../../lib/seedance/tags.js';
 import MediaHoverPreview from './MediaHoverPreview.jsx';
 
@@ -565,6 +566,15 @@ export default function PromptBar({
                     </div>
 
                     <div className="flex items-center justify-end gap-2">
+                        {/* Cost transparency: the same estimate the gateway reserves against. */}
+                        {(() => {
+                            const est = estimateCost({ kind: selectedModel?.kind, resolution: options.resolution, duration: options.duration });
+                            return est != null ? (
+                                <span className="hidden sm:inline text-[11px] font-semibold tabular-nums text-white/35 pr-1" title="Estimated cost (final cost uses real token usage)">
+                                    ≈ ${(est * (batch || 1)).toFixed(2)}
+                                </span>
+                            ) : null;
+                        })()}
                         {/* Batch: fire 1 / 2 / 4 parallel generations per click */}
                         {setBatch && (
                             <div className="flex items-center shrink-0 self-stretch rounded-md border border-white/[0.06] overflow-hidden" title="How many generations to start per click">
