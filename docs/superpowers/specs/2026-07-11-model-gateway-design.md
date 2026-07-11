@@ -8,10 +8,10 @@
 
 | PRD says | We use | Why it holds at our scale |
 |---|---|---|
-| Temporal workflows | `jobs` table in Neon + Vercel Cron sweeper (1/min) + `waitUntil` background processing kicked at enqueue | Generation is already async (ModelArk task polling); retries/timeouts/cancel are row-state transitions |
+| Temporal workflows | `jobs` table in Neon + Vercel Cron sweeper (1/min) + `waitUntil` background processing kicked at enqueue | Generation is already async (ModelArk task polling); retries/timeouts/cancel are row-state transitions. Considered alternatives: Inngest / Trigger.dev / QStash / Vercel Queues (beta) — **Inngest is the agreed fallback** if the custom queue code grows burdensome |
 | Redis pub/sub → SSE | `events` outbox table in Neon; `/api/events` streams SSE from a Vercel function, tailing the outbox (~2s) | Handful of concurrent users; swap to Upstash Redis only if SSE connections reach hundreds |
 | KMS for API keys | AES-256-GCM (`node:crypto`) with `KEY_ENCRYPTION_KEY` env secret; ciphertext in Neon | Keys never returned to clients; manual rotation states per PRD |
-| Email/Slack alerts | Slack incoming-webhook URL (env) always; Resend email when `RESEND_API_KEY` present | No infra, just keys |
+| Email/Slack alerts | **Not used (decided).** Alerts are in-app only: `budget.threshold_crossed` events → SSE toast + console alert feed | External channels can be added later as extra delivery targets on the same events |
 | 12-month hot + S3 cold | Neon only (+ existing TOS bucket for video files) | Data volume is tiny; revisit at millions of rows |
 
 ## 1. Schema (Neon — all added to the `getDb()` bootstrap chain)
@@ -242,7 +242,7 @@ Indexes on every §8.2 dimension: `billing_events(org_id, created_at)`, `(projec
 - **Enqueue-time check:** `settled_usage(window) + open_reservations + estimated_cost ≤ limit × (policy=soft ? 1+overage% : 1)`. Estimated cost from `pricing.mjs` `EXAMPLE`/`unitPrice` figures.
 - Reservation = `billing_events` row (`event_type='reservation'`, est_cost). Settlement/failure row closes it; cancellation writes `release`. Open reservation = reservation without a closing row (queryable with a `NOT EXISTS`).
 - On breach: `429 { code:'QUOTA_EXCEEDED', limit:{scope,type,window}, resets_at }`.
-- **Alerts:** after every settlement, a shared `checkThresholds()` compares window usage to each quota's thresholds; `quota_alerts_sent` dedupes; fires Slack webhook (always) + Resend email (if key) + `budget.threshold_crossed` event → SSE + in-app feed.
+- **Alerts (in-app only, decided):** after every settlement, a shared `checkThresholds()` compares window usage to each quota's thresholds; `quota_alerts_sent` dedupes; emits a `budget.threshold_crossed` event → SSE toast + console alert feed. No email/Slack for now.
 
 ## 4. Job lifecycle & queue (PRD §9)
 
@@ -359,4 +359,4 @@ The current `/admin` page's features (access requests, users, usage) migrate int
 8. Studio integration (project picker, model states, live banners, queue-backed cards)
 9. Rollups, exports, dashboards polish; Playwright flows; migration run
 
-**New dependencies:** shadcn/ui-generated components (Radix packages), `recharts`, `@tanstack/react-table`, `swr`, `resend` (optional, env-gated). Everything else is stdlib/platform.
+**New dependencies:** shadcn/ui-generated components (Radix packages), `recharts`, `@tanstack/react-table`, `swr`. Everything else is stdlib/platform.
