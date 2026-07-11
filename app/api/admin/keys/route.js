@@ -12,9 +12,10 @@ export const runtime = 'nodejs';
 export async function GET() {
     const auth = await gatewayContext({ permission: 'key.manage' });
     if (!auth.ok) return auth.response;
-    const { sql } = auth.ctx;
+    const { sql, org } = auth.ctx;
     const rows = await sql`SELECT id, provider_id, scope_org_id, scope_project_id, ciphertext, label, status, created_at
-        FROM api_keys WHERE status != 'deleted' ORDER BY created_at DESC`;
+        FROM api_keys WHERE status != 'deleted' AND (scope_org_id = ${org.id} OR scope_org_id IS NULL)
+        ORDER BY created_at DESC`;
     const items = rows.map(({ ciphertext, ...row }) => ({ ...row, last4: keyLast4(decryptSecret(ciphertext) || '') }));
     return NextResponse.json({ items });
 }
@@ -46,12 +47,14 @@ export async function POST(request) {
 export async function PATCH(request) {
     const auth = await gatewayContext({ permission: 'key.manage' });
     if (!auth.ok) return auth.response;
-    const { sql, user } = auth.ctx;
+    const { sql, user, org } = auth.ctx;
     const b = await request.json().catch(() => null);
     if (!b?.id || !['retiring', 'deleted', 'active'].includes(b?.status)) {
         return apiError('BAD_REQUEST', 'id and status (active|retiring|deleted) required.');
     }
-    const [row] = await sql`UPDATE api_keys SET status = ${b.status} WHERE id = ${b.id} RETURNING id, provider_id, label, status`;
+    const [row] = await sql`UPDATE api_keys SET status = ${b.status}
+        WHERE id = ${b.id} AND (scope_org_id = ${org.id} OR scope_org_id IS NULL)
+        RETURNING id, provider_id, label, status`;
     if (!row) return apiError('NOT_FOUND', 'Key not found.');
     await writeAudit(sql, {
         actorId: user.userId, actorEmail: user.email, action: `key.${b.status === 'deleted' ? 'delete' : b.status}`,

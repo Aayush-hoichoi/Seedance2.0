@@ -7,7 +7,8 @@ import { estimateCost } from '../../../../lib/seedance/pricing.mjs';
 import { getDb } from '../../../../lib/db/neon.js';
 import { effectiveAccess } from '../../../../lib/gateway/access.mjs';
 import { evaluateQuotas } from '../../../../lib/gateway/quota.mjs';
-import { activeQuotas, usageForQuotas, insertBillingEvent, emitEvent } from '../../../../lib/gateway/db.js';
+import { activeQuotas, usageForQuotas, insertBillingEvent, emitEvent, resolveOrgForUser } from '../../../../lib/gateway/db.js';
+import { PROJECT_CONCURRENCY } from '../../../../lib/gateway/queueLogic.mjs';
 
 // Server-side proxy to BytePlus ModelArk. The browser calls /api/byteplus/*,
 // this route re-issues the request to ModelArk with the Bearer key injected
@@ -49,7 +50,7 @@ function arkHeaders(extra = {}) {
 async function resolveGateway(request, user, modelId) {
     const sql = await getDb();
     if (!sql) return null;
-    const [org] = await sql`SELECT * FROM organizations WHERE deleted_at IS NULL ORDER BY created_at ASC LIMIT 1`;
+    const org = await resolveOrgForUser(sql, user.orgId);
     if (!org) return null;
     const [version] = await sql`SELECT v.*, m.category FROM model_versions v
         JOIN models m ON m.id = v.model_id WHERE v.version_tag = ${modelId} LIMIT 1`;
@@ -75,6 +76,12 @@ async function resolveGateway(request, user, modelId) {
     const decision = effectiveAccess({ modelId: version.model_id, now: new Date(), grants, overrides, defaultModelIds: defaults });
     if (!decision.allowed) {
         return { error: NextResponse.json({ code: 'MODEL_ACCESS_DENIED', rule: decision.rule, error: 'You do not have access to this model. Request access from the model picker.' }, { status: 403 }) };
+    }
+    // Tenant concurrency throttle (PRD §9.2) — the studio path submits straight
+    // to ModelArk, so the cap is enforced here rather than in the queue picker.
+    const [{ n: runningCount }] = await sql`SELECT count(*)::int AS n FROM jobs WHERE project_id = ${project.id} AND status = 'running'`;
+    if (runningCount >= PROJECT_CONCURRENCY) {
+        return { error: NextResponse.json({ code: 'QUEUE_FULL', error: `Your project already has ${runningCount} generations rendering — wait for one to finish (limit ${PROJECT_CONCURRENCY}).` }, { status: 429 }) };
     }
     return { sql, org, project, alias: version.model_id, versionId: version.id, kind: version.kind };
 }

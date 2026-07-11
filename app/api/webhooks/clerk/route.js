@@ -18,14 +18,22 @@ async function syncOrg(evt) {
         ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, slug = EXCLUDED.slug, deleted_at = NULL`;
 }
 
-// New signups join the Default project automatically so they can generate
-// with org-default models right away (admins tighten from the console).
-async function enrollInDefaultProject(userId) {
+// New members join their org's Default project automatically so they can
+// generate with org-default models right away (admins tighten from the
+// console). `orgId` binds the enrollment to the org the user actually
+// joined; without one (plain user.created), only an unambiguous single-org
+// installation may enroll — never "whichever org came first".
+async function enrollInDefaultProject(userId, orgId = null) {
     const sql = await getDb();
     if (!sql || !userId) return;
-    const [project] = await sql`SELECT p.id FROM projects p
-        JOIN organizations o ON o.id = p.org_id AND o.deleted_at IS NULL
-        WHERE p.name = 'Default' AND p.archived_at IS NULL LIMIT 1`;
+    let targetOrgId = orgId;
+    if (!targetOrgId) {
+        const orgs = await sql`SELECT id FROM organizations WHERE deleted_at IS NULL LIMIT 2`;
+        if (orgs.length !== 1) return;
+        targetOrgId = orgs[0].id;
+    }
+    const [project] = await sql`SELECT id FROM projects
+        WHERE org_id = ${targetOrgId} AND name = 'Default' AND archived_at IS NULL LIMIT 1`;
     if (!project) return; // migration not run yet
     await sql`INSERT INTO project_memberships (project_id, user_id, role, added_by)
         VALUES (${project.id}, ${userId}, 'member', 'clerk-webhook')
@@ -52,6 +60,8 @@ export async function POST(request) {
             if (evt.data?.id) await deleteUserData(evt.data.id);
         } else if (evt.type?.startsWith('organization.')) {
             await syncOrg(evt);
+        } else if (evt.type === 'organizationMembership.created') {
+            await enrollInDefaultProject(evt.data?.public_user_data?.user_id, evt.data?.organization?.id);
         }
         // Other event types are acknowledged and ignored.
     } catch (err) {

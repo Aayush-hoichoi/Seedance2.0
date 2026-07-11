@@ -17,6 +17,7 @@ import { imageCost } from '../../../lib/gateway/imagePricing.mjs';
 // AuthN → membership → effectiveAccess → quota+reservation → enqueue → 202.
 
 export const runtime = 'nodejs';
+export const maxDuration = 300; // after(processQueue) polls providers past the default timeout
 
 async function accessRows(sql, projectId, userId) {
     const grants = await sql`SELECT * FROM project_model_grants WHERE project_id = ${projectId}`;

@@ -7,6 +7,7 @@ import { cancelJob } from '../../../../lib/gateway/cancel.mjs';
 import { hasPermission } from '../../../../lib/gateway/access.mjs';
 
 export const runtime = 'nodejs';
+export const maxDuration = 300; // after(sweep) may poll providers past the default timeout
 
 async function loadFor(request, params) {
     const { id } = await params;
