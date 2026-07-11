@@ -58,8 +58,12 @@ const RATE_LIMIT_RE = /rate.?limit|quota|too many|429|concurren|throttl/i;
 // person — recoverable by re-referencing the media through the Asset Library.
 const SENSITIVE_RE = /may contain real person/i;
 // A done job whose only link is the ~24h ModelArk task URL is refreshed
-// proactively once it's ~20h old, instead of letting the player hit a 403.
+// proactively once it's ~20h old — players skip a stale URL entirely instead
+// of paying for the slow network failure first. URL age = last refresh, else
+// job creation (a refresh hands out a brand-new signed link).
 const STALE_URL_MS = 20 * 60 * 60 * 1000;
+const isStaleUrl = (job) => !job.archiveKey
+    && Date.now() - (job.urlRefreshedAt || job.createdAt || 0) > STALE_URL_MS;
 
 export default function SeedanceStudio() {
     // Default to Motion Capture — the studio's headline styled mode; the
@@ -171,21 +175,25 @@ export default function SeedanceStudio() {
     // Expired-link recovery: stored videoUrls outlive their signatures
     // (ModelArk ~24h, TOS presigns ≤7d). One refresh per job per session via
     // the archived→live fallback; `fromError` means the <video> actually
-    // failed, so a refresh that finds nothing — or a second failure after a
-    // refresh — marks the job `expired` instead of looping on a dead link.
-    const refreshedRef = useRef(new Set()); // job ids already refreshed this session
+    // failed, so a refresh that finds nothing — or a failure after the shot
+    // is spent — marks the job `expired` instead of looping on a dead link.
+    // While a refresh is in flight extra callers (stage + rail can both ask
+    // for the same job) are ignored: the resolution decides, not the race.
+    const refreshedRef = useRef(new Map()); // job id → 'pending' | 'done'
     const refreshVideoUrl = (job, { fromError = false } = {}) => {
         if (!job || job.status !== 'done' || job.expired) return;
-        // No taskId to refresh with, or the one shot is spent — a failing
-        // link is now final.
-        if (!job.taskId || refreshedRef.current.has(job.id)) {
+        // No taskId means nothing to refresh with — treat the shot as spent.
+        const state = job.taskId ? refreshedRef.current.get(job.id) : 'done';
+        if (state === 'pending') return;
+        if (state === 'done') {
             if (fromError) patchJob(job.id, { videoUrl: null, expired: true });
             return;
         }
-        refreshedRef.current.add(job.id);
+        refreshedRef.current.set(job.id, 'pending');
         if (fromError) patchJob(job.id, { videoUrl: null }); // dead link → show the loading treatment meanwhile
         resolveFreshVideoUrl(job.taskId).then((url) => {
-            if (url) patchJob(job.id, { videoUrl: url });
+            refreshedRef.current.set(job.id, 'done');
+            if (url) patchJob(job.id, { videoUrl: url, urlRefreshedAt: Date.now() });
             else if (fromError) patchJob(job.id, { expired: true });
         });
     };
@@ -800,12 +808,12 @@ export default function SeedanceStudio() {
     const selectedJob = jobs.find((j) => j.id === selectedId && !j.deleted) || null;
 
     // A selected card can carry a link that's already gone (restored from
-    // localStorage) or about to die (~20h-old ModelArk URL): recover it up
-    // front instead of letting the big stage spin forever at 0:00.
+    // localStorage) or ~20h+ old and about to 403: refresh it up front —
+    // clearing the stale URL so the player never wastes a network failure on
+    // it — instead of letting the big stage spin forever at 0:00.
     useEffect(() => {
         if (!selectedJob || selectedJob.status !== 'done' || selectedJob.expired) return;
-        if (!selectedJob.videoUrl) refreshVideoUrl(selectedJob, { fromError: true });
-        else if (!selectedJob.archiveKey && Date.now() - (selectedJob.createdAt || 0) > STALE_URL_MS) refreshVideoUrl(selectedJob);
+        if (!selectedJob.videoUrl || isStaleUrl(selectedJob)) refreshVideoUrl(selectedJob, { fromError: true });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedId]);
 
@@ -1215,17 +1223,49 @@ function TilePlaceholder({ expired }) {
     );
 }
 
-// Rail tile video with the placeholder on top until a frame is decodable —
-// black-void tiles were dead links rendering nothing — and the one-shot URL
-// refresh when the link errors.
-function RailVideo({ job, onError }) {
+// ONE IntersectionObserver shared by every rail tile: with ~150 jobs in
+// history, mounting 150 <video>s on load stampedes the network (and every
+// expired link waits out a slow failure first). A tile only gets its <video>
+// once scrolled into view (~7 visible), and is unobserved after that.
+const tileCallbacks = new WeakMap(); // element → set-in-view callback
+let tileObserver = null;
+function observeTile(el, cb) {
+    if (typeof IntersectionObserver === 'undefined') { cb(); return undefined; }
+    tileObserver ||= new IntersectionObserver((entries) => {
+        for (const e of entries) {
+            if (!e.isIntersecting) continue;
+            tileObserver.unobserve(e.target);
+            tileCallbacks.get(e.target)?.();
+            tileCallbacks.delete(e.target);
+        }
+    }, { rootMargin: '100px' });
+    tileCallbacks.set(el, cb);
+    tileObserver.observe(el);
+    return () => { tileCallbacks.delete(el); tileObserver.unobserve(el); };
+}
+
+// Rail tile video: placeholder until the tile scrolls into view AND a frame
+// is decodable — black-void tiles were dead links rendering nothing. A link
+// already ~20h+ old is never attached at all: straight to the one-shot
+// refresh instead of waiting out the network failure.
+function RailVideo({ job, onRefresh }) {
     const [ready, setReady] = useState(false);
+    const [inView, setInView] = useState(false);
+    const ref = useRef(null);
+    useEffect(() => observeTile(ref.current, () => setInView(true)), []);
     useEffect(() => { setReady(false); }, [job.videoUrl]); // a refreshed URL reloads from scratch
+    const stale = isStaleUrl(job);
+    useEffect(() => {
+        if (inView && stale) onRefresh(job, { fromError: true });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [inView, stale]);
     return (
-        <>
-            <video src={job.videoUrl} muted playsInline preload="metadata" onLoadedData={() => setReady(true)} onError={onError} className="w-full h-full object-cover bg-black" />
+        <div ref={ref} className="absolute inset-0">
+            {inView && !stale && (
+                <video src={job.videoUrl} muted playsInline preload="metadata" onLoadedData={() => setReady(true)} onError={() => onRefresh(job, { fromError: true })} className="w-full h-full object-cover bg-black" />
+            )}
             {!ready && <TilePlaceholder />}
-        </>
+        </div>
     );
 }
 
@@ -1250,7 +1290,7 @@ function HistoryRail({ jobs, selectedId, onSelect, onRemove, onToggleLike, onRef
                             className={`group relative shrink-0 aspect-video rounded-lg overflow-hidden border cursor-pointer transition-all ${selected ? 'border-primary/70 ring-1 ring-primary/40' : 'border-white/10 hover:border-white/30'}`}
                         >
                             {job.status === 'done' && job.videoUrl && !job.expired ? (
-                                <RailVideo job={job} onError={() => onRefresh(job, { fromError: true })} />
+                                <RailVideo job={job} onRefresh={onRefresh} />
                             ) : job.status === 'done' ? (
                                 <TilePlaceholder expired={!!job.expired} />
                             ) : (
