@@ -7,7 +7,7 @@
 // billing_events settlements. Safe to re-run: guarded by gateway_state.
 
 import { neon } from '@neondatabase/serverless';
-import { GATEWAY_DDL } from '../lib/db/schema.mjs';
+import { GATEWAY_DDL, SCHEMA_VERSION } from '../lib/db/schema.mjs';
 import { seedGateway } from '../lib/db/seeds.mjs';
 
 function arg(name, fallback = null) {
@@ -30,6 +30,8 @@ const sql = neon(DATABASE_URL);
 async function main() {
     for (const ddl of GATEWAY_DDL) await sql.query(ddl);
     await seedGateway(sql);
+    await sql`INSERT INTO gateway_state (key, value, updated_at) VALUES ('schema.version', ${JSON.stringify({ v: SCHEMA_VERSION })}, now())
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`;
 
     const [done] = await sql`SELECT value FROM gateway_state WHERE key = 'migration.v1'`;
     if (done?.value?.completed) {

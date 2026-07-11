@@ -77,13 +77,19 @@ async function resolveGateway(request, user, modelId) {
     if (!decision.allowed) {
         return { error: NextResponse.json({ code: 'MODEL_ACCESS_DENIED', rule: decision.rule, error: 'You do not have access to this model. Request access from the model picker.' }, { status: 403 }) };
     }
-    // Tenant concurrency throttle (PRD §9.2) — the studio path submits straight
-    // to ModelArk, so the cap is enforced here rather than in the queue picker.
-    const [{ n: runningCount }] = await sql`SELECT count(*)::int AS n FROM jobs WHERE project_id = ${project.id} AND status = 'running'`;
-    if (runningCount >= PROJECT_CONCURRENCY) {
-        return { error: NextResponse.json({ code: 'QUEUE_FULL', error: `Your project already has ${runningCount} generations rendering — wait for one to finish (limit ${PROJECT_CONCURRENCY}).` }, { status: 429 }) };
-    }
     return { sql, org, project, alias: version.model_id, versionId: version.id, kind: version.kind };
+}
+
+// Free a proxy job's slot + reservation when the provider never accepted it.
+async function releaseProxyJob(gw, jobId, user, reason) {
+    try {
+        await gw.sql`UPDATE jobs SET status = 'failed', finished_at = now(), error = ${JSON.stringify({ message: reason })} WHERE id = ${jobId}`;
+        await insertBillingEvent(gw.sql, {
+            eventType: 'release', generationId: jobId, orgId: gw.org.id, projectId: gw.project.id,
+            userId: user.userId, modelId: gw.alias, modelVersionId: gw.versionId, providerId: 'byteplus',
+            units: null, estCostUsd: null, costUsd: null, pricingSnapshot: null,
+        });
+    } catch { /* sweep's timeout path is the backstop */ }
 }
 
 function missingKeyResponse() {
@@ -185,49 +191,74 @@ export async function POST(request, { params }) {
         }
     }
 
-    // Forward to ModelArk, then record the generation on success.
+    // Gateway path: atomically take a concurrency slot BEFORE the provider
+    // sees the request — a cap-guarded INSERT under the same advisory lock
+    // claimJob uses, so concurrent submits can't oversubscribe (PRD §9.2).
+    let job = null;
+    if (gw) {
+        const requestBody = JSON.stringify({
+            options: {
+                resolution: parsed?.resolution ?? null, duration: parsed?.duration ?? null,
+                ratio: parsed?.ratio ?? null, mode: request.headers.get('x-seedance-mode') || null,
+                has_video_input: withVideo, kind,
+            },
+            est_cost_usd: estUsd,
+            category: 'video',
+        });
+        const [, rows] = await gw.sql.transaction([
+            gw.sql`SELECT pg_advisory_xact_lock(hashtext('gateway:claim'))`,
+            gw.sql`INSERT INTO jobs
+                (org_id, project_id, user_id, model_id, model_version_id, priority, status, attempt,
+                 request_body, provider_id, started_at, timeout_at)
+                SELECT ${gw.org.id}, ${gw.project.id}, ${user.userId}, ${gw.alias}, ${gw.versionId}, 'interactive', 'running', 1,
+                       ${requestBody}, 'byteplus', now(), now() + interval '30 minutes'
+                WHERE (SELECT count(*) FROM jobs r WHERE r.project_id = ${gw.project.id} AND r.status = 'running') < ${PROJECT_CONCURRENCY}
+                RETURNING id`,
+        ]);
+        job = rows?.[0] || null;
+        if (!job) {
+            return NextResponse.json({
+                code: 'QUEUE_FULL',
+                error: `Your project already has ${PROJECT_CONCURRENCY} generations rendering — wait for one to finish.`,
+            }, { status: 429 });
+        }
+        await insertBillingEvent(gw.sql, {
+            eventType: 'reservation', generationId: job.id, orgId: gw.org.id, projectId: gw.project.id,
+            userId: user.userId, modelId: gw.alias, modelVersionId: gw.versionId, providerId: 'byteplus',
+            units: { video_seconds: parsed?.duration || 5 }, estCostUsd: estUsd, pricingSnapshot: { basis: 'estimate' },
+        });
+    }
+
+    // Forward to ModelArk, then attach the provider task id (or roll back the
+    // slot + reservation if the provider rejected the request).
     let response;
+    let data = null;
+    let text = '';
     try {
         response = await fetch(targetUrl, { method: 'POST', headers, body });
+        text = await response.text();
+        try { data = JSON.parse(text); } catch { data = null; }
     } catch (error) {
+        if (job) await releaseProxyJob(gw, job.id, user, error.message);
         return NextResponse.json({ error: error.message }, { status: 502 });
     }
-    const text = await response.text();
-    let data;
-    try { data = JSON.parse(text); } catch { data = null; }
 
     if (response.ok && data?.id) {
-        const usageRow = {
-            userId: user.userId,
-            email: user.email,
-            modelId,
-            resolution: parsed?.resolution ?? null,
-            duration: typeof parsed?.duration === 'number' ? parsed.duration : null,
-            ratio: parsed?.ratio ?? null,
-            mode: request.headers.get('x-seedance-mode') || null,
-            hasVideoInput: withVideo,
-            taskId: data.id,
-            estCostUsd: estUsd,
-        };
         if (gw) {
-            // Gateway record: job row (running — ModelArk holds the work) +
-            // budget reservation + live event. Settled by /api/usage/complete.
-            const [job] = await gw.sql`INSERT INTO jobs
-                (org_id, project_id, user_id, model_id, model_version_id, priority, status, attempt,
-                 request_body, provider_task_id, provider_id, started_at, timeout_at)
-                VALUES (${gw.org.id}, ${gw.project.id}, ${user.userId}, ${gw.alias}, ${gw.versionId}, 'interactive', 'running', 1,
-                        ${JSON.stringify({ options: { resolution: parsed?.resolution ?? null, duration: parsed?.duration ?? null, ratio: parsed?.ratio ?? null, mode: usageRow.mode, has_video_input: withVideo, kind }, est_cost_usd: estUsd, category: 'video' })},
-                        ${data.id}, 'byteplus', now(), now() + interval '30 minutes')
-                RETURNING id`;
-            await insertBillingEvent(gw.sql, {
-                eventType: 'reservation', generationId: job.id, orgId: gw.org.id, projectId: gw.project.id,
-                userId: user.userId, modelId: gw.alias, modelVersionId: gw.versionId, providerId: 'byteplus',
-                units: { video_seconds: parsed?.duration || 5 }, estCostUsd: estUsd, pricingSnapshot: { basis: 'estimate' },
-            });
+            await gw.sql`UPDATE jobs SET provider_task_id = ${data.id} WHERE id = ${job.id}`;
             await emitEvent(gw.sql, { orgId: gw.org.id, projectId: gw.project.id, userId: user.userId, type: 'job.status_changed', payload: { jobId: job.id, taskId: data.id, status: 'running' } });
         } else {
-            await logUsage(usageRow); // pre-migration fallback
+            await logUsage({
+                userId: user.userId, email: user.email, modelId,
+                resolution: parsed?.resolution ?? null,
+                duration: typeof parsed?.duration === 'number' ? parsed.duration : null,
+                ratio: parsed?.ratio ?? null,
+                mode: request.headers.get('x-seedance-mode') || null,
+                hasVideoInput: withVideo, taskId: data.id, estCostUsd: estUsd,
+            }); // pre-migration fallback
         }
+    } else if (job) {
+        await releaseProxyJob(gw, job.id, user, data?.error?.message || `provider rejected (${response.status})`);
     }
 
     return data

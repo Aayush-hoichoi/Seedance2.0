@@ -52,8 +52,10 @@ export async function PATCH(request) {
     if (!b?.id || !['retiring', 'deleted', 'active'].includes(b?.status)) {
         return apiError('BAD_REQUEST', 'id and status (active|retiring|deleted) required.');
     }
+    // NULL-scoped (shared/global) keys are visible in GET but owned by no
+    // single org — no org admin may mutate them.
     const [row] = await sql`UPDATE api_keys SET status = ${b.status}
-        WHERE id = ${b.id} AND (scope_org_id = ${org.id} OR scope_org_id IS NULL)
+        WHERE id = ${b.id} AND scope_org_id = ${org.id}
         RETURNING id, provider_id, label, status`;
     if (!row) return apiError('NOT_FOUND', 'Key not found.');
     await writeAudit(sql, {

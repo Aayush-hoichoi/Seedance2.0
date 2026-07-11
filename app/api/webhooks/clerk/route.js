@@ -2,6 +2,7 @@ import { verifyWebhook } from '@clerk/nextjs/webhooks';
 import { userFromClerkEvent } from '../../../../lib/access/clerkUser.mjs';
 import { upsertUser, deleteUserData } from '../../../../lib/access/db.js';
 import { getDb } from '../../../../lib/db/neon.js';
+import { resolveOrgForUser } from '../../../../lib/gateway/db.js';
 
 export const runtime = 'nodejs';
 
@@ -26,14 +27,10 @@ async function syncOrg(evt) {
 async function enrollInDefaultProject(userId, orgId = null) {
     const sql = await getDb();
     if (!sql || !userId) return;
-    let targetOrgId = orgId;
-    if (!targetOrgId) {
-        const orgs = await sql`SELECT id FROM organizations WHERE deleted_at IS NULL LIMIT 2`;
-        if (orgs.length !== 1) return;
-        targetOrgId = orgs[0].id;
-    }
+    const org = await resolveOrgForUser(sql, orgId); // explicit org must resolve; else single-org only
+    if (!org) return;
     const [project] = await sql`SELECT id FROM projects
-        WHERE org_id = ${targetOrgId} AND name = 'Default' AND archived_at IS NULL LIMIT 1`;
+        WHERE org_id = ${org.id} AND name = 'Default' AND archived_at IS NULL LIMIT 1`;
     if (!project) return; // migration not run yet
     await sql`INSERT INTO project_memberships (project_id, user_id, role, added_by)
         VALUES (${project.id}, ${userId}, 'member', 'clerk-webhook')
