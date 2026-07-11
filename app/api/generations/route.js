@@ -31,7 +31,7 @@ function estimateFor({ category, kind, mode, options = {} }) {
         const n = options.imageCount || 1;
         return { usd: imageCost(kind, mode, n) ?? 0, images: n, video_seconds: 0, requests: 1 };
     }
-    const usd = estimateCost({ kind, resolution: options.resolution, duration: options.duration }) ?? 0;
+    const usd = estimateCost({ kind, resolution: options.resolution, duration: options.duration, hasVideoInput: !!options.has_video_input }) ?? 0;
     return { usd, images: 0, video_seconds: options.duration || 5, requests: 1 };
 }
 

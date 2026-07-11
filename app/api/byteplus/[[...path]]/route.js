@@ -173,7 +173,7 @@ export async function POST(request, { params }) {
     // Quota check + reservation happen BEFORE the provider sees the request.
     const kind = gw?.kind ?? MODELS.find((m) => m.id === modelId)?.kind ?? null;
     const withVideo = hasVideoInput(parsed?.content);
-    const estUsd = kind ? estimateCost({ kind, resolution: parsed?.resolution, duration: parsed?.duration }) : null;
+    const estUsd = kind ? estimateCost({ kind, resolution: parsed?.resolution, duration: parsed?.duration, hasVideoInput: withVideo }) : null;
     if (gw) {
         const quotas = await activeQuotas(gw.sql, gw.org.id);
         const usage = await usageForQuotas(gw.sql, quotas);

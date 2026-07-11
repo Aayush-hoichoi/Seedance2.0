@@ -34,3 +34,10 @@ test('estimateCost scales the 5s example by duration', () => {
     assert.equal(estimateCost({ kind: 'mini', resolution: '480p', duration: 10 }), 0.36);
     assert.equal(estimateCost({ kind: 'full', resolution: '720p', duration: 5 }), 0.76);
 });
+
+test('estimateCost applies the measured video-input drift (~17% up)', () => {
+    assert.equal(estimateCost({ kind: 'mini', resolution: '480p', duration: 5, hasVideoInput: true }), 0.2106);
+    const plain = estimateCost({ kind: 'full', resolution: '1080p', duration: 10 });
+    const withVideo = estimateCost({ kind: 'full', resolution: '1080p', duration: 10, hasVideoInput: true });
+    assert.ok(withVideo > plain, 'video input must raise the estimate');
+});
