@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveVideoRefs, resolveSensitiveRefs } from '../lib/seedance/assetsClient.js';
+import { resolveVideoRefs, resolveSensitiveRefs, createWithQuotaRecovery } from '../lib/seedance/assetsClient.js';
 
 const fakeRegister = async ({ url }) => ({ url: 'asset://asset-test-1', assetId: 'asset-test-1', from: url });
 
@@ -34,6 +34,41 @@ test('propagates registration failures', async () => {
         () => resolveVideoRefs(items, async () => { throw new Error('quota'); }),
         /quota/,
     );
+});
+
+test('quota recovery: sweeps 1h and retries', async () => {
+    const calls = [];
+    let attempt = 0;
+    const create = async () => {
+        if (++attempt === 1) throw new Error('Asset quota exceeded: the shared pool for projects without explicit allocation is full.');
+        return 'asset-1';
+    };
+    const cleanup = async ({ maxAgeHours }) => { calls.push(maxAgeHours); return 3; };
+    assert.equal(await createWithQuotaRecovery(create, cleanup), 'asset-1');
+    assert.deepEqual(calls, [1]);
+});
+
+test('quota recovery: escalates to a minutes-old sweep when the 1h sweep frees nothing', async () => {
+    const calls = [];
+    let attempt = 0;
+    const create = async () => {
+        if (++attempt === 1) throw new Error('quota exceeded');
+        return 'asset-2';
+    };
+    const cleanup = async ({ maxAgeHours }) => { calls.push(maxAgeHours); return 0; };
+    assert.equal(await createWithQuotaRecovery(create, cleanup), 'asset-2');
+    assert.deepEqual(calls, [1, 5 / 60]);
+});
+
+test('quota recovery: still-full pool surfaces an actionable message', async () => {
+    const create = async () => { throw new Error('Asset quota exceeded'); };
+    const cleanup = async () => 0;
+    await assert.rejects(() => createWithQuotaRecovery(create, cleanup), /BytePlus console/);
+});
+
+test('quota recovery: non-quota errors pass through untouched', async () => {
+    const create = async () => { throw new Error('boom'); };
+    await assert.rejects(() => createWithQuotaRecovery(create, async () => { throw new Error('must not sweep'); }), /boom/);
 });
 
 test('resolveSensitiveRefs swaps raw image and video URLs in a payload', async () => {
