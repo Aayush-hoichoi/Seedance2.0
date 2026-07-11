@@ -171,6 +171,7 @@ function ModelsTab({ projectId, grants, catalog, onChange }) {
         r.ok ? (toast.success(`Granted ${modelId}${validUntil ? ' (time-boxed)' : ''}`), onChange()) : toast.error(r.data?.message || 'Failed');
     }
     async function revoke(modelId) {
+        if (!window.confirm(`Revoke ${modelId} for the whole project? Queued jobs for it are cancelled immediately.`)) return;
         const r = await sendJson(`/api/projects/${projectId}/models?modelId=${encodeURIComponent(modelId)}`, 'DELETE');
         r.ok ? (toast.success(`Revoked ${modelId} — queued jobs cancelled`), onChange()) : toast.error(r.data?.message || 'Failed');
     }
@@ -195,9 +196,11 @@ function ModelsTab({ projectId, grants, catalog, onChange }) {
                             ) : m.isDefault ? (
                                 <Badge tone="green">always on</Badge>
                             ) : (
-                                <div className="flex items-center gap-1.5">
-                                    <Input type="datetime-local" className="w-44" value={expiry[m.id] || ''}
-                                        onChange={(e) => setExpiry({ ...expiry, [m.id]: e.target.value })} title="Optional expiry" />
+                                <div className="flex items-end gap-1.5">
+                                    <Field label="Optional expiry">
+                                        <Input type="datetime-local" className="w-44" value={expiry[m.id] || ''}
+                                            onChange={(e) => setExpiry({ ...expiry, [m.id]: e.target.value })} />
+                                    </Field>
                                     <Button variant="primary" size="xs" onClick={() => grant(m.id)}>Grant</Button>
                                 </div>
                             )}
