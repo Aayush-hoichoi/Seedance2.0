@@ -780,10 +780,13 @@ export default function SeedanceStudio() {
     // hidden from every main view. The Bin tab in the Assets overlay shows them.
     const visibleJobs = jobs.filter((j) => !j.deleted);
 
-    // Never open onto a blank hero when work exists: with nothing selected,
-    // put the newest finished creation on the big stage.
+    // Never open onto a blank hero when work exists: on FIRST load with
+    // nothing selected, put the newest finished creation on the big stage.
+    // Once per visit only — Home (setSelectedId(null)) must stay home.
+    const autoSelectedRef = useRef(false);
     useEffect(() => {
-        if (selectedId || !visibleJobs.length) return;
+        if (autoSelectedRef.current || selectedId || !visibleJobs.length) return;
+        autoSelectedRef.current = true;
         const latest = visibleJobs.find((j) => j.status === 'done' && j.videoUrl) || visibleJobs[0];
         if (latest) setSelectedId(latest.id);
         // eslint-disable-next-line react-hooks/exhaustive-deps
