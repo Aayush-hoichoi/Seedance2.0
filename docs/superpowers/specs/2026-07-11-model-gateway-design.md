@@ -8,11 +8,15 @@
 
 | PRD says | We use | Why it holds at our scale |
 |---|---|---|
-| Temporal workflows | `jobs` table in Neon + Vercel Cron sweeper (1/min) + `waitUntil` background processing kicked at enqueue | Generation is already async (ModelArk task polling); retries/timeouts/cancel are row-state transitions. Considered alternatives: Inngest / Trigger.dev / QStash / Vercel Queues (beta) — **Inngest is the agreed fallback** if the custom queue code grows burdensome |
+| Temporal workflows | `jobs` table in Neon + `waitUntil` processing kicked at enqueue + guarded `sweep()` piggybacked on traffic (see free-plan fit below) | Generation is already async (ModelArk task polling); retries/timeouts/cancel are row-state transitions. Considered alternatives: Inngest / Trigger.dev / QStash / Vercel Queues (beta) — **Inngest is the agreed fallback** if the custom queue code grows burdensome |
 | Redis pub/sub → SSE | `events` outbox table in Neon; `/api/events` streams SSE from a Vercel function, tailing the outbox (~2s) | Handful of concurrent users; swap to Upstash Redis only if SSE connections reach hundreds |
 | KMS for API keys | AES-256-GCM (`node:crypto`) with `KEY_ENCRYPTION_KEY` env secret; ciphertext in Neon | Keys never returned to clients; manual rotation states per PRD |
 | Email/Slack alerts | **Not used (decided).** Alerts are in-app only: `budget.threshold_crossed` events → SSE toast + console alert feed | External channels can be added later as extra delivery targets on the same events |
 | 12-month hot + S3 cold | Neon only (+ existing TOS bucket for video files) | Data volume is tiny; revisit at millions of rows |
+
+**Vercel free-plan (Hobby) fit — verified constraints the design honors:**
+- **SSE:** streaming responses work on Hobby; functions run up to 300 s, so each SSE connection lives ~5 min and `EventSource` auto-reconnects with `Last-Event-ID` (events persist in the outbox, nothing is lost). Idle SSE ticks cost almost no active CPU under Fluid pricing.
+- **Cron:** Hobby allows only 2 cron jobs, once per day. Therefore NO per-minute crons anywhere. Maintenance (job timeouts, retries, grant/override expiry events, stuck-job recovery) runs as a guarded `sweep()` — piggybacked on every SSE 2 s tick and on generation-status polls, with a `last_sweep` timestamp row ensuring it executes at most ~1/min regardless of connection count. When no one is connected, nothing urgent needs sweeping (enforcement is always per-request; jobs exist only while someone is around to have submitted them). The single daily cron runs rollups + housekeeping.
 
 ## 1. Schema (Neon — all added to the `getDb()` bootstrap chain)
 
@@ -234,7 +238,7 @@ Indexes on every §8.2 dimension: `billing_events(org_id, created_at)`, `(projec
 5. otherwise                                  → deny      (deny by default)
 ```
 
-"Active" = `revoked_at IS NULL` AND now within `[valid_from, valid_until]` (nulls unbounded). Expiry is therefore enforced on every request; a cron (below) also *pushes* `access.expired` at the boundary.
+"Active" = `revoked_at IS NULL` AND now within `[valid_from, valid_until]` (nulls unbounded). Expiry is therefore enforced on every request; the guarded `sweep()` (§0/§6) also *pushes* `access.expired` at the boundary.
 
 ## 3. Quotas, budgets & reservations (PRD §7)
 
@@ -252,7 +256,7 @@ POST /api/generations
   → INSERT jobs(queued) → 202 {generation_id} → waitUntil(processQueue())
 ```
 
-**processQueue()** (also run by Vercel Cron every minute as sweeper — catches crashes, timeouts, expiries):
+**processQueue()** (re-triggered by `waitUntil` at enqueue and by the guarded `sweep()` on SSE ticks / status polls — catches crashes, timeouts, expiries; no per-minute cron on Hobby):
 1. Claim: `UPDATE jobs SET status='running', started_at=now(), attempt=attempt+1 WHERE id = (SELECT id FROM jobs WHERE status='queued' AND project not paused ORDER BY priority='interactive' DESC, created_at ASC ... FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *` — atomic, safe across concurrent instances. Per-org fairness: round-robin pick across orgs at same priority.
 2. Concurrency gates (checked before claim): running count per (provider, model) < provider cap; running per project < tenant cap (default 5). Caps live in a `settings` jsonb or env.
 3. Submit to provider via routing (§5); store `provider_task_id`; poll ModelArk until done/`timeout_at`.
@@ -276,7 +280,7 @@ The existing direct `/api/byteplus` create-task path is **replaced** by `/api/ge
 
 - `GET /api/events` (Fluid function, `maxDuration` 300s): authenticates, then tails `events` where audience matches (org + user's projects + user), polling Neon every 2 s, emitting SSE with `id:` = event id; supports `Last-Event-ID` resume. Client `EventSource` auto-reconnects each ~5 min window.
 - Every governance mutation (grant/revoke/override/pause/budget-cross/job transition) inserts an outbox row in the same transaction as its DB write — enforcement never depends on delivery.
-- **Expiry cron** (1/min): finds grants/overrides where `valid_until` just passed and unexpired-notified, emits `access.expired`, cancels affected queued jobs (same consumer as revoke).
+- **Expiry push** (part of the guarded `sweep()`): finds grants/overrides where `valid_until` just passed and not yet notified, emits `access.expired`, cancels affected queued jobs (same consumer as revoke). Enforcement never waits for this — every authz check evaluates expiry itself.
 - Revoke flow per PRD §10.2: new requests rejected at authz; queued jobs cancelled; running jobs complete and settle.
 
 ## 7. API surface (PRD §11.2 → Next.js routes)
@@ -352,7 +356,7 @@ The current `/admin` page's features (access requests, users, usage) migrate int
 1. Schema + seeds + migration script; Clerk Organizations + webhooks
 2. `effectiveAccess` + roles/permissions helpers (pure, tested)
 3. Billing events + reservations + quota engine (pure core, tested)
-4. Jobs queue + processor + crons (sweeper, expiry, rollup) + provider adapters/routing/keybox
+4. Jobs queue + processor + guarded sweep (timeouts/retries/expiry) + daily rollup cron + provider adapters/routing/keybox
 5. `/api/generations` + all governance API routes + audit helper + error contract
 6. Events outbox + SSE endpoint + `useEvents()` hook
 7. Console shell + all eight pages (shadcn/ui, Recharts, TanStack Table, SWR)
