@@ -35,6 +35,13 @@ test('estimateCost scales the 5s example by duration', () => {
     assert.equal(estimateCost({ kind: 'full', resolution: '720p', duration: 5 }), 0.76);
 });
 
+test('full-tier per-5s estimates rise strictly with resolution', () => {
+    const est = (resolution) => estimateCost({ kind: 'full', resolution, duration: 5 });
+    assert.ok(est('480p') < est('720p'), '480p < 720p');
+    assert.ok(est('720p') < est('1080p'), '720p < 1080p');
+    assert.ok(est('1080p') < est('4k'), '1080p < 4k');
+});
+
 test('estimateCost applies the measured video-input drift (~17% up)', () => {
     assert.equal(estimateCost({ kind: 'mini', resolution: '480p', duration: 5, hasVideoInput: true }), 0.2106);
     const plain = estimateCost({ kind: 'full', resolution: '1080p', duration: 10 });
