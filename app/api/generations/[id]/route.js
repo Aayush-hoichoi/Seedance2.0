@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { gatewayContext } from '../../../../lib/gateway/authz.js';
+import { sweep } from '../../../../lib/gateway/sweep.mjs';
 import { apiError } from '../../../../lib/gateway/httpError.mjs';
 import { getJob } from '../../../../lib/gateway/db.js';
 import { cancelJob } from '../../../../lib/gateway/cancel.mjs';
@@ -26,6 +27,7 @@ async function loadFor(request, params) {
 export async function GET(request, { params }) {
     const r = await loadFor(request, params);
     if (r.response) return r.response;
+    after(() => sweep().catch(() => {})); // status polls drive queue maintenance (no cron on Hobby)
     const { sql, job, own, role } = r;
     let body = job;
     if (!own) {

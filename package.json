@@ -24,13 +24,22 @@
   "dependencies": {
     "@clerk/nextjs": "^7.5.16",
     "@neondatabase/serverless": "^1.1.0",
+    "@radix-ui/react-dialog": "^1.1.19",
+    "@radix-ui/react-select": "^2.3.3",
+    "@radix-ui/react-tabs": "^1.1.17",
+    "@radix-ui/react-tooltip": "^1.2.12",
+    "@tanstack/react-table": "^8.21.3",
     "ai-agent": "file:./packages/Open-Poe-AI/packages/agents",
     "axios": "^1.7.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.24.0",
     "next": "^15.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-hot-toast": "^2.4.1",
+    "recharts": "^3.9.2",
     "studio": "*",
+    "swr": "^2.4.2",
     "workflow-builder": "file:./packages/Vibe-Workflow/packages/workflow-builder"
   },
   "devDependencies": {
