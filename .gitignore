@@ -38,3 +38,8 @@ out/
 !.env.example
 .gstack/
 .vercel
+
+# local tooling artifacts
+.agents/
+.playwright-mcp/
+skills-lock.json
