@@ -75,7 +75,8 @@ test('org fairness: org with fewer running jobs goes first', () => {
 test('per-project concurrency cap holds jobs back', () => {
     const running = Array.from({ length: PROJECT_CONCURRENCY }, (_, i) => job(900 + i)); // cap reached in project 1
     assert.equal(pickNextJob({ queued: [job(1)], running, now: NOW }), null);
-    const other = pickNextJob({ queued: [job(1), job(2, { project_id: 2 })], running, now: NOW });
+    // Different model so only the project dimension binds (caps may be equal).
+    const other = pickNextJob({ queued: [job(1), job(2, { project_id: 2, model_id: 'seedance-2.0-mini' })], running, now: NOW });
     assert.equal(other.id, 2);
 });
 
