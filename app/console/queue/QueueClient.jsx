@@ -26,7 +26,21 @@ export default function QueueClient() {
         { accessorKey: 'id', header: '#', cell: ({ getValue }) => <span className="text-zinc-500">#{getValue()}</span> },
         { accessorKey: 'model_id', header: 'Model' },
         { accessorKey: 'user_id', header: 'User', cell: ({ getValue }) => <span className="text-zinc-400">{String(getValue()).slice(0, 16)}…</span> },
-        { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => <Badge tone={STATUS_TONE[getValue()] || 'zinc'}>{getValue()}</Badge> },
+        {
+            accessorKey: 'status', header: 'Status',
+            cell: ({ row, getValue }) => {
+                const status = getValue();
+                // Provider rejections (moderation, activation, quota) land in
+                // jobs.error — show the reason so a failed row explains itself.
+                const reason = status === 'failed' ? row.original.error?.message?.replace(/\s*Request id:.*$/i, '') : null;
+                return (
+                    <div className="max-w-[26rem]">
+                        <Badge tone={STATUS_TONE[status] || 'zinc'}>{status}</Badge>
+                        {reason ? <div className="mt-1 truncate text-xs text-red-300/70" title={row.original.error.message}>{reason}</div> : null}
+                    </div>
+                );
+            },
+        },
         { accessorKey: 'priority', header: 'Priority', cell: ({ getValue }) => <span className={getValue() === 'interactive' ? 'text-sky-300' : 'text-zinc-500'}>{getValue()}</span> },
         { accessorKey: 'attempt', header: 'Attempt', cell: ({ getValue }) => <span className="tabular-nums text-zinc-500">{getValue()}/3</span> },
         {
