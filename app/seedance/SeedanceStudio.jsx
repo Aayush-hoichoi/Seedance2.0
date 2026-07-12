@@ -88,6 +88,7 @@ export default function SeedanceStudio() {
     // in the picker with a "request access" action.
     const [allowedModelIds, setAllowedModelIds] = useState(null);
     const [isAdmin, setIsAdmin] = useState(false); // shows the /admin shortcut (server still enforces)
+    const [monthSpend, setMonthSpend] = useState(null); // this month's spend (USD) for the badge
     // Gateway projects: model access + budgets are scoped per project. The
     // picker only appears when the user belongs to more than one.
     const [projects, setProjects] = useState([]);
@@ -98,7 +99,7 @@ export default function SeedanceStudio() {
         let alive = true;
         fetch('/api/access/me')
             .then((r) => (r.ok ? r.json() : null))
-            .then((d) => { if (alive && d) { setAllowedModelIds(d.allowedModelIds); setIsAdmin(!!d.isAdmin); } })
+            .then((d) => { if (alive && d) { setAllowedModelIds(d.allowedModelIds); setIsAdmin(!!d.isAdmin); if (typeof d.monthSpendUsd === 'number') setMonthSpend(d.monthSpendUsd); } })
             .catch(() => {});
         fetch('/api/projects')
             .then((r) => (r.ok ? r.json() : null))
@@ -839,6 +840,14 @@ export default function SeedanceStudio() {
 
             {/* Top-right: project scope + admin (role-gated) + community gallery + assets + account menu. */}
             <div className="fixed top-5 right-6 z-30 flex items-center gap-2.5">
+                {monthSpend != null && (
+                    <span
+                        title="What your generations cost this calendar month (in-flight ones counted at their estimate)"
+                        className="px-2.5 py-1.5 rounded-md border border-white/10 bg-white/[0.04] text-xs font-semibold tabular-nums text-white/70"
+                    >
+                        ${monthSpend.toFixed(2)}<span className="ml-1 font-medium text-white/35">this month</span>
+                    </span>
+                )}
                 {projects.length > 1 && (
                     <select
                         value={projectId ?? ''}
@@ -999,7 +1008,25 @@ function BigStage({ job, onCancel, onFullscreen, onReuse, onRefresh }) {
                 <div className="flex flex-col lg:flex-row gap-4 justify-center lg:items-start">
                     <div className="flex-1 min-w-0 max-w-3xl mx-auto lg:mx-0">
                         <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-black shadow-2xl">
-                            <video key={job.id} src={job.videoUrl} controls autoPlay loop muted playsInline onError={onRefresh} className="w-full max-h-[64vh] object-contain bg-black" />
+                            <video
+                                key={job.id}
+                                src={job.videoUrl}
+                                controls
+                                autoPlay
+                                loop
+                                playsInline
+                                onError={onRefresh}
+                                // Sound on by default; if the browser blocks unmuted
+                                // autoplay (fresh page load, no gesture yet), fall back
+                                // to muted so the video still starts.
+                                ref={(el) => {
+                                    if (!el || el.dataset.soundTried) return;
+                                    el.dataset.soundTried = '1';
+                                    el.muted = false;
+                                    el.play?.()?.catch(() => { el.muted = true; el.play().catch(() => {}); });
+                                }}
+                                className="w-full max-h-[64vh] object-contain bg-black"
+                            />
                             <div className="absolute top-3 right-3 flex gap-2">
                                 <button type="button" onClick={onFullscreen} title="Fullscreen" className="p-2 rounded-full bg-black/60 border border-white/10 text-white/80 hover:text-white hover:bg-black/80 transition-colors backdrop-blur-sm">
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 3H5a2 2 0 00-2 2v3M16 3h3a2 2 0 012 2v3M16 21h3a2 2 0 002-2v-3M8 21H5a2 2 0 01-2-2v-3" /></svg>
@@ -1086,12 +1113,16 @@ function PromptTabs({ job, onReuse }) {
         ]
         : [{ id: 'generated', label: 'Prompt', text: generated || userPrompt }];
     const current = tabs.find((t) => t.id === tab) || tabs[0];
+    // Which model produced this video — friendly name when the id is in the
+    // catalog, the raw id for rotated/legacy ones, nothing for old jobs that
+    // predate the model field.
+    const modelName = job.model ? (MODELS.find((m) => m.id === job.model)?.name ?? job.model) : null;
     return (
         <div className="w-full lg:w-80 xl:w-96 shrink-0 flex flex-col max-h-[40vh] lg:max-h-[64vh] rounded-2xl border border-white/10 bg-white/[0.02] backdrop-blur-sm overflow-hidden">
-            {hasText && (
+            {(hasText || modelName) && (
                 <>
                     <div className="flex items-center gap-1 p-2 border-b border-white/[0.06] shrink-0">
-                        {tabs.map((t) => (
+                        {hasText && tabs.map((t) => (
                             <button
                                 key={t.id}
                                 type="button"
@@ -1099,11 +1130,17 @@ function PromptTabs({ job, onReuse }) {
                                 className={`px-3 py-1.5 rounded-md text-[11px] font-semibold transition-colors ${t.id === current.id ? 'bg-primary/15 text-primary' : 'text-white/40 hover:text-white hover:bg-white/[0.06]'}`}
                             >{t.label}</button>
                         ))}
-                        {hasBoth && current.id === 'generated' && <span className="ml-auto pr-1 text-[9px] uppercase tracking-wider text-white/25">sent to model</span>}
+                        {modelName && (
+                            <span className="ml-auto pr-1 max-w-[45%] truncate text-[9px] uppercase tracking-wider text-white/25" title={`Generated with ${modelName}`}>
+                                {hasBoth && current.id === 'generated' ? `sent to ${modelName}` : modelName}
+                            </span>
+                        )}
                     </div>
-                    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-4 py-3">
-                        <p className="text-xs leading-relaxed text-white/60 whitespace-pre-wrap break-words">{current.text}</p>
-                    </div>
+                    {hasText && (
+                        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-4 py-3">
+                            <p className="text-xs leading-relaxed text-white/60 whitespace-pre-wrap break-words">{current.text}</p>
+                        </div>
+                    )}
                 </>
             )}
             {job.refs?.length > 0 && <RefAssets refs={job.refs} onReuse={onReuse ? (items) => onReuse(job, items) : null} />}
