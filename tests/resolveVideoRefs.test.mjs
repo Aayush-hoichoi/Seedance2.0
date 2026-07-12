@@ -96,3 +96,38 @@ test('resolveSensitiveRefs swaps raw image and video URLs in a payload', async (
     // input payload not mutated
     assert.equal(payload.content[1].image_url.url, 'https://tos.example/i.png');
 });
+
+test('asset calls retry through BytePlus QPS throttling, then succeed', async () => {
+    const { getAsset } = await import('../lib/seedance/assetsClient.js');
+    const responses = [
+        { ok: false, status: 429, body: { error: 'RequestThrottled' } },
+        { ok: true, status: 200, body: { ResponseMetadata: { Error: { Code: 'AccountFlowLimitExceeded', Message: 'request too frequent' } } } },
+        { ok: true, status: 200, body: { Result: { Id: 'a1', Status: 'Active' } } },
+    ];
+    let calls = 0;
+    const realFetch = global.fetch;
+    global.fetch = async () => {
+        const r = responses[Math.min(calls++, responses.length - 1)];
+        return { ok: r.ok, status: r.status, json: async () => r.body };
+    };
+    try {
+        const asset = await getAsset('a1'); // routes through callAsset's retry loop
+        assert.equal(asset.id, 'a1');
+        assert.equal(calls, 3); // 429 → throttle body → success
+    } finally {
+        global.fetch = realFetch;
+    }
+});
+
+test('non-throttle asset errors still fail immediately', async () => {
+    const { getAsset } = await import('../lib/seedance/assetsClient.js');
+    let calls = 0;
+    const realFetch = global.fetch;
+    global.fetch = async () => { calls++; return { ok: false, status: 400, json: async () => ({ error: 'bad input' }) }; };
+    try {
+        await assert.rejects(() => getAsset('a1'), /bad input/);
+        assert.equal(calls, 1);
+    } finally {
+        global.fetch = realFetch;
+    }
+});
