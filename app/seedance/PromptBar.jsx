@@ -302,7 +302,7 @@ function MediaButtons({ mode, mediaByRole, setMediaByRole, disabled, onUploadFil
 }
 
 /* ── the bar ────────────────────────────────────────────────────────────── */
-const BATCH_OPTIONS = [1, 2, 4];
+const BATCH_OPTIONS = [1, 2 /* , 4 — capped at ×2 for now; uncomment to bring ×4 back */];
 
 export default function PromptBar({
     mode, onChangeMode, prompt, onPromptChange, options, setOpt,
