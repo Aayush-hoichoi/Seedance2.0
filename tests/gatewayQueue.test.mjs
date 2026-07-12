@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     backoffDelayMs, isRetryable, timeoutSecondsFor, pickNextJob, MAX_ATTEMPTS,
+    PROJECT_CONCURRENCY, MODEL_CONCURRENCY,
 } from '../lib/gateway/queueLogic.mjs';
 
 const NOW = new Date('2026-07-11T12:00:00Z');
@@ -72,14 +73,14 @@ test('org fairness: org with fewer running jobs goes first', () => {
 });
 
 test('per-project concurrency cap holds jobs back', () => {
-    const running = [job(90), job(91), job(92), job(93), job(94)]; // 5 running in project 1
+    const running = Array.from({ length: PROJECT_CONCURRENCY }, (_, i) => job(900 + i)); // cap reached in project 1
     assert.equal(pickNextJob({ queued: [job(1)], running, now: NOW }), null);
     const other = pickNextJob({ queued: [job(1), job(2, { project_id: 2 })], running, now: NOW });
     assert.equal(other.id, 2);
 });
 
 test('per-model provider cap holds jobs back', () => {
-    const running = Array.from({ length: 10 }, (_, i) => job(80 + i, { project_id: 100 + i }));
+    const running = Array.from({ length: MODEL_CONCURRENCY }, (_, i) => job(800 + i, { project_id: 100 + i }));
     assert.equal(pickNextJob({ queued: [job(1, { project_id: 50 })], running, now: NOW }), null);
 });
 
