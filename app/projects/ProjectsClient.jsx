@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { UserButton } from '@clerk/nextjs';
-import { Plus, Users, FolderKanban, ArrowUpRight } from 'lucide-react';
+import { Plus, Users, FolderKanban, ArrowUpRight, Trash2 } from 'lucide-react';
 
 // User-facing project list — the studio's front door. Every generation
 // belongs to a project, so spend rolls up per row. Members see only their
@@ -38,6 +38,8 @@ export default function ProjectsClient() {
     const [creating, setCreating] = useState(false);
     const [name, setName] = useState('');
     const [saving, setSaving] = useState(false);
+    const [confirmingId, setConfirmingId] = useState(null); // project pending archive confirmation
+    const [archivingId, setArchivingId] = useState(null);
 
     const load = useCallback(() => {
         fetch('/api/projects')
@@ -75,6 +77,24 @@ export default function ProjectsClient() {
             setError(e.message);
         } finally {
             setSaving(false);
+        }
+    }
+
+    // Archive (soft-delete) a project: it drops off the list and can no longer
+    // receive generations, but its jobs/billing history stay intact. Admin-only
+    // and never the Default project — the server enforces both regardless.
+    async function archive(id) {
+        setArchivingId(id);
+        try {
+            const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+            const d = await res.json().catch(() => null);
+            if (!res.ok) throw new Error(d?.message || 'Could not archive the project.');
+            setConfirmingId(null);
+            load();
+        } catch (e) {
+            setError(e.message);
+        } finally {
+            setArchivingId(null);
         }
     }
 
@@ -207,14 +227,45 @@ export default function ProjectsClient() {
                                     </td>
                                     {canManage && (
                                         <td className="px-4 py-3.5 text-right">
-                                            <Link
-                                                href={`/console/projects/${p.id}`}
-                                                onClick={(e) => e.stopPropagation()}
-                                                title="Members, model grants, overrides and budgets"
-                                                className="text-xs font-semibold text-ink-3 transition-colors hover:text-ink"
-                                            >
-                                                Manage
-                                            </Link>
+                                            <div className="inline-flex items-center justify-end gap-3" onClick={(e) => e.stopPropagation()}>
+                                                <Link
+                                                    href={`/console/projects/${p.id}`}
+                                                    title="Members, model grants, overrides and budgets"
+                                                    className="text-xs font-semibold text-ink-3 transition-colors hover:text-ink"
+                                                >
+                                                    Manage
+                                                </Link>
+                                                {p.name !== 'Default' && (
+                                                    confirmingId === p.id ? (
+                                                        <span className="inline-flex items-center gap-2 text-xs">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => archive(p.id)}
+                                                                disabled={archivingId === p.id}
+                                                                className="font-semibold text-danger transition-colors hover:text-danger/80 disabled:opacity-40"
+                                                            >
+                                                                {archivingId === p.id ? 'Archiving…' : 'Archive?'}
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setConfirmingId(null)}
+                                                                className="text-ink-3 transition-colors hover:text-ink"
+                                                            >
+                                                                Cancel
+                                                            </button>
+                                                        </span>
+                                                    ) : (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => { setError(null); setConfirmingId(p.id); }}
+                                                            title="Archive this project (hides it and stops new generations; usage history is kept)"
+                                                            className="text-ink-3 transition-colors hover:text-danger"
+                                                        >
+                                                            <Trash2 size={14} />
+                                                        </button>
+                                                    )
+                                                )}
+                                            </div>
                                         </td>
                                     )}
                                 </tr>
