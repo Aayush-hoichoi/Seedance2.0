@@ -69,7 +69,12 @@ export async function POST(request) {
         const clean = sanitizeImageRequest(body.request, body.options);
         if (clean.error) return apiError('BAD_REQUEST', clean.error);
         requestBody = clean.request;
-        body.options = { ...(body.options || {}), imageCount: clean.imageCount };
+        body.options = {
+            ...(body.options || {}),
+            imageCount: clean.imageCount,
+            aspectRatio: clean.aspectRatio,
+            imageSize: clean.imageSize,
+        };
     }
 
     const estimate = estimateFor({

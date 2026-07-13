@@ -12,6 +12,7 @@ import {
     CINEMATIC_PRESETS, DEFAULT_SETUP, presetToSetup, sanitizeSetup, summarize, findCamera, findLens,
 } from '../../lib/seedance/cinematic.mjs';
 import { loadPresets, savePresets } from '../../lib/seedance/cameraPresets.js';
+import { ApertureIris, CameraGlyph, LensGlyph, FocalGlyph } from './cinematicIcons.jsx';
 
 const TABS = [
     { id: 'all', label: 'All' },
@@ -21,11 +22,31 @@ const TABS = [
 
 const SELECT = 'w-full rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-sm text-white text-center focus:border-primary focus:outline-none';
 
-function Tile({ label, children }) {
+// A Higgsfield-style option tile: label on top, a big glyph in the middle, the
+// current value name below, then the control (select / slider).
+function Tile({ label, glyph, name, sub, children }) {
     return (
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-4 text-center">
+        <div className="flex flex-col items-center gap-1.5 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 pt-3 pb-3 text-center">
             <div className="text-[10px] font-bold uppercase tracking-wider text-white/40">{label}</div>
-            {children}
+            <div className="flex h-16 items-center justify-center text-white/85">{glyph}</div>
+            {name && <div className="text-sm font-semibold leading-tight text-white line-clamp-2 min-h-[2.25rem] flex items-center">{name}</div>}
+            {sub && <div className="-mt-1 text-[10px] uppercase tracking-wide text-white/35">{sub}</div>}
+            <div className="mt-1 w-full">{children}</div>
+        </div>
+    );
+}
+
+// The faded at-a-glance strip above the tiles (mirrors Higgsfield's preview row).
+function PreviewStrip({ camera, lens, focal, aperture }) {
+    return (
+        <div className="mx-4 mb-1 mt-3 flex items-stretch justify-around gap-2 rounded-xl border border-white/[0.05] bg-white/[0.02] px-3 py-2 opacity-70">
+            <div className="flex flex-1 items-center justify-center text-white/70"><CameraGlyph type={camera?.type} size={34} /></div>
+            <div className="w-px bg-white/[0.06]" />
+            <div className="flex flex-1 items-center justify-center text-white/70"><LensGlyph type={lens?.type} size={34} /></div>
+            <div className="w-px bg-white/[0.06]" />
+            <div className="flex flex-1 items-center justify-center text-lg font-bold tabular-nums text-white/60">{focal}<span className="ml-0.5 text-[10px] font-normal">mm</span></div>
+            <div className="w-px bg-white/[0.06]" />
+            <div className="flex flex-1 items-center justify-center text-white/70"><ApertureIris aperture={aperture} size={34} /></div>
         </div>
     );
 }
@@ -104,32 +125,34 @@ export default function CinematicPanel({ open, setup, onApply, onClose }) {
                     </div>
                 </div>
 
+                {/* at-a-glance preview strip */}
+                <PreviewStrip
+                    camera={findCamera(draft.cameraId)}
+                    lens={findLens(draft.lensId)}
+                    focal={draft.focalLength}
+                    aperture={draft.aperture}
+                />
+
                 {/* editor tiles */}
-                <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-4">
-                    <Tile label="Camera">
-                        <div className="text-sm font-semibold text-white">{findCamera(draft.cameraId)?.name}</div>
-                        <div className="text-[10px] uppercase tracking-wide text-white/35">{findCamera(draft.cameraId)?.type}</div>
+                <div className="grid grid-cols-2 gap-3 px-4 pb-3 pt-2 sm:grid-cols-4">
+                    <Tile label="Camera" glyph={<CameraGlyph type={findCamera(draft.cameraId)?.type} />} name={findCamera(draft.cameraId)?.name} sub={findCamera(draft.cameraId)?.type}>
                         <select className={SELECT} value={draft.cameraId} onChange={(e) => set({ cameraId: e.target.value })}>
                             {CAMERAS.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                         </select>
                     </Tile>
-                    <Tile label="Lens">
-                        <div className="text-sm font-semibold text-white">{findLens(draft.lensId)?.name}</div>
-                        <div className="text-[10px] uppercase tracking-wide text-white/35">{findLens(draft.lensId)?.type}</div>
+                    <Tile label="Lens" glyph={<LensGlyph type={findLens(draft.lensId)?.type} />} name={findLens(draft.lensId)?.name} sub={findLens(draft.lensId)?.type}>
                         <select className={SELECT} value={draft.lensId} onChange={(e) => set({ lensId: e.target.value })}>
                             {LENSES.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                         </select>
                     </Tile>
-                    <Tile label="Focal length">
-                        <div className="text-2xl font-bold text-white">{draft.focalLength}<span className="text-sm font-normal text-white/50"> mm</span></div>
+                    <Tile label="Focal length" glyph={<FocalGlyph mm={draft.focalLength} />} name={<span>{draft.focalLength}<span className="text-sm font-normal text-white/50"> mm</span></span>}>
                         <input
                             type="range" min={FOCAL_MIN} max={FOCAL_MAX} value={draft.focalLength}
                             onChange={(e) => set({ focalLength: Number(e.target.value) })}
                             className="w-full accent-primary"
                         />
                     </Tile>
-                    <Tile label="Aperture">
-                        <div className="text-2xl font-bold text-white">f/{draft.aperture}</div>
+                    <Tile label="Aperture" glyph={<ApertureIris aperture={draft.aperture} />} name={<span>f/{draft.aperture}</span>}>
                         <select className={SELECT} value={draft.aperture} onChange={(e) => set({ aperture: Number(e.target.value) })}>
                             {APERTURES.map((a) => <option key={a} value={a}>f/{a}</option>)}
                         </select>

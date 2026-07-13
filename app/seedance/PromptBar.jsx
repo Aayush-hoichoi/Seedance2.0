@@ -5,7 +5,7 @@
 // control pills + a cyan Generate button below. Wired to the Seedance modes/options.
 
 import { Fragment, useEffect, useRef, useState } from 'react';
-import { MODES, RATIOS } from '../../lib/seedance/constants.js';
+import { MODES, RATIOS, IMAGE_RATIOS } from '../../lib/seedance/constants.js';
 import { estimateCost } from '../../lib/seedance/pricing.mjs';
 import { imageCost } from '../../lib/gateway/imagePricing.mjs';
 import { summarize as summarizeCinematic } from '../../lib/seedance/cinematic.mjs';
@@ -594,6 +594,18 @@ export default function PromptBar({
                                 {cinematic ? summarizeCinematic(cinematic) : 'Cinematic Cameras'}
                             </span>
                         </button>
+                        <PillSelect
+                            id="iar" openKey={openKey} setOpenKey={setOpenKey}
+                            badge={<AspectIcon />} display={options.imageRatio} label="Aspect ratio" value={options.imageRatio}
+                            options={IMAGE_RATIOS.map((r) => ({ value: r, label: r }))} onSelect={(v) => setOpt('imageRatio', v)}
+                        />
+                        {selectedImageModel?.resolutions && (
+                            <PillSelect
+                                id="ires" openKey={openKey} setOpenKey={setOpenKey}
+                                badge={<ResIcon />} display={options.imageResolution} label="Resolution" value={options.imageResolution}
+                                options={selectedImageModel.resolutions.map((r) => ({ value: r, label: r }))} onSelect={(v) => setOpt('imageResolution', v)}
+                            />
+                        )}
                         <span className="hidden sm:inline text-[11px] text-white/35">Batch queue · the image lands in your history</span>
                     </div>
                     ) : (

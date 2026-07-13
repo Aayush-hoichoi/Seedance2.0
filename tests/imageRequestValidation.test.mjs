@@ -28,6 +28,21 @@ test('clamps imageCount to 1..MAX', () => {
     assert.equal(sanitizeImageRequest({ prompt: 'p' }, { imageCount: 2.9 }).imageCount, 2);
 });
 
+test('passes through whitelisted aspectRatio and imageSize', () => {
+    const r = sanitizeImageRequest({ prompt: 'p' }, { aspectRatio: '16:9', imageSize: '4K' });
+    assert.equal(r.aspectRatio, '16:9');
+    assert.equal(r.imageSize, '4K');
+});
+
+test('drops off-list aspectRatio / imageSize to null (model uses its default)', () => {
+    const r = sanitizeImageRequest({ prompt: 'p' }, { aspectRatio: '7:3', imageSize: '8K' });
+    assert.equal(r.aspectRatio, null);
+    assert.equal(r.imageSize, null);
+    const none = sanitizeImageRequest({ prompt: 'p' });
+    assert.equal(none.aspectRatio, null);
+    assert.equal(none.imageSize, null);
+});
+
 test('accepts valid inline reference images', () => {
     const r = sanitizeImageRequest({
         prompt: 'combine these',

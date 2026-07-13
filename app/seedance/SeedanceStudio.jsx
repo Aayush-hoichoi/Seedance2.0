@@ -6,7 +6,7 @@
 // in-flight tasks are resumed after a reload by re-polling their ModelArk id.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MODELS, MODES, RATIOS, RESOLUTIONS, DEFAULT_OPTIONS, IMAGE_MODELS, IMAGE_DEFAULT_MODEL_ID } from '../../lib/seedance/constants.js';
+import { MODELS, MODES, RATIOS, RESOLUTIONS, DEFAULT_OPTIONS, IMAGE_MODELS, IMAGE_DEFAULT_MODEL_ID, IMAGE_RATIOS, IMAGE_RESOLUTIONS } from '../../lib/seedance/constants.js';
 import { sanitizeOptions } from '../../lib/seedance/options.mjs';
 import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js';
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
@@ -28,7 +28,7 @@ import ProjectSelect from './ProjectSelect.jsx';
 import StudioSidebar from './StudioSidebar.jsx';
 import AssetsPanel from './AssetsPanel.jsx';
 import CinematicPanel from './CinematicPanel.jsx';
-import { cinematicToPayload } from '../../lib/seedance/cinematic.mjs';
+import { cinematicToPayload, sanitizeSetup } from '../../lib/seedance/cinematic.mjs';
 
 // Resolve form state into the flat media list buildPayload expects, in the
 // slot order the mode declares (so first_frame precedes last_frame).
@@ -761,11 +761,21 @@ export default function SeedanceStudio() {
         const request = refs.length
             ? { prompt: promptText, parts: [{ text: promptText }, ...refs.map((r) => ({ inlineData: { mimeType: r.mimeType, data: r.b64 } }))] }
             : { prompt: promptText };
+        // Gemini imageConfig: aspect ratio on both models; resolution only for
+        // models that declare it (Nano Banana Pro) — Banana 2 has a fixed size.
+        const imgModelDef = IMAGE_MODELS.find((m) => m.id === options.model);
         try {
             const res = await fetch('/api/generations', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ projectId, modelId: options.model, request, options: { imageCount: 1 } }),
+                body: JSON.stringify({
+                    projectId, modelId: options.model, request,
+                    options: {
+                        imageCount: 1,
+                        aspectRatio: options.imageRatio || null,
+                        imageSize: imgModelDef?.resolutions ? (options.imageResolution || null) : null,
+                    },
+                }),
             });
             const data = await res.json().catch(() => null);
             if (!res.ok || !data?.generationId) {
@@ -929,8 +939,14 @@ export default function SeedanceStudio() {
             const imgModel = IMAGE_MODELS.some((m) => m.id === job.model) ? job.model
                 : IMAGE_MODELS.some((m) => m.id === job.options?.model) ? job.options.model
                     : IMAGE_DEFAULT_MODEL_ID;
-            setOpt('model', imgModel);
+            setOptions((cur) => ({
+                ...cur,
+                model: imgModel,
+                imageRatio: IMAGE_RATIOS.includes(job.options?.imageRatio) ? job.options.imageRatio : cur.imageRatio,
+                imageResolution: IMAGE_RESOLUTIONS.includes(job.options?.imageResolution) ? job.options.imageResolution : cur.imageResolution,
+            }));
             setPrompt(job.userPrompt || job.prompt || '');
+            setCinematic(job.cinematic ? sanitizeSetup(job.cinematic) : null); // restore the camera setup so "Reuse this setup" re-enhances the same way
             setError(null);
             setNotice(null);
             return;
@@ -963,13 +979,19 @@ export default function SeedanceStudio() {
         // audio, watermark, seed, model) this job was made with — sanitized
         // against the current catalog. Older jobs without a snapshot keep the
         // current settings (sanitizeOptions falls back to the live values).
-        setOptions((cur) => sanitizeOptions(job.options, {
-            defaults: cur,
-            modelIds: MODELS.map((m) => m.id),
-            ratios: RATIOS,
-            resolutions: RESOLUTIONS,
-            modelSupports1080p: (id) => !!MODELS.find((m) => m.id === id)?.supports1080p,
-            modelSupports4k: (id) => !!MODELS.find((m) => m.id === id)?.supports4k,
+        setOptions((cur) => ({
+            // sanitizeOptions returns only the video fields — carry the image
+            // (Gemini) settings through untouched so a video reuse never wipes them.
+            imageRatio: cur.imageRatio,
+            imageResolution: cur.imageResolution,
+            ...sanitizeOptions(job.options, {
+                defaults: cur,
+                modelIds: MODELS.map((m) => m.id),
+                ratios: RATIOS,
+                resolutions: RESOLUTIONS,
+                modelSupports1080p: (id) => !!MODELS.find((m) => m.id === id)?.supports1080p,
+                modelSupports4k: (id) => !!MODELS.find((m) => m.id === id)?.supports4k,
+            }),
         }));
         // The stored prompt was normalised for the API ("@Video1" → "Video 1"),
         // so re-tokenise it against the restored refs to bring back the exact
