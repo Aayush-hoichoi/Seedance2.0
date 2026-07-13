@@ -106,8 +106,13 @@ export default function SeedanceStudio() {
             .then((d) => {
                 if (!alive || !Array.isArray(d?.items) || !d.items.length) return;
                 setProjects(d.items);
-                const stored = Number(localStorage.getItem('seedance:project')) || null;
-                setProjectId(d.items.some((p) => p.id === stored) ? stored : d.items[0].id);
+                // /projects deep-links with ?project=; that beats the stored last choice.
+                const fromUrl = Number(new URLSearchParams(window.location.search).get('project')) || null;
+                const wanted = [fromUrl, Number(localStorage.getItem('seedance:project')) || null]
+                    .find((id) => id && d.items.some((p) => p.id === id));
+                const chosen = wanted ?? d.items[0].id;
+                setProjectId(chosen);
+                try { localStorage.setItem('seedance:project', String(chosen)); } catch { /* private mode */ }
             })
             .catch(() => {});
         return () => { alive = false; };
@@ -848,7 +853,15 @@ export default function SeedanceStudio() {
                         ${monthSpend.toFixed(2)}<span className="ml-1 font-medium text-white/35">this month</span>
                     </span>
                 )}
-                {projects.length > 1 && (
+                <Link
+                    href="/projects"
+                    title="All projects — spend, members and model access are scoped per project"
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-white/10 bg-white/[0.04] text-white/70 hover:text-white hover:border-white/25 hover:bg-white/[0.08] transition-colors text-xs font-semibold"
+                >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" /></svg>
+                    <span>Projects</span>
+                </Link>
+                {projects.length > 0 && (
                     <select
                         value={projectId ?? ''}
                         onChange={(e) => selectProject(Number(e.target.value))}

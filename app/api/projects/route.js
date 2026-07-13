@@ -10,12 +10,18 @@ export async function GET() {
     const auth = await gatewayContext({});
     if (!auth.ok) return auth.response;
     const { sql, user, org, role } = auth.ctx;
+    // spent_usd uses the canonical rollup semantics (usageQuery.js): settled
+    // cost when known, else the estimate, over settlement + failure events.
     const rows = role === 'admin'
         ? await sql`SELECT p.*,
-              (SELECT count(*)::int FROM project_memberships m WHERE m.project_id = p.id) AS member_count
+              (SELECT count(*)::int FROM project_memberships m WHERE m.project_id = p.id) AS member_count,
+              (SELECT COALESCE(SUM(COALESCE(b.cost_usd, b.est_cost_usd, 0)), 0)::float8 FROM billing_events b
+                WHERE b.project_id = p.id AND b.event_type IN ('settlement', 'failure')) AS spent_usd
            FROM projects p WHERE p.org_id = ${org.id} AND p.archived_at IS NULL ORDER BY p.created_at`
         : await sql`SELECT p.*, m2.role AS my_role,
-              (SELECT count(*)::int FROM project_memberships m WHERE m.project_id = p.id) AS member_count
+              (SELECT count(*)::int FROM project_memberships m WHERE m.project_id = p.id) AS member_count,
+              (SELECT COALESCE(SUM(COALESCE(b.cost_usd, b.est_cost_usd, 0)), 0)::float8 FROM billing_events b
+                WHERE b.project_id = p.id AND b.event_type IN ('settlement', 'failure')) AS spent_usd
            FROM projects p JOIN project_memberships m2 ON m2.project_id = p.id AND m2.user_id = ${user.userId}
            WHERE p.org_id = ${org.id} AND p.archived_at IS NULL ORDER BY p.created_at`;
     return NextResponse.json({ items: rows, role });
