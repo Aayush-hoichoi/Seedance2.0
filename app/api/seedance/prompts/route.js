@@ -53,7 +53,7 @@ export async function POST(request) {
     const generatedPrompt = asText(body.generatedPrompt);
     const style = typeof body.style === 'string' ? body.style.slice(0, 50) : null;
     const refs = sanitizeRefs(body.refs);
-    const projectId = Number.isInteger(body.projectId) ? body.projectId : null;
+    let projectId = Number.isInteger(body.projectId) ? body.projectId : null;
 
     let sql;
     try {
@@ -62,6 +62,14 @@ export async function POST(request) {
         return bad('Could not reach the prompts database.', 502);
     }
     if (!sql) return bad('DATABASE_URL is not configured — add it to .env.local (and the Vercel env).', 503);
+
+    // The gateway job (written server-side) is the source of truth for which
+    // project a generation billed to — prefer it over the client-supplied
+    // value so the prompt record can never diverge from billing/history.
+    try {
+        const [job] = await sql`SELECT project_id FROM jobs WHERE provider_task_id = ${taskId} LIMIT 1`;
+        if (job?.project_id != null) projectId = job.project_id;
+    } catch { /* jobs table may not exist pre-gateway — keep the client value */ }
 
     try {
         // COALESCE keeps refs written at creation when a later backfill

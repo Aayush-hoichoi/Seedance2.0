@@ -56,15 +56,30 @@ async function resolveGateway(request, user, modelId) {
         JOIN models m ON m.id = v.model_id WHERE v.version_tag = ${modelId} LIMIT 1`;
     if (!version) return null;
 
-    // Project: explicit header → that project (must be a member); else Default.
+    // Project attribution — the source of truth for billing + history, so it
+    // must never silently land on the wrong project:
+    //   • explicit header → THAT project. Platform admins may use any project
+    //     in the org (the studio shows them all); others must be a member.
+    //     An invalid/forbidden explicit project is a hard error, never a
+    //     silent fallback to Default (that caused client/server divergence).
+    //   • no header → the user's Default project (member-scoped).
     const headerId = Number(request.headers.get('x-seedance-project')) || null;
-    const [project] = headerId
-        ? await sql`SELECT p.* FROM projects p JOIN project_memberships m ON m.project_id = p.id AND m.user_id = ${user.userId}
-            WHERE p.id = ${headerId} AND p.archived_at IS NULL`
-        : await sql`SELECT p.* FROM projects p JOIN project_memberships m ON m.project_id = p.id AND m.user_id = ${user.userId}
+    const isAdmin = user.role === 'admin';
+    let project;
+    if (headerId) {
+        [project] = isAdmin
+            ? await sql`SELECT p.* FROM projects p WHERE p.id = ${headerId} AND p.org_id = ${org.id} AND p.archived_at IS NULL`
+            : await sql`SELECT p.* FROM projects p JOIN project_memberships m ON m.project_id = p.id AND m.user_id = ${user.userId}
+                WHERE p.id = ${headerId} AND p.archived_at IS NULL`;
+        if (!project) {
+            return { error: NextResponse.json({ code: 'NOT_A_PROJECT_MEMBER', error: 'You are not a member of the selected project — pick another or ask an admin to add you.' }, { status: 403 }) };
+        }
+    } else {
+        [project] = await sql`SELECT p.* FROM projects p JOIN project_memberships m ON m.project_id = p.id AND m.user_id = ${user.userId}
             WHERE p.org_id = ${org.id} AND p.archived_at IS NULL ORDER BY (p.name = 'Default') DESC, p.id ASC LIMIT 1`;
-    if (!project) {
-        return { error: NextResponse.json({ code: 'NOT_A_PROJECT_MEMBER', error: 'You are not in any project yet — ask an admin to add you.' }, { status: 403 }) };
+        if (!project) {
+            return { error: NextResponse.json({ code: 'NOT_A_PROJECT_MEMBER', error: 'You are not in any project yet — ask an admin to add you.' }, { status: 403 }) };
+        }
     }
     if (project.paused) {
         return { error: NextResponse.json({ code: 'PROJECT_PAUSED', error: 'This project is paused by an admin.' }, { status: 409 }) };

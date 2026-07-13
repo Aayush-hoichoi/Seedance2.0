@@ -599,6 +599,9 @@ export default function SeedanceStudio() {
         if (enhancing) return;
         setError(null);
         setNotice(null);
+        // Don't fire before the project resolves — a generation with no project
+        // header silently bills to Default, diverging from the shown project.
+        if (projects.length && !projectId) { setError('Still loading your project — try again in a moment.'); return; }
         const problem = validate(mode, prompt, mediaByRole);
         if (problem) { setError(problem); return; }
 
