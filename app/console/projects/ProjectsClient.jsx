@@ -12,7 +12,7 @@ export default function ProjectsClient() {
     const [open, setOpen] = useState(false);
     const [name, setName] = useState('');
     const [saving, setSaving] = useState(false);
-    const isAdmin = data?.role === 'admin';
+    const isAdmin = data?.canManageProjects ?? (data?.role === 'admin');
 
     async function create() {
         setSaving(true);

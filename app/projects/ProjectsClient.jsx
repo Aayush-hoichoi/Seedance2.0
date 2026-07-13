@@ -39,6 +39,7 @@ export default function ProjectsClient() {
     useEffect(load, [load]);
 
     const isAdmin = data?.role === 'admin';
+    const canManage = !!data?.canManageProjects; // admin or org manager: create + manage any project
     const items = data?.items ?? [];
 
     async function create() {
@@ -74,7 +75,7 @@ export default function ProjectsClient() {
                         </p>
                     </div>
                     <div className="flex items-center gap-2.5">
-                        {isAdmin && (
+                        {canManage && (
                             <button type="button" onClick={() => setCreating((v) => !v)} className={BTN}>
                                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
                                 <span>New Project</span>
@@ -119,21 +120,21 @@ export default function ProjectsClient() {
                                 <th className="px-4 py-3 font-semibold">Status</th>
                                 <th className="px-4 py-3 font-semibold">Created</th>
                                 <th className="px-4 py-3 text-right font-semibold">Spent</th>
-                                {isAdmin && <th className="px-4 py-3" />}
+                                {canManage && <th className="px-4 py-3" />}
                             </tr>
                         </thead>
                         <tbody>
                             {data && !items.length && (
                                 <tr>
-                                    <td colSpan={isAdmin ? 7 : 6} className="px-4 py-12 text-center text-sm text-white/35">
-                                        {isAdmin
+                                    <td colSpan={canManage ? 7 : 6} className="px-4 py-12 text-center text-sm text-white/35">
+                                        {canManage
                                             ? 'No projects yet — create one to get started.'
                                             : 'You are not in any project yet — ask an admin to add you.'}
                                     </td>
                                 </tr>
                             )}
                             {!data && !error && (
-                                <tr><td colSpan={isAdmin ? 7 : 6} className="px-4 py-12 text-center text-sm text-white/35">Loading projects…</td></tr>
+                                <tr><td colSpan={canManage ? 7 : 6} className="px-4 py-12 text-center text-sm text-white/35">Loading projects…</td></tr>
                             )}
                             {items.map((p) => (
                                 <tr
@@ -146,7 +147,7 @@ export default function ProjectsClient() {
                                     <td className="px-4 py-3 text-white/50">{p.member_count ?? 0}</td>
                                     <td className="px-4 py-3">
                                         <span className="rounded border border-sky-400/25 bg-sky-400/[0.08] px-1.5 py-0.5 text-[11px] font-semibold text-sky-300/90">
-                                            {p.my_role || (isAdmin ? 'admin' : 'member')}
+                                            {p.my_role || (isAdmin ? 'admin' : canManage ? 'manager' : 'member')}
                                         </span>
                                     </td>
                                     <td className="px-4 py-3">
@@ -158,7 +159,7 @@ export default function ProjectsClient() {
                                     <td className="px-4 py-3 text-right font-semibold tabular-nums text-white/80">
                                         ${Number(p.spent_usd ?? 0).toFixed(2)}
                                     </td>
-                                    {isAdmin && (
+                                    {canManage && (
                                         <td className="px-4 py-3 text-right">
                                             <Link
                                                 href={`/console/projects/${p.id}`}

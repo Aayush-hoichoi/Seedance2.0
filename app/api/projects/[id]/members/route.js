@@ -12,10 +12,15 @@ export async function POST(request, { params }) {
     const { id } = await params;
     const auth = await gatewayContext({ projectId: Number(id), permission: 'member.manage' });
     if (!auth.ok) return auth.response;
-    const { sql, user, project } = auth.ctx;
+    const { sql, user, project, role } = auth.ctx;
     const body = await request.json().catch(() => null);
     if (!body?.userId || (body.role && !ROLES.includes(body.role))) {
         return apiError('BAD_REQUEST', `userId required; role must be one of ${ROLES.join(', ')}.`);
+    }
+    // Managers manage members but can't mint admins — only a project/platform
+    // admin may grant the 'admin' role (prevents privilege escalation).
+    if (body.role === 'admin' && role !== 'admin') {
+        return apiError('FORBIDDEN', 'Only an admin can grant the admin role.');
     }
     const [before] = await sql`SELECT role FROM project_memberships WHERE project_id = ${project.id} AND user_id = ${body.userId}`;
     const [row] = await sql`INSERT INTO project_memberships (project_id, user_id, role, added_by)
