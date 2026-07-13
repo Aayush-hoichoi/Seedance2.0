@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { UserButton } from '@clerk/nextjs';
 
 // User-facing project list — the studio's front door. Every generation
 // belongs to a project, so spend rolls up per row. Members see only their
@@ -79,6 +80,7 @@ export default function ProjectsClient() {
                                 <span>New Project</span>
                             </button>
                         )}
+                        <UserButton />
                     </div>
                 </div>
 
