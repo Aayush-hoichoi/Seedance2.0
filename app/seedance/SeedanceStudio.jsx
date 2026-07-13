@@ -94,6 +94,7 @@ export default function SeedanceStudio() {
     // picker only appears when the user belongs to more than one.
     const [projects, setProjects] = useState([]);
     const [projectId, setProjectId] = useState(null);
+    const [projectsLoaded, setProjectsLoaded] = useState(false); // false → don't render the rail yet
     const [permsVersion, setPermsVersion] = useState(0); // bump → refetch access
 
     useEffect(() => {
@@ -105,17 +106,20 @@ export default function SeedanceStudio() {
         fetch('/api/projects')
             .then((r) => (r.ok ? r.json() : null))
             .then((d) => {
-                if (!alive || !Array.isArray(d?.items) || !d.items.length) return;
-                setProjects(d.items);
-                // /projects deep-links with ?project=; that beats the stored last choice.
-                const fromUrl = Number(new URLSearchParams(window.location.search).get('project')) || null;
-                const wanted = [fromUrl, Number(localStorage.getItem('seedance:project')) || null]
-                    .find((id) => id && d.items.some((p) => p.id === id));
-                const chosen = wanted ?? d.items[0].id;
-                setProjectId(chosen);
-                try { localStorage.setItem('seedance:project', String(chosen)); } catch { /* private mode */ }
+                if (!alive) return;
+                if (Array.isArray(d?.items) && d.items.length) {
+                    setProjects(d.items);
+                    // /projects deep-links with ?project=; that beats the stored last choice.
+                    const fromUrl = Number(new URLSearchParams(window.location.search).get('project')) || null;
+                    const wanted = [fromUrl, Number(localStorage.getItem('seedance:project')) || null]
+                        .find((id) => id && d.items.some((p) => p.id === id));
+                    const chosen = wanted ?? d.items[0].id;
+                    setProjectId(chosen);
+                    try { localStorage.setItem('seedance:project', String(chosen)); } catch { /* private mode */ }
+                }
+                setProjectsLoaded(true); // gate the history rail until the project is known
             })
-            .catch(() => {});
+            .catch(() => { if (alive) setProjectsLoaded(true); });
         return () => { alive = false; };
     }, []);
 
@@ -830,11 +834,14 @@ export default function SeedanceStudio() {
 
     // Binned jobs stay in `jobs` (so they persist + can be restored) but are
     // hidden from every main view. The Bin tab in the Assets overlay shows them.
-    // History is scoped to the active project. Legacy jobs (created before
-    // project tagging) carry no projectId — they're backfilled to the home
-    // project below and shown everywhere until then, so nothing ever hides.
-    const belongsToProject = (j) => projectId == null || j.projectId == null || j.projectId === projectId;
-    const visibleJobs = jobs.filter((j) => !j.deleted && belongsToProject(j));
+    // History is scoped strictly to the active project so nothing flashes in
+    // and gets culled. Until the projects fetch resolves we render no jobs at
+    // all (projectsLoaded gate); legacy untagged jobs are backfilled to the
+    // home project (effect above), so by first paint every job has a project.
+    // projectId == null only when there's no gateway/project at all → show all.
+    const belongsToProject = (j) => projectId == null || j.projectId === projectId;
+    const scopedJobs = projectsLoaded ? jobs.filter(belongsToProject) : [];
+    const visibleJobs = scopedJobs.filter((j) => !j.deleted);
 
     // Never open onto a blank hero when work exists: on FIRST load with
     // nothing selected, put the newest finished creation on the big stage.
@@ -846,7 +853,7 @@ export default function SeedanceStudio() {
         if (latest) setSelectedId(latest.id);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedId, visibleJobs.length]);
-    const binnedJobs = jobs.filter((j) => j.deleted && belongsToProject(j));
+    const binnedJobs = scopedJobs.filter((j) => j.deleted);
     const activeCount = visibleJobs.filter((j) => ACTIVE_STATUSES.includes(j.status)).length;
     const doneCount = visibleJobs.filter((j) => j.status === 'done' && j.videoUrl).length;
     // What plays big in the center: only an explicitly selected job (set by a
