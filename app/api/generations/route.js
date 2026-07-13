@@ -10,6 +10,7 @@ import {
 } from '../../../lib/gateway/db.js';
 import { QUEUE_DEPTH_CAP } from '../../../lib/gateway/queueLogic.mjs';
 import { processQueue } from '../../../lib/gateway/processor.mjs';
+import { sanitizeImageRequest } from '../../../lib/gateway/validateImageRequest.mjs';
 import { estimateCost } from '../../../lib/seedance/pricing.mjs';
 import { imageCost } from '../../../lib/gateway/imagePricing.mjs';
 
@@ -58,6 +59,19 @@ export async function POST(request) {
     const routing = await resolveRouting(sql, body.modelId);
     if (!routing) return apiError('BAD_REQUEST', 'Unknown or inactive model.');
     const route = routing.routes[0] || {};
+
+    // Image requests are sanitized at the boundary: require a prompt, normalize
+    // reference-image parts (image-only, ≤3, size-capped, strip data: prefix),
+    // and clamp imageCount so it can't inflate the cost reservation. The video
+    // path keeps its own client+server validation and is untouched here.
+    let requestBody = body.request;
+    if (routing.model.category === 'image') {
+        const clean = sanitizeImageRequest(body.request, body.options);
+        if (clean.error) return apiError('BAD_REQUEST', clean.error);
+        requestBody = clean.request;
+        body.options = { ...(body.options || {}), imageCount: clean.imageCount };
+    }
+
     const estimate = estimateFor({
         category: routing.model.category, kind: routing.version.kind, mode: route.mode, options: body.options,
     });
@@ -78,7 +92,7 @@ export async function POST(request) {
     const job = await insertJob(sql, {
         orgId: org.id, projectId: project.id, userId: user.userId, modelId: body.modelId,
         modelVersionId: routing.version.id, priority: body.priority === 'batch' ? 'batch' : 'interactive',
-        requestBody: { ...body.request, options: body.options ?? null, est_cost_usd: estimate.usd, category: routing.model.category },
+        requestBody: { ...requestBody, options: body.options ?? null, est_cost_usd: estimate.usd, category: routing.model.category },
     });
     await insertBillingEvent(sql, {
         eventType: 'reservation', generationId: job.id, orgId: org.id, projectId: project.id,

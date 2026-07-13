@@ -735,7 +735,7 @@ export default function SeedanceStudio() {
                     : { status: 'error', error: 'The image finished but could not be loaded.' });
                 return;
             }
-            if (d.status === 'failed' || d.status === 'cancelled') {
+            if (d.status === 'failed' || d.status === 'cancelled' || d.status === 'timed_out') {
                 patchJob(localId, { status: 'error', error: d.error?.message || 'Image generation failed.' });
                 return;
             }
