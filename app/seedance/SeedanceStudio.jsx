@@ -6,7 +6,7 @@
 // in-flight tasks are resumed after a reload by re-polling their ModelArk id.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MODELS, MODES, RATIOS, RESOLUTIONS, DEFAULT_OPTIONS } from '../../lib/seedance/constants.js';
+import { MODELS, MODES, RATIOS, RESOLUTIONS, DEFAULT_OPTIONS, IMAGE_MODELS, IMAGE_DEFAULT_MODEL_ID } from '../../lib/seedance/constants.js';
 import { sanitizeOptions } from '../../lib/seedance/options.mjs';
 import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js';
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
@@ -19,11 +19,13 @@ import { uploadToCdn } from '../../lib/seedance/upload.js';
 import { validateMediaFile } from '../../lib/seedance/inspectMedia.js';
 import { fitImageToLimits } from '../../lib/seedance/downscaleImage.js';
 import { loadJobs, saveJobs, newJob, loadPrompts, savePrompt, removePrompt } from '../../lib/seedance/jobs.js';
+import { archiveKeyForTask } from '../../lib/seedance/archiveKey.mjs';
 import { resolveFreshVideoUrl } from '../../lib/seedance/videoUrl.js';
 import PromptBar from './PromptBar.jsx';
-import Link from 'next/link';
 import { UserButton } from '@clerk/nextjs';
 import MediaHoverPreview from './MediaHoverPreview.jsx';
+import ProjectSelect from './ProjectSelect.jsx';
+import StudioSidebar from './StudioSidebar.jsx';
 import AssetsPanel from './AssetsPanel.jsx';
 
 // Resolve form state into the flat media list buildPayload expects, in the
@@ -52,6 +54,25 @@ function validate(mode, prompt, mediaByRole) {
 
 const STATUS_TEXT = { submitting: 'Submitting…', waiting: 'Waiting for a free slot…', queued: 'Queued…', running: 'Rendering…' };
 const ACTIVE_STATUSES = ['submitting', 'waiting', 'queued', 'running'];
+
+// Downscale a reference image for INLINE delivery to Gemini: longest side to
+// ~1024px, JPEG — keeps three refs well under the /api/generations body cap.
+// Returns { mimeType, b64, previewUrl } (previewUrl is the same data: URL).
+async function downscaleForInline(file, maxDim = 1024) {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
+    bitmap.close?.();
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    const m = /^data:(.*?);base64,(.*)$/.exec(dataUrl);
+    if (!m) throw new Error('encode failed');
+    return { mimeType: m[1], b64: m[2], previewUrl: dataUrl };
+}
 // Quota / rate-limit shaped errors → auto-retry instead of failing the card.
 const RATE_LIMIT_RE = /rate.?limit|quota|too many|429|concurren|throttl/i;
 // ModelArk's input scan rejecting raw-URL refs that show a (possibly) real
@@ -74,7 +95,10 @@ export default function SeedanceStudio() {
     const [mediaByRole, setMediaByRole] = useState({});
     const [jobs, setJobs] = useState([]);
     const [batch, setBatch] = useState(1); // generations fired per Generate click
+    const [mediaType, setMediaType] = useState('video'); // 'video' (Seedance) | 'image' (Nano Banana)
+    const [imageRefs, setImageRefs] = useState([]); // Image-mode reference images (base64 inline parts for Gemini)
     const [selectedId, setSelectedId] = useState(null); // rail selection; null = follow newest
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // studio left rail
     const autoSelectedRef = useRef(false); // one auto-pick per project; reset on project switch
     const [error, setError] = useState(null);
     const [notice, setNotice] = useState(null); // non-blocking info (e.g. GPT-4o refusal → raw-prompt fallback)
@@ -306,7 +330,9 @@ export default function SeedanceStudio() {
             // Expired marks are session-local — re-probe next visit (the
             // archive may exist by now, or the failure was transient).
             const j = raw.expired ? { ...raw, expired: false } : raw;
-            return ACTIVE_STATUSES.includes(j.status) && !j.taskId
+            // A job is only truly interrupted if it never got a provider handle
+            // (video taskId or image genId) before the page closed.
+            return ACTIVE_STATUSES.includes(j.status) && !j.taskId && !j.genId
                 ? { ...j, status: 'error', error: 'Interrupted before the task was created.' }
                 : j;
         });
@@ -314,7 +340,11 @@ export default function SeedanceStudio() {
         saveJobs(restored);
         const inFlight = restored.filter((j) => ACTIVE_STATUSES.includes(j.status) && j.taskId);
         for (const j of inFlight) watchJob(j.id, j.taskId);
-        if (inFlight[0]) setSelectedId(inFlight[0].id);
+        // Resume polling image (Nano Banana) batches that were still rendering.
+        const inFlightImages = restored.filter((j) => j.mediaType === 'image' && ACTIVE_STATUSES.includes(j.status) && j.genId);
+        for (const j of inFlightImages) pollImageJob(j.id, j.genId);
+        // Landing stays on the Hero — the user opens a preview by clicking a
+        // history item. In-flight jobs still get watched and show in the rail.
         hydratePrompts(restored.filter((j) => !j.userPrompt).map((j) => j.taskId));
 
         // (Stale-asset cleanup runs per project in its own effect above.)
@@ -345,8 +375,12 @@ export default function SeedanceStudio() {
         // Purge foreign cards that earlier sessions saved into localStorage.
         // Strict response check: on a Neon hiccup purge nothing, rather than
         // risk dropping legit platform cards made in other browsers.
+        // Every server-restored card that wasn't created on this device is
+        // re-validated for ownership: the prompts API only returns records for
+        // the caller's own tasks, so any srv-* card that isn't confirmed owned
+        // is a teammate's generation a past session merged in — purge it.
         const suspects = restored.filter(
-            (j) => String(j.id).startsWith('srv-') && j.taskId && !prompts[j.taskId] && !j.userPrompt,
+            (j) => String(j.id).startsWith('srv-') && j.taskId && !prompts[j.taskId],
         );
         if (suspects.length) {
             fetch(`/api/seedance/prompts?taskIds=${encodeURIComponent(suspects.map((j) => j.taskId).join(','))}`)
@@ -424,6 +458,44 @@ export default function SeedanceStudio() {
                 hydratePrompts(items.map((t) => t.id));
             })
             .catch(() => { /* offline / proxy down: local history still works */ });
+
+        // The user's COMPLETE own history from the DB (usage_events ⋈ prompts),
+        // independent of ModelArk's recent-30 window — so older own generations,
+        // and ones made on another device, still appear in the rail.
+        fetch('/api/gallery?mine=1')
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => {
+                const items = Array.isArray(d?.items) ? d.items : [];
+                if (!items.length) return;
+                const toStatus = (s) => (s === 'succeeded' ? 'done' : ['queued', 'running'].includes(s) ? s : 'error');
+                updateJobs((prev) => {
+                    const known = new Set(prev.map((j) => j.taskId).filter(Boolean));
+                    const added = items.filter((it) => it.taskId && !known.has(it.taskId)).map((it) => ({
+                        id: `srv-${it.taskId}`,
+                        taskId: it.taskId,
+                        projectId: it.projectId ?? null,
+                        prompt: it.prompt || '',
+                        userPrompt: it.userPrompt || null,
+                        style: it.style || null,
+                        modeId: null,
+                        refs: it.refs || null,
+                        options: { model: it.modelId, resolution: it.resolution, duration: it.duration, ratio: it.ratio },
+                        model: it.modelId,
+                        status: toStatus(it.status),
+                        genId: null,
+                        videoUrl: it.archiveUrl || null,
+                        archiveKey: it.taskId ? archiveKeyForTask(it.taskId) : null,
+                        imageUrl: null,
+                        error: null,
+                        liked: !!it.liked,
+                        deleted: false,
+                        deletedAt: null,
+                        createdAt: it.createdAt ? new Date(it.createdAt).getTime() : Date.now(),
+                    }));
+                    return added.length ? [...prev, ...added].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)) : prev;
+                });
+            })
+            .catch(() => { /* DB history unavailable: ModelArk merge + local still work */ });
 
         return () => { Object.values(controllersRef.current).forEach((c) => c.abort()); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -599,6 +671,106 @@ export default function SeedanceStudio() {
         }
     };
 
+    // Flip Image ↔ Video, keeping options.model valid for the active type.
+    // Image-mode reference images: downscaled to ~1024px JPEG, kept as base64
+    // so they can go inline as {inlineData} parts. NOT persisted to the job /
+    // localStorage (base64 would blow the quota) — send-time only.
+    const onUploadImageRefs = async (files) => {
+        const picked = Array.from(files || []).filter((f) => f.type?.startsWith('image/'));
+        for (const file of picked) {
+            if (imageRefs.length >= 3) break;
+            try {
+                const ref = await downscaleForInline(file);
+                setImageRefs((prev) => (prev.length >= 3 ? prev : [...prev, { name: file.name, ...ref }]));
+            } catch { /* unreadable image — skip */ }
+        }
+    };
+    const removeImageRef = (i) => setImageRefs((prev) => prev.filter((_, idx) => idx !== i));
+
+    const changeMediaType = (t) => {
+        setMediaType(t);
+        setError(null);
+        setNotice(null);
+        setImageRefs([]);
+        if (t === 'image') {
+            if (!IMAGE_MODELS.some((m) => m.id === options.model)) setOpt('model', IMAGE_DEFAULT_MODEL_ID);
+        } else if (!MODELS.some((m) => m.id === options.model)) {
+            setOpt('model', DEFAULT_OPTIONS.model);
+        }
+    };
+
+    // Image mode (Nano Banana) runs through the gateway's async batch queue, not
+    // the ModelArk video proxy: submit → poll the generation until the Gemini
+    // batch settles → resolve the stored image to a URL. Each poll of the job
+    // also drives the server-side sweep, so polling itself advances the batch.
+    const resolveImageUrl = async (img) => {
+        if (!img) return null;
+        if (img.b64) return `data:${img.mimeType || 'image/png'};base64,${img.b64}`;
+        if (img.url) return img.url;
+        if (img.key) {
+            try {
+                const res = await fetch(`/api/byteplus/archive?key=${encodeURIComponent(img.key)}`);
+                const d = res.ok ? await res.json() : null;
+                return d?.url || null;
+            } catch { return null; }
+        }
+        return null;
+    };
+
+    const pollImageJob = async (localId, genId) => {
+        patchJob(localId, { genId, status: 'queued' });
+        const MAX_ATTEMPTS = 225; // ~15 min at 4s — Gemini batch is async
+        for (let i = 0; i < MAX_ATTEMPTS; i++) {
+            await new Promise((r) => setTimeout(r, 4000));
+            let d = null;
+            try {
+                const res = await fetch(`/api/generations/${genId}`);
+                d = res.ok ? await res.json() : null;
+            } catch { continue; }
+            if (!d) continue;
+            if (d.status === 'succeeded') {
+                const url = await resolveImageUrl(d.result?.images?.[0]);
+                patchJob(localId, url
+                    ? { status: 'done', imageUrl: url }
+                    : { status: 'error', error: 'The image finished but could not be loaded.' });
+                return;
+            }
+            if (d.status === 'failed' || d.status === 'cancelled') {
+                patchJob(localId, { status: 'error', error: d.error?.message || 'Image generation failed.' });
+                return;
+            }
+            patchJob(localId, { status: 'running' }); // still queued/running
+        }
+        patchJob(localId, { status: 'error', error: 'Timed out waiting for the image.' });
+    };
+
+    const launchImageJob = async (promptText, refs = []) => {
+        const job = newJob({ prompt: promptText, model: options.model, modeId: 'image', options: { ...options }, projectId, mediaType: 'image' });
+        updateJobs((prev) => [job, ...prev]);
+        setSelectedId(job.id);
+        patchJob(job.id, { status: 'running' });
+        // Reference images ride along as inline {inlineData} parts — Gemini
+        // edits/combines them with the prompt. Prompt-only jobs send just text.
+        const request = refs.length
+            ? { prompt: promptText, parts: [{ text: promptText }, ...refs.map((r) => ({ inlineData: { mimeType: r.mimeType, data: r.b64 } }))] }
+            : { prompt: promptText };
+        try {
+            const res = await fetch('/api/generations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectId, modelId: options.model, request, options: { imageCount: 1 } }),
+            });
+            const data = await res.json().catch(() => null);
+            if (!res.ok || !data?.generationId) {
+                patchJob(job.id, { status: 'error', error: data?.error?.message || data?.message || 'Image generation could not start.' });
+                return;
+            }
+            pollImageJob(job.id, data.generationId);
+        } catch (e) {
+            patchJob(job.id, { status: 'error', error: e.message });
+        }
+    };
+
     const onGenerate = async () => {
         if (enhancing) return;
         setError(null);
@@ -606,6 +778,13 @@ export default function SeedanceStudio() {
         // Don't fire before the project resolves — a generation with no project
         // header silently bills to Default, diverging from the shown project.
         if (projects.length && !projectId) { setError('Still loading your project — try again in a moment.'); return; }
+
+        // Image mode: prompt-only, straight to the gateway batch queue.
+        if (mediaType === 'image') {
+            if (!prompt.trim()) { setError('Describe the image you want to create.'); return; }
+            for (let i = 0; i < batch; i++) launchImageJob(prompt.trim(), imageRefs);
+            return;
+        }
         const problem = validate(mode, prompt, mediaByRole);
         if (problem) { setError(problem); return; }
 
@@ -843,16 +1022,9 @@ export default function SeedanceStudio() {
     const scopedJobs = projectsLoaded ? jobs.filter(belongsToProject) : [];
     const visibleJobs = scopedJobs.filter((j) => !j.deleted);
 
-    // Never open onto a blank hero when work exists: on FIRST load with
-    // nothing selected, put the newest finished creation on the big stage.
-    // Once per visit only — Home (setSelectedId(null)) must stay home.
-    useEffect(() => {
-        if (autoSelectedRef.current || selectedId || !visibleJobs.length) return;
-        autoSelectedRef.current = true;
-        const latest = visibleJobs.find((j) => j.status === 'done' && j.videoUrl) || visibleJobs[0];
-        if (latest) setSelectedId(latest.id);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedId, visibleJobs.length]);
+    // Landing opens on the Hero, never a preview. The big stage appears only
+    // when the user clicks a history item (or starts a fresh generation).
+    // autoSelectedRef is still reset on project switch (see selectProject).
     const binnedJobs = scopedJobs.filter((j) => j.deleted);
     const activeCount = visibleJobs.filter((j) => ACTIVE_STATUSES.includes(j.status)).length;
     const doneCount = visibleJobs.filter((j) => j.status === 'done' && j.videoUrl).length;
@@ -860,110 +1032,57 @@ export default function SeedanceStudio() {
     // rail click, a fresh Generate, or an in-flight resume) — never auto-play
     // old history after a reload. A binned job never plays on the stage.
     const selectedJob = jobs.find((j) => j.id === selectedId && !j.deleted && belongsToProject(j)) || null;
+    // A finished video/image opens in the full-screen AssetViewer (the big
+    // preview); other states (rendering, expired, error) stay in the center stage.
+    const viewerJob = selectedJob && selectedJob.status === 'done' && (selectedJob.videoUrl || selectedJob.imageUrl) && !selectedJob.expired ? selectedJob : null;
 
     // A selected card can carry a link that's already gone (restored from
     // localStorage) or ~20h+ old and about to 403: refresh it up front —
     // clearing the stale URL so the player never wastes a network failure on
     // it — instead of letting the big stage spin forever at 0:00.
     useEffect(() => {
-        if (!selectedJob || selectedJob.status !== 'done' || selectedJob.expired) return;
+        // Image results carry a 7-day presigned URL — nothing to refresh.
+        if (!selectedJob || selectedJob.mediaType === 'image' || selectedJob.status !== 'done' || selectedJob.expired) return;
         if (!selectedJob.videoUrl || isStaleUrl(selectedJob)) refreshVideoUrl(selectedJob, { fromError: true });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedId]);
 
     return (
         <div className="relative min-h-screen w-full bg-app-bg text-white">
-            <div className="fixed top-5 left-6 z-30 flex items-center gap-3 text-xs font-medium tracking-wide text-white/40">
-                {selectedJob && (
-                    <button
-                        type="button"
-                        onClick={() => setSelectedId(null)}
-                        title="Back to the home screen"
-                        className="flex items-center gap-1.5 px-2.5 py-1.5 -my-1.5 rounded-md border border-white/10 bg-white/[0.04] text-white/70 hover:text-white hover:border-white/25 hover:bg-white/[0.08] transition-colors"
-                    >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
-                        <span className="font-semibold">Home</span>
+            <StudioSidebar
+                collapsed={sidebarCollapsed}
+                onToggle={() => setSidebarCollapsed((v) => !v)}
+                onHome={() => setSelectedId(null)}
+                activeCount={activeCount}
+                monthSpend={monthSpend}
+                projects={projects}
+                projectId={projectId}
+                selectProject={selectProject}
+                isAdmin={isAdmin}
+                doneCount={doneCount}
+                onOpenAssets={() => setShowAssets(true)}
+            />
+
+            {/* Compact top bar for mobile — the sidebar is desktop-only. */}
+            <div className="fixed inset-x-3 top-3 z-40 flex items-center justify-between gap-2 sm:hidden">
+                <button type="button" onClick={() => setSelectedId(null)} title="Home" className="flex items-center gap-1.5 rounded-md border border-line bg-paper-2 px-2.5 py-1.5 text-xs font-semibold text-ink-2">
+                    <span className="grid h-4 w-4 place-items-center rounded bg-accent font-display text-[10px] font-bold text-accent-ink">S</span>
+                    Seedance{activeCount > 0 && <span className="ml-0.5 text-accent-hi">· {activeCount}</span>}
+                </button>
+                <div className="flex items-center gap-2">
+                    {projects.length > 0 && <ProjectSelect projects={projects} value={projectId} onChange={selectProject} />}
+                    <button type="button" onClick={() => setShowAssets(true)} title="Assets" className="rounded-md border border-line bg-paper-2 p-1.5 text-ink-2">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>
                     </button>
-                )}
-                <span>
-                    Seedance 2.0 · <span className="text-white/25">BytePlus ModelArk</span>
-                    {activeCount > 0 && <span className="ml-2 text-primary/70">{activeCount} rendering…</span>}
-                </span>
+                    <UserButton />
+                </div>
             </div>
 
-            {/* Top-right: project scope + admin (role-gated) + community gallery + assets + account menu. */}
-            <div className="fixed top-5 right-6 z-30 flex items-center gap-2.5">
-                {monthSpend != null && (
-                    <span
-                        title="What your generations cost this calendar month (in-flight ones counted at their estimate)"
-                        className="px-2.5 py-1.5 rounded-md border border-white/10 bg-white/[0.04] text-xs font-semibold font-mono tabular-nums text-white/70"
-                    >
-                        ${monthSpend.toFixed(2)}<span className="ml-1 font-sans font-medium text-white/35">this month</span>
-                    </span>
-                )}
-                <Link
-                    href="/projects"
-                    title="All projects — spend, members and model access are scoped per project"
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-white/10 bg-white/[0.04] text-white/70 hover:text-white hover:border-white/25 hover:bg-white/[0.08] transition-colors text-xs font-semibold"
-                >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" /></svg>
-                    <span>Projects</span>
-                </Link>
-                {projects.length > 0 && (
-                    <select
-                        value={projectId ?? ''}
-                        onChange={(e) => selectProject(Number(e.target.value))}
-                        title="Project — model access and budgets are scoped per project"
-                        className="px-2 py-1.5 rounded-md border border-line bg-paper-3 text-ink-2 hover:border-line-strong text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-accent [&>option]:bg-paper-1"
-                    >
-                        {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
-                )}
-                {isAdmin && (
-                    <Link
-                        href="/console"
-                        title="Governance console — access, budgets, queue, audit"
-                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-warn/25 bg-warn/[0.06] text-warn/80 hover:text-warn hover:border-warn/50 hover:bg-warn/[0.12] transition-colors text-xs font-semibold"
-                    >
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
-                        <span>Console</span>
-                    </Link>
-                )}
-                <Link
-                    href="/gallery"
-                    title="Browse every creator's work and reuse any setup"
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-white/10 bg-white/[0.04] text-white/70 hover:text-white hover:border-white/25 hover:bg-white/[0.08] transition-colors text-xs font-semibold"
-                >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" /></svg>
-                    <span>Gallery</span>
-                </Link>
-                <Link
-                    href="/liked"
-                    title="Only the liked generations"
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-white/10 bg-white/[0.04] text-white/70 hover:text-rose-300 hover:border-rose-400/40 hover:bg-white/[0.08] transition-colors text-xs font-semibold"
-                >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" /></svg>
-                    <span>Liked</span>
-                </Link>
-                <button
-                    type="button"
-                    onClick={() => setShowAssets(true)}
-                    title="Browse all your generated videos"
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-white/10 bg-white/[0.04] text-white/70 hover:text-white hover:border-white/25 hover:bg-white/[0.08] transition-colors text-xs font-semibold"
-                >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>
-                    <span>Assets</span>
-                    {doneCount > 0 && <span className="ml-0.5 text-white/35">{doneCount}</span>}
-                </button>
-                <UserButton />
-            </div>
 
             {/* Center stage: hero when empty, else the selected job plays big.
                 Finished generations live in the right-side history rail. */}
-            <div className={`relative z-10 flex min-h-screen flex-col items-center justify-center px-4 pb-[24rem] sm:pb-56 pt-16 ${visibleJobs.length > 0 ? 'sm:pr-52' : ''}`}>
-                {!selectedJob ? (
-                    <Hero />
-                ) : (
+            <div className={`relative z-10 flex min-h-screen flex-col items-center justify-center px-4 pt-16 pb-[24rem] ${selectedJob ? 'sm:pb-24' : 'sm:pb-56'} ${sidebarCollapsed ? 'sm:pl-16' : 'sm:pl-56'} ${visibleJobs.length > 0 ? 'sm:pr-52' : ''}`}>
+                {selectedJob && !viewerJob ? (
                     <BigStage
                         key={selectedJob.id} /* remount on job switch → PromptTabs resets to the default tab */
                         job={selectedJob}
@@ -972,6 +1091,8 @@ export default function SeedanceStudio() {
                         onReuse={onReuseRefs}
                         onRefresh={() => refreshVideoUrl(selectedJob, { fromError: true })}
                     />
+                ) : (
+                    <Hero />
                 )}
             </div>
 
@@ -1009,9 +1130,35 @@ export default function SeedanceStudio() {
                 onMediaError={setError}
                 onUploadFiles={onUploadFiles}
                 tags={tags}
+                sidebarLeft={sidebarCollapsed ? 'sm:left-14' : 'sm:left-56'}
+                mediaType={mediaType}
+                onChangeMediaType={changeMediaType}
+                imageModels={IMAGE_MODELS}
+                imageRefs={imageRefs}
+                onUploadImageRefs={onUploadImageRefs}
+                removeImageRef={removeImageRef}
             />
 
             {fullscreen && <Fullscreen url={fullscreen} onClose={() => setFullscreen(null)} />}
+
+            {viewerJob && (() => {
+                // ← / → step through the finished, still-playable generations
+                // (the ones that would open here) in rail order.
+                const viewable = visibleJobs.filter((j) => j.status === 'done' && (j.videoUrl || j.imageUrl) && !j.expired);
+                const i = viewable.findIndex((j) => j.id === viewerJob.id);
+                return (
+                    <AssetViewer
+                        key={viewerJob.id}
+                        job={viewerJob}
+                        onClose={() => setSelectedId(null)}
+                        onReuse={onReuseRefs}
+                        onToggleLike={onToggleLike}
+                        onRefresh={() => refreshVideoUrl(viewerJob, { fromError: true })}
+                        onPrev={i > 0 ? () => setSelectedId(viewable[i - 1].id) : null}
+                        onNext={i >= 0 && i < viewable.length - 1 ? () => setSelectedId(viewable[i + 1].id) : null}
+                    />
+                );
+            })()}
 
             {showAssets && (
                 <AssetsPanel
@@ -1055,7 +1202,7 @@ function BigStage({ job, onCancel, onFullscreen, onReuse, onRefresh }) {
         return (
             <div className="w-full max-w-6xl animate-fade-in-up">
                 <div className="flex flex-col lg:flex-row gap-4 justify-center lg:items-start">
-                    <div className="flex-1 min-w-0 max-w-3xl mx-auto lg:mx-0">{card}</div>
+                    <div className="flex-1 min-w-0 max-w-5xl mx-auto lg:mx-0">{card}</div>
                     <PromptTabs job={job} onReuse={onReuse} />
                 </div>
             </div>
@@ -1064,10 +1211,10 @@ function BigStage({ job, onCancel, onFullscreen, onReuse, onRefresh }) {
     if (job.status === 'done' && job.videoUrl) {
         const hasPrompt = !!(job.prompt || job.userPrompt || job.refs?.length);
         return (
-            <div className={`w-full animate-fade-in-up ${hasPrompt ? 'max-w-6xl' : 'max-w-3xl'}`}>
+            <div className={`w-full animate-fade-in-up ${hasPrompt ? 'max-w-7xl' : 'max-w-5xl'}`}>
                 {/* Video left, prompt panel on the RIGHT (stacks below on small screens). */}
                 <div className="flex flex-col lg:flex-row gap-4 justify-center lg:items-start">
-                    <div className="flex-1 min-w-0 max-w-3xl mx-auto lg:mx-0">
+                    <div className="flex-1 min-w-0 max-w-5xl mx-auto lg:mx-0">
                         <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-black shadow-2xl">
                             <video
                                 key={job.id}
@@ -1086,7 +1233,7 @@ function BigStage({ job, onCancel, onFullscreen, onReuse, onRefresh }) {
                                     el.muted = false;
                                     el.play?.()?.catch(() => { el.muted = true; el.play().catch(() => {}); });
                                 }}
-                                className="w-full max-h-[64vh] object-contain bg-black"
+                                className="w-full max-h-[82vh] object-contain bg-black"
                             />
                             <div className="absolute top-3 right-3 flex gap-2">
                                 <button type="button" onClick={onFullscreen} title="Fullscreen" className="p-2 rounded-full bg-black/60 border border-white/10 text-white/80 hover:text-white hover:bg-black/80 transition-colors backdrop-blur-sm">
@@ -1138,7 +1285,7 @@ function BigStage({ job, onCancel, onFullscreen, onReuse, onRefresh }) {
                 {/* Spinner left, the submitted prompt + reference assets on the
                     RIGHT — same layout the finished video uses. */}
                 <div className="flex flex-col lg:flex-row gap-4 justify-center lg:items-start">
-                    <div className="flex-1 min-w-0 max-w-3xl mx-auto lg:mx-0">
+                    <div className="flex-1 min-w-0 max-w-5xl mx-auto lg:mx-0">
                         <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-black/30 aspect-video flex items-center justify-center">
                             {placeholder}
                         </div>
@@ -1177,7 +1324,7 @@ function PromptTabs({ job, onReuse }) {
     // Which model produced this video — friendly name when the id is in the
     // catalog, the raw id for rotated/legacy ones, nothing for old jobs that
     // predate the model field.
-    const modelName = job.model ? (MODELS.find((m) => m.id === job.model)?.name ?? job.model) : null;
+    const modelName = job.model ? (MODELS.find((m) => m.id === job.model)?.name ?? IMAGE_MODELS.find((m) => m.id === job.model)?.name ?? job.model) : null;
     return (
         <div className="w-full lg:w-80 xl:w-96 shrink-0 flex flex-col max-h-[40vh] lg:max-h-[64vh] rounded-2xl border border-white/10 bg-white/[0.02] backdrop-blur-sm overflow-hidden">
             {(hasText || modelName) && (
@@ -1370,11 +1517,22 @@ function RailVideo({ job, onRefresh }) {
 // Right-side history rail (higgsfield-style): every generation as a compact
 // thumbnail — click to play it big on the center stage.
 function HistoryRail({ jobs, selectedId, onSelect, onRemove, onToggleLike, onRefresh }) {
+    // Only mount a window of tiles (each already lazy-loads its own video via
+    // IntersectionObserver); grow the window as the rail scrolls so 100+ videos
+    // never mount at once.
+    const [visibleCount, setVisibleCount] = useState(24);
+    const shown = jobs.slice(0, visibleCount);
+    const onScroll = (e) => {
+        const el = e.currentTarget;
+        if (el.scrollHeight - el.scrollTop - el.clientHeight < 260) {
+            setVisibleCount((c) => (c < jobs.length ? c + 24 : c));
+        }
+    };
     return (
         <div className="fixed right-3 top-14 bottom-40 z-20 hidden sm:flex w-44 flex-col">
             <p className="px-1 pb-2 text-[10px] font-bold uppercase tracking-wider text-white/30">History · {jobs.length}</p>
-            <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col gap-2 pr-0.5">
-                {jobs.map((job) => {
+            <div onScroll={onScroll} className="flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col gap-2 pr-0.5">
+                {shown.map((job) => {
                     const active = ACTIVE_STATUSES.includes(job.status);
                     const selected = job.id === selectedId;
                     return (
@@ -1387,7 +1545,9 @@ function HistoryRail({ jobs, selectedId, onSelect, onRemove, onToggleLike, onRef
                             title={job.prompt || job.meta || job.taskId}
                             className={`group relative shrink-0 aspect-video rounded-lg overflow-hidden border cursor-pointer transition-all ${selected ? 'border-primary/70 ring-1 ring-primary/40' : 'border-white/10 hover:border-white/30'}`}
                         >
-                            {job.status === 'done' && job.videoUrl && !job.expired ? (
+                            {job.status === 'done' && job.imageUrl ? (
+                                <img src={job.imageUrl} alt="" loading="lazy" className="w-full h-full object-cover bg-black" />
+                            ) : job.status === 'done' && job.videoUrl && !job.expired ? (
                                 <RailVideo job={job} onRefresh={onRefresh} />
                             ) : job.status === 'done' ? (
                                 <TilePlaceholder expired={!!job.expired} />
@@ -1427,6 +1587,15 @@ function HistoryRail({ jobs, selectedId, onSelect, onRemove, onToggleLike, onRef
                         </div>
                     );
                 })}
+                {visibleCount < jobs.length && (
+                    <button
+                        type="button"
+                        onClick={() => setVisibleCount((c) => Math.min(jobs.length, c + 24))}
+                        className="shrink-0 rounded-lg border border-line py-2 text-[10px] font-semibold text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink-2"
+                    >
+                        Load {Math.min(24, jobs.length - visibleCount)} more
+                    </button>
+                )}
             </div>
             <p className="pt-2 px-1 text-[9px] leading-relaxed text-white/20">Synced to your account · videos auto-archived to team storage</p>
         </div>
@@ -1462,6 +1631,157 @@ function Hero() {
             <p className="text-white/40 text-sm md:text-base font-medium tracking-wide text-center max-w-lg leading-relaxed">
                 Turn text, images, or references into cinematic AI video — governed, budgeted, and shared with your team.
             </p>
+        </div>
+    );
+}
+
+// Full-screen "big preview" for a finished generation (Higgsfield-style):
+// the video fills the left; a right panel carries the prompt, reference
+// thumbnails, generation details and the reuse / download / like actions.
+function AssetViewer({ job, onClose, onReuse, onToggleLike, onRefresh, onPrev, onNext }) {
+    const modelName = job.model ? (MODELS.find((m) => m.id === job.model)?.name ?? IMAGE_MODELS.find((m) => m.id === job.model)?.name ?? job.model) : null;
+    const prompt = job.userPrompt || job.prompt || '';
+    const created = job.createdAt ? new Date(job.createdAt) : null;
+    const createdText = created && !Number.isNaN(created.getTime())
+        ? created.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+        : null;
+
+    useEffect(() => {
+        const onKey = (e) => {
+            if (e.key === 'Escape') onClose();
+            else if (e.key === 'ArrowLeft') onPrev?.();
+            else if (e.key === 'ArrowRight') onNext?.();
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [onClose, onPrev, onNext]);
+
+    return (
+        <div className="fixed inset-0 z-[80] flex flex-col bg-app-bg animate-fade-in-up lg:flex-row">
+            {/* LEFT — video or image */}
+            <div className="relative flex min-h-0 flex-1 items-center justify-center bg-black">
+                {job.imageUrl ? (
+                    <img key={job.id} src={job.imageUrl} alt={job.prompt || 'Generated image'} className="max-h-full max-w-full object-contain" />
+                ) : (
+                    <video
+                        key={job.id}
+                        src={job.videoUrl}
+                        controls
+                        autoPlay
+                        loop
+                        playsInline
+                        onError={onRefresh}
+                        className="max-h-full max-w-full object-contain"
+                    />
+                )}
+                <button
+                    type="button"
+                    onClick={onClose}
+                    aria-label="Close preview"
+                    className="absolute left-4 top-4 rounded-full border border-white/10 bg-black/60 p-2 text-white/80 backdrop-blur-sm transition-colors hover:bg-black/80 hover:text-white lg:hidden"
+                >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                </button>
+                {onPrev && (
+                    <button type="button" onClick={onPrev} aria-label="Previous" className="absolute left-3 sm:left-5 top-1/2 -translate-y-1/2 z-10 rounded-full border border-white/10 bg-black/60 p-2.5 text-white/80 backdrop-blur-sm transition-colors hover:bg-black/80 hover:text-white">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+                    </button>
+                )}
+                {onNext && (
+                    <button type="button" onClick={onNext} aria-label="Next" className="absolute right-3 sm:right-5 top-1/2 -translate-y-1/2 z-10 rounded-full border border-white/10 bg-black/60 p-2.5 text-white/80 backdrop-blur-sm transition-colors hover:bg-black/80 hover:text-white">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+                    </button>
+                )}
+            </div>
+
+            {/* RIGHT — info + actions */}
+            <aside className="flex w-full shrink-0 flex-col border-t border-line bg-paper-1 lg:h-full lg:w-[360px] lg:border-l lg:border-t-0">
+                <div className="flex items-center justify-between border-b border-line px-4 py-3">
+                    <div className="flex items-center gap-2">
+                        <span className="grid h-7 w-7 place-items-center rounded-full bg-accent font-display text-xs font-bold text-accent-ink">S</span>
+                        <div className="leading-tight">
+                            <div className="text-xs font-semibold text-ink">Your generation</div>
+                            <div className="text-[11px] text-ink-3">{job.mediaType === 'image' ? (modelName || 'Nano Banana') : 'Seedance 2.0'}</div>
+                        </div>
+                    </div>
+                    <button type="button" onClick={onClose} aria-label="Close preview" className="rounded-md p-1.5 text-ink-3 transition-colors hover:bg-paper-3 hover:text-ink">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                    </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto custom-scrollbar">
+                    <section className="border-b border-line px-4 py-3">
+                        <div className="mb-2 flex items-center justify-between">
+                            <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-3">Prompt</span>
+                            {prompt && (
+                                <button type="button" onClick={() => navigator.clipboard?.writeText(prompt)} className="text-[11px] font-medium text-ink-3 transition-colors hover:text-ink">Copy</button>
+                            )}
+                        </div>
+                        {prompt
+                            ? <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-ink-2">{prompt}</p>
+                            : <p className="text-xs text-ink-3">No prompt recorded for this generation.</p>}
+                    </section>
+
+                    {job.refs?.length > 0 && (
+                        <div className="border-b border-line">
+                            {/* No per-section Reuse button here — the "Reuse this
+                                setup" action below already restores refs + prompt. */}
+                            <RefAssets refs={job.refs} />
+                        </div>
+                    )}
+
+                    <section className="px-4 py-3">
+                        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-3">Details</div>
+                        <dl className="space-y-2 text-xs">
+                            {modelName && <DetailRow k="Model" v={modelName} />}
+                            {job.meta && <DetailRow k="Output" v={job.meta} />}
+                            {createdText && <DetailRow k="Created" v={createdText} />}
+                            {job.taskId && <DetailRow k="Task" v={<span className="break-all font-mono text-[10px]">{job.taskId}</span>} />}
+                        </dl>
+                    </section>
+                </div>
+
+                <div className="space-y-2 border-t border-line p-3">
+                    <button
+                        type="button"
+                        onClick={() => { onReuse(job, job.refs || []); onClose(); }}
+                        title="Load this prompt, references and settings back into the prompt bar"
+                        className="flex w-full items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-2.5 text-xs font-semibold text-accent-ink transition-colors hover:bg-accent-hi"
+                    >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M1 4v6h6M23 20v-6h-6" /><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15" /></svg>
+                        Reuse this setup
+                    </button>
+                    <div className="flex items-center gap-2">
+                        <a
+                            href={job.videoUrl || job.imageUrl}
+                            download
+                            className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-line px-3 py-2.5 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink"
+                        >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
+                            Download
+                        </a>
+                        {onToggleLike && (
+                            <button
+                                type="button"
+                                onClick={() => onToggleLike(job.id)}
+                                title={job.liked ? 'Unlike' : 'Like'}
+                                className={`rounded-md border px-3 py-2.5 transition-colors ${job.liked ? 'border-danger/40 bg-danger/10 text-danger' : 'border-line text-ink-3 hover:bg-paper-3 hover:text-ink'}`}
+                            >
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill={job.liked ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" /></svg>
+                            </button>
+                        )}
+                    </div>
+                </div>
+            </aside>
+        </div>
+    );
+}
+
+function DetailRow({ k, v }) {
+    return (
+        <div className="flex items-start justify-between gap-3">
+            <dt className="shrink-0 text-ink-3">{k}</dt>
+            <dd className="text-right font-medium text-ink-2">{v}</dd>
         </div>
     );
 }

@@ -7,6 +7,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { MODES, RATIOS } from '../../lib/seedance/constants.js';
 import { estimateCost } from '../../lib/seedance/pricing.mjs';
+import { imageCost } from '../../lib/gateway/imagePricing.mjs';
 import { filterTags, tagLabelFor, tagToken, TOKEN_RE } from '../../lib/seedance/tags.js';
 import MediaHoverPreview from './MediaHoverPreview.jsx';
 
@@ -109,6 +110,56 @@ function PillToggle({ label, active, onToggle, disabled, icon }) {
             <span className={active ? 'text-primary' : 'text-white/65'}>{icon}</span>
             <span className={`text-xs font-semibold transition-colors ${active ? 'text-primary' : 'text-white/90 group-hover:text-primary'}`}>{label}</span>
         </button>
+    );
+}
+
+// Image-mode reference uploader: round thumbnails + a dashed "+" (up to 3).
+// Nano Banana (Gemini) edits/combines these with the prompt.
+function ImageRefUploader({ refs, onUpload, onRemove }) {
+    const inputRef = useRef(null);
+    return (
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {refs.map((r, i) => (
+                <div key={i} className="relative h-10 w-10 shrink-0">
+                    <img src={r.previewUrl} alt="" className="h-full w-full rounded-full border border-primary/40 object-cover" />
+                    <button type="button" onClick={() => onRemove(i)} aria-label="Remove" className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-white/20 bg-black text-[10px] leading-none text-white/70 hover:text-white">×</button>
+                </div>
+            ))}
+            {refs.length < 3 && (
+                <>
+                    <input ref={inputRef} type="file" hidden accept="image/*" multiple onChange={(e) => { onUpload?.(e.target.files); e.target.value = ''; }} />
+                    <button
+                        type="button"
+                        title="Add reference images — Nano Banana edits / combines them with your prompt"
+                        onClick={() => inputRef.current?.click()}
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-dashed border-white/[0.08] bg-white/[0.03] text-white/50 transition-all hover:border-primary/50 hover:bg-white/10 hover:text-primary"
+                    >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+                    </button>
+                </>
+            )}
+        </div>
+    );
+}
+
+// Image ↔ Video switch on the left of the bar: Image drives Nano Banana image
+// generation, Video the Seedance/ModelArk flow. Vertical, like the reference.
+function MediaTypeToggle({ value, onChange }) {
+    const opt = (id, label, icon) => (
+        <button
+            type="button"
+            onClick={() => onChange?.(id)}
+            className={`flex w-full flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-3 py-2 text-[10px] font-bold transition-colors ${value === id ? 'bg-primary/15 text-primary' : 'text-white/45 hover:text-white/80'}`}
+        >
+            {icon}
+            {label}
+        </button>
+    );
+    return (
+        <div className="flex shrink-0 flex-col gap-1 self-stretch rounded-xl border border-white/10 bg-black/30 p-1">
+            {opt('image', 'Image', <ImageIcon />)}
+            {opt('video', 'Video', <FilmIcon />)}
+        </div>
     );
 }
 
@@ -308,8 +359,12 @@ export default function PromptBar({
     mode, onChangeMode, prompt, onPromptChange, options, setOpt,
     mediaByRole, setMediaByRole, models, allowedModelIds, resolutions, selectedModel,
     error, notice, setNotice, onGenerate, enhancing = false, batch = 1, setBatch,
-    onMediaError, onUploadFiles, tags,
+    onMediaError, onUploadFiles, tags, sidebarLeft = '',
+    mediaType = 'video', onChangeMediaType, imageModels = [],
+    imageRefs = [], onUploadImageRefs, removeImageRef,
 }) {
+    const isImage = mediaType === 'image';
+    const selectedImageModel = imageModels.find((m) => m.id === options.model);
     const [openKey, setOpenKey] = useState(null);
     const [mention, setMention] = useState(null); // { start, query } while typing "@…"
     const [mentionIdx, setMentionIdx] = useState(0); // keyboard-highlighted menu row
@@ -407,7 +462,7 @@ export default function PromptBar({
     if (docked) {
         const attached = mode.media.reduce((n, s) => n + (mediaByRole[s.role] || []).length, 0);
         return (
-            <div className="fixed bottom-4 inset-x-0 mx-auto w-[95%] max-w-xl z-40 animate-fade-in-up">
+            <div className={`fixed bottom-4 left-0 right-0 ${sidebarLeft} mx-auto w-[95%] max-w-xl z-40 animate-fade-in-up`}>
                 <button
                     type="button"
                     onClick={undock}
@@ -416,7 +471,7 @@ export default function PromptBar({
                 >
                     <span className="w-4 h-4 shrink-0 bg-primary rounded flex items-center justify-center"><span className="text-[9px] font-bold text-black">S</span></span>
                     <span className={`flex-1 min-w-0 truncate text-sm ${prompt ? 'text-white/80' : 'text-white/40'}`}>
-                        {prompt || 'Describe the video…'}
+                        {prompt || (isImage ? 'Describe the image…' : 'Describe the video…')}
                     </span>
                     {attached > 0 && (
                         <span className="shrink-0 px-2 py-0.5 rounded-full bg-primary/15 text-primary text-[10px] font-bold">{attached} ref{attached > 1 ? 's' : ''}</span>
@@ -428,8 +483,11 @@ export default function PromptBar({
     }
 
     return (
-        <div className="fixed bottom-4 inset-x-0 mx-auto w-[95%] max-w-4xl z-40 animate-fade-in-up" style={{ animationDelay: '0.15s' }}>
-            <div className="w-full bg-paper-1/80 backdrop-blur-3xl rounded-2xl border border-white/10 p-4 flex flex-col gap-2 shadow-2xl">
+        <div className={`fixed bottom-4 left-0 right-0 ${sidebarLeft} mx-auto w-[95%] max-w-4xl z-40 animate-fade-in-up`} style={{ animationDelay: '0.15s' }}>
+            {/* Image/Video switch sits to the LEFT of the bar, matching its height. */}
+            <div className="flex items-stretch gap-2">
+            <MediaTypeToggle value={mediaType} onChange={onChangeMediaType} />
+            <div className="min-w-0 flex-1 bg-paper-1/80 backdrop-blur-3xl rounded-2xl border border-white/10 p-4 flex flex-col gap-2 shadow-2xl">
                 {/* media + prompt */}
                 <div className="relative flex items-start gap-2 px-1">
                     {showMention && (
@@ -452,7 +510,8 @@ export default function PromptBar({
                             })}
                         </div>
                     )}
-                    <MediaButtons mode={mode} mediaByRole={mediaByRole} setMediaByRole={setMediaByRole} onUploadFiles={onUploadFiles} tags={allTags} />
+                    {!isImage && <MediaButtons mode={mode} mediaByRole={mediaByRole} setMediaByRole={setMediaByRole} onUploadFiles={onUploadFiles} tags={allTags} />}
+                    {isImage && <ImageRefUploader refs={imageRefs} onUpload={onUploadImageRefs} onRemove={removeImageRef} />}
                     {/* Chip-rendered prompt: a backdrop paints the text (tokens as
                         cyan chips) behind a transparent-text textarea, so editing
                         mechanics stay native while @Image1 reads as a pill. */}
@@ -495,7 +554,7 @@ export default function PromptBar({
                                 const r = e.currentTarget.getBoundingClientRect();
                                 if (e.clientX >= r.right - 18 && e.clientY >= r.bottom - 18) manualResizedRef.current = true;
                             }}
-                            placeholder={allTagsPossible ? 'Describe the video — type “@” to reference an upload (e.g. actions in @Video1, character from @Image1)' : mode.requiresText ? 'Describe the video you want to create' : 'Describe the video (optional)…'}
+                            placeholder={isImage ? 'Describe the image you want to create' : allTagsPossible ? 'Describe the video — type “@” to reference an upload (e.g. actions in @Video1, character from @Image1)' : mode.requiresText ? 'Describe the video you want to create' : 'Describe the video (optional)…'}
                             rows={1}
                             title="Drag the bottom-right corner to resize"
                             className="relative block w-full bg-transparent border-none text-transparent caret-white text-sm placeholder:text-white/40 focus:outline-none resize-y pt-2 leading-relaxed min-h-[40px] max-h-[60vh] overflow-y-auto custom-scrollbar [scrollbar-gutter:stable]"
@@ -513,6 +572,18 @@ export default function PromptBar({
 
                 {/* controls (selectors left, toggles right) + generate (own row, right) */}
                 <div className="flex flex-col gap-2 pt-2 border-t border-white/[0.03]">
+                    {isImage ? (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                        <PillSelect
+                            id="imodel" openKey={openKey} setOpenKey={setOpenKey}
+                            badge={<span className="w-4 h-4 bg-primary rounded flex items-center justify-center"><span className="text-[9px] font-bold text-black">N</span></span>}
+                            display={selectedImageModel?.name || 'Model'} label="Image model" value={options.model}
+                            options={imageModels.map((m) => ({ value: m.id, label: m.name }))}
+                            onSelect={(v) => setOpt('model', v)}
+                        />
+                        <span className="hidden sm:inline text-[11px] text-white/35">Batch queue · the image lands in your history</span>
+                    </div>
+                    ) : (
                     <div className="flex items-center justify-between gap-1.5 flex-wrap">
                     <div className="flex items-center gap-1.5 flex-wrap">
                         <PillSelect
@@ -564,11 +635,14 @@ export default function PromptBar({
                         <PillToggle label="Watermark" active={!!options.watermark} onToggle={() => setOpt('watermark', !options.watermark)} icon={<DropIcon />} />
                     </div>
                     </div>
+                    )}
 
                     <div className="flex items-center justify-end gap-2">
                         {/* Cost transparency: the same estimate the gateway reserves against. */}
                         {(() => {
-                            const est = estimateCost({ kind: selectedModel?.kind, resolution: options.resolution, duration: options.duration });
+                            const est = isImage
+                                ? imageCost(selectedImageModel?.kind, 'batch', 1)
+                                : estimateCost({ kind: selectedModel?.kind, resolution: options.resolution, duration: options.duration });
                             return est != null ? (
                                 <span className="hidden sm:inline text-[11px] font-semibold tabular-nums text-white/35 pr-1" title="Estimated cost (final cost uses real token usage)">
                                     ≈ ${(est * (batch || 1)).toFixed(2)}
@@ -602,6 +676,7 @@ export default function PromptBar({
                         </button>
                     </div>
                 </div>
+            </div>
             </div>
         </div>
     );
