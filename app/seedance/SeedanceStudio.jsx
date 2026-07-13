@@ -75,6 +75,7 @@ export default function SeedanceStudio() {
     const [jobs, setJobs] = useState([]);
     const [batch, setBatch] = useState(1); // generations fired per Generate click
     const [selectedId, setSelectedId] = useState(null); // rail selection; null = follow newest
+    const autoSelectedRef = useRef(false); // one auto-pick per project; reset on project switch
     const [error, setError] = useState(null);
     const [notice, setNotice] = useState(null); // non-blocking info (e.g. GPT-4o refusal → raw-prompt fallback)
     const [enhancing, setEnhancing] = useState(false); // GPT-4o prompt restructuring in flight
@@ -149,6 +150,12 @@ export default function SeedanceStudio() {
 
     const selectProject = (id) => {
         setProjectId(id);
+        // The big stage follows the rail, which is project-scoped — so switching
+        // projects must drop the old project's selection and let the new
+        // project auto-pick its own latest (else a render from the old project
+        // would keep playing on the stage here).
+        setSelectedId(null);
+        autoSelectedRef.current = false;
         try { localStorage.setItem('seedance:project', String(id)); } catch { /* private mode */ }
     };
 
@@ -829,7 +836,6 @@ export default function SeedanceStudio() {
     // Never open onto a blank hero when work exists: on FIRST load with
     // nothing selected, put the newest finished creation on the big stage.
     // Once per visit only — Home (setSelectedId(null)) must stay home.
-    const autoSelectedRef = useRef(false);
     useEffect(() => {
         if (autoSelectedRef.current || selectedId || !visibleJobs.length) return;
         autoSelectedRef.current = true;
@@ -843,7 +849,7 @@ export default function SeedanceStudio() {
     // What plays big in the center: only an explicitly selected job (set by a
     // rail click, a fresh Generate, or an in-flight resume) — never auto-play
     // old history after a reload. A binned job never plays on the stage.
-    const selectedJob = jobs.find((j) => j.id === selectedId && !j.deleted) || null;
+    const selectedJob = jobs.find((j) => j.id === selectedId && !j.deleted && belongsToProject(j)) || null;
 
     // A selected card can carry a link that's already gone (restored from
     // localStorage) or ~20h+ old and about to 403: refresh it up front —
