@@ -128,6 +128,13 @@ export async function GET(request) {
         .slice(0, MAX_IDS);
     if (!ids.length) return NextResponse.json({ items: [] });
 
+    // The studio history rail is PER-USER: only return records for tasks the
+    // caller owns (gallery_generations.user_id, backed by jobs). The shared ModelArk key lists every
+    // team member's tasks; without this filter the rail merges all of them.
+    // Browsing everyone's work is what the community Gallery is for.
+    const user = await getUser();
+    if (!user) return NextResponse.json({ items: [] });
+
     let sql;
     try {
         sql = await getDb();
@@ -138,8 +145,10 @@ export async function GET(request) {
     if (!sql) return NextResponse.json({ items: [] });
 
     try {
-        const rows = await sql`SELECT task_id, style, user_prompt, generated_prompt, refs, liked, deleted
-            FROM seedance_prompts WHERE task_id = ANY(${ids})`;
+        const rows = await sql`SELECT p.task_id, p.style, p.user_prompt, p.generated_prompt, p.refs, p.liked, p.deleted
+            FROM seedance_prompts p
+            JOIN gallery_generations e ON e.task_id = p.task_id
+            WHERE p.task_id = ANY(${ids}) AND e.user_id = ${user.userId}`;
         return NextResponse.json({ items: rows });
     } catch {
         return bad('Failed to load prompt records.', 502);

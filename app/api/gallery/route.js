@@ -45,6 +45,7 @@ function toItem(r) {
         style: r.style || null,
         refs: Array.isArray(r.refs) && r.refs.length ? r.refs : null,
         liked: !!r.liked,
+        projectId: r.project_id ?? null,
         archiveUrl: presignArchive(r.task_id),
     };
 }
@@ -56,6 +57,12 @@ export async function GET(request) {
     const params = new URL(request.url).searchParams;
     const target = params.get('user');
     try {
+        // The studio history rail: the caller's OWN complete generation list
+        // (from the DB), so it isn't capped by ModelArk's recent-tasks window.
+        if (params.get('mine')) {
+            const rows = await listUserGenerations(user.userId);
+            return NextResponse.json({ items: rows.map(toItem) });
+        }
         if (params.get('liked')) {
             const rows = await listLikedGenerations();
             const items = rows.map((r) => ({
