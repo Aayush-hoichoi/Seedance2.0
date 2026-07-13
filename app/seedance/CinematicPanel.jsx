@@ -6,7 +6,7 @@
 // weaves it into the image prompt. All / Recommended / Saved tabs filter the
 // preset list; custom setups persist per-device (lib/seedance/cameraPresets.js).
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
     CAMERAS, LENSES, APERTURES, FOCAL_MIN, FOCAL_MAX,
     CINEMATIC_PRESETS, DEFAULT_SETUP, presetToSetup, sanitizeSetup, summarize, findCamera, findLens,
@@ -20,10 +20,40 @@ const TABS = [
     { id: 'saved', label: 'Saved' },
 ];
 
-const SELECT = 'w-full rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-sm text-white text-center focus:border-primary focus:outline-none';
+// A horizontal, scrollable option picker (replaces the native dropdown): scroll
+// through the choices and tap one. The active choice is highlighted and gets
+// centred in view when it changes (e.g. after a preset is applied). Scrolls the
+// strip only — never the modal — by setting scrollLeft directly.
+function ScrollSelect({ items, getId, activeId, onPick, renderChip }) {
+    const ref = useRef(null);
+    useEffect(() => {
+        const strip = ref.current;
+        const el = strip?.querySelector('[data-active="true"]');
+        if (strip && el) strip.scrollLeft = el.offsetLeft - (strip.clientWidth - el.clientWidth) / 2;
+    }, [activeId]);
+    return (
+        <div ref={ref} className="flex w-full gap-1.5 overflow-x-auto scroll-smooth snap-x pb-1 custom-scrollbar">
+            {items.map((it) => {
+                const id = getId(it);
+                const active = id === activeId;
+                return (
+                    <button
+                        key={id}
+                        type="button"
+                        data-active={active}
+                        onClick={() => onPick(id)}
+                        className={`shrink-0 snap-center rounded-lg border px-2 py-1.5 transition-colors ${active ? 'border-primary/50 bg-primary/10' : 'border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.06]'}`}
+                    >
+                        {renderChip(it, active)}
+                    </button>
+                );
+            })}
+        </div>
+    );
+}
 
 // A Higgsfield-style option tile: label on top, a big glyph in the middle, the
-// current value name below, then the control (select / slider).
+// current value name below, then the scroll-picker (or slider) control.
 function Tile({ label, glyph, name, sub, children }) {
     return (
         <div className="flex flex-col items-center gap-1.5 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 pt-3 pb-3 text-center">
@@ -136,14 +166,26 @@ export default function CinematicPanel({ open, setup, onApply, onClose }) {
                 {/* editor tiles */}
                 <div className="grid grid-cols-2 gap-3 px-4 pb-3 pt-2 sm:grid-cols-4">
                     <Tile label="Camera" glyph={<CameraGlyph type={findCamera(draft.cameraId)?.type} />} name={findCamera(draft.cameraId)?.name} sub={findCamera(draft.cameraId)?.type}>
-                        <select className={SELECT} value={draft.cameraId} onChange={(e) => set({ cameraId: e.target.value })}>
-                            {CAMERAS.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
+                        <ScrollSelect
+                            items={CAMERAS} getId={(c) => c.id} activeId={draft.cameraId} onPick={(id) => set({ cameraId: id })}
+                            renderChip={(c, active) => (
+                                <div className="flex w-12 flex-col items-center gap-0.5">
+                                    <span className={active ? 'text-primary' : 'text-white/70'}><CameraGlyph type={c.type} size={22} /></span>
+                                    <span className="w-full truncate text-center text-[9px] leading-tight text-white/70">{c.name}</span>
+                                </div>
+                            )}
+                        />
                     </Tile>
                     <Tile label="Lens" glyph={<LensGlyph type={findLens(draft.lensId)?.type} />} name={findLens(draft.lensId)?.name} sub={findLens(draft.lensId)?.type}>
-                        <select className={SELECT} value={draft.lensId} onChange={(e) => set({ lensId: e.target.value })}>
-                            {LENSES.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-                        </select>
+                        <ScrollSelect
+                            items={LENSES} getId={(l) => l.id} activeId={draft.lensId} onPick={(id) => set({ lensId: id })}
+                            renderChip={(l, active) => (
+                                <div className="flex w-12 flex-col items-center gap-0.5">
+                                    <span className={active ? 'text-primary' : 'text-white/70'}><LensGlyph type={l.type} size={22} /></span>
+                                    <span className="w-full truncate text-center text-[9px] leading-tight text-white/70">{l.name}</span>
+                                </div>
+                            )}
+                        />
                     </Tile>
                     <Tile label="Focal length" glyph={<FocalGlyph mm={draft.focalLength} />} name={<span>{draft.focalLength}<span className="text-sm font-normal text-white/50"> mm</span></span>}>
                         <input
@@ -153,9 +195,12 @@ export default function CinematicPanel({ open, setup, onApply, onClose }) {
                         />
                     </Tile>
                     <Tile label="Aperture" glyph={<ApertureIris aperture={draft.aperture} />} name={<span>f/{draft.aperture}</span>}>
-                        <select className={SELECT} value={draft.aperture} onChange={(e) => set({ aperture: Number(e.target.value) })}>
-                            {APERTURES.map((a) => <option key={a} value={a}>f/{a}</option>)}
-                        </select>
+                        <ScrollSelect
+                            items={APERTURES} getId={(a) => a} activeId={draft.aperture} onPick={(a) => set({ aperture: a })}
+                            renderChip={(a, active) => (
+                                <span className={`block w-8 text-center text-xs font-bold tabular-nums ${active ? 'text-primary' : 'text-white/80'}`}>f/{a}</span>
+                            )}
+                        />
                     </Tile>
                 </div>
 
