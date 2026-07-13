@@ -32,7 +32,7 @@ function ScrollSelect({ items, getId, activeId, onPick, renderChip }) {
         if (strip && el) strip.scrollLeft = el.offsetLeft - (strip.clientWidth - el.clientWidth) / 2;
     }, [activeId]);
     return (
-        <div ref={ref} className="flex w-full gap-1.5 overflow-x-auto scroll-smooth snap-x pb-1 custom-scrollbar">
+        <div ref={ref} className="relative flex w-full gap-1.5 overflow-x-auto scroll-smooth snap-x pb-1 custom-scrollbar">
             {items.map((it) => {
                 const id = getId(it);
                 const active = id === activeId;
