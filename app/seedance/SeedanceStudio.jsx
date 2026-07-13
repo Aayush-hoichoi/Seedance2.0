@@ -891,6 +891,23 @@ export default function SeedanceStudio() {
     // max). The raw user prompt wins over the GPT-4o brief: in styled modes the
     // brief is regenerated on the next Generate anyway.
     const onReuseRefs = (job, refs) => {
+        // Reusing an image (Nano Banana) job: flip the toggle to Image mode and
+        // restore its model + prompt. The video mode/refs/options restore below
+        // doesn't apply to images and would strand the prompt in Video mode.
+        if (job.mediaType === 'image') {
+            setMediaType('image');
+            setImageRefs([]); // inline refs weren't persisted; user re-adds if needed
+            const imgModel = IMAGE_MODELS.some((m) => m.id === job.model) ? job.model
+                : IMAGE_MODELS.some((m) => m.id === job.options?.model) ? job.options.model
+                    : IMAGE_DEFAULT_MODEL_ID;
+            setOpt('model', imgModel);
+            setPrompt(job.userPrompt || job.prompt || '');
+            setError(null);
+            setNotice(null);
+            return;
+        }
+        // Reusing a video job while in Image mode: flip back to Video first.
+        if (mediaType === 'image') setMediaType('video');
         const targetId = job.modeId || (MODES.some((m) => m.id === job.style) ? job.style : mode.id);
         const target = MODES.find((m) => m.id === targetId) || mode;
         const byRole = {};
