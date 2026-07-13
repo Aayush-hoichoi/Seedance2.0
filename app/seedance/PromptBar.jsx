@@ -8,6 +8,7 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import { MODES, RATIOS } from '../../lib/seedance/constants.js';
 import { estimateCost } from '../../lib/seedance/pricing.mjs';
 import { imageCost } from '../../lib/gateway/imagePricing.mjs';
+import { summarize as summarizeCinematic } from '../../lib/seedance/cinematic.mjs';
 import { filterTags, tagLabelFor, tagToken, TOKEN_RE } from '../../lib/seedance/tags.js';
 import MediaHoverPreview from './MediaHoverPreview.jsx';
 
@@ -362,6 +363,7 @@ export default function PromptBar({
     onMediaError, onUploadFiles, tags, sidebarLeft = '',
     mediaType = 'video', onChangeMediaType, imageModels = [],
     imageRefs = [], onUploadImageRefs, removeImageRef,
+    cinematic = null, onOpenCinematic,
 }) {
     const isImage = mediaType === 'image';
     const selectedImageModel = imageModels.find((m) => m.id === options.model);
@@ -581,6 +583,17 @@ export default function PromptBar({
                             options={imageModels.map((m) => ({ value: m.id, label: m.name }))}
                             onSelect={(v) => setOpt('model', v)}
                         />
+                        <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); onOpenCinematic?.(); }}
+                            className={`${PILL} ${cinematic ? PILL_ON : PILL_IDLE}`}
+                            title="Cinematic camera, lens, focal length and aperture — GPT-4o structures your prompt around them"
+                        >
+                            <span className={cinematic ? 'text-primary' : 'text-white/65'}><FilmIcon /></span>
+                            <span className={`text-xs font-semibold transition-colors ${cinematic ? 'text-primary' : 'text-white/90 group-hover:text-primary'}`}>
+                                {cinematic ? summarizeCinematic(cinematic) : 'Cinematic Cameras'}
+                            </span>
+                        </button>
                         <span className="hidden sm:inline text-[11px] text-white/35">Batch queue · the image lands in your history</span>
                     </div>
                     ) : (

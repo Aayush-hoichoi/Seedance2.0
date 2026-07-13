@@ -27,6 +27,8 @@ import MediaHoverPreview from './MediaHoverPreview.jsx';
 import ProjectSelect from './ProjectSelect.jsx';
 import StudioSidebar from './StudioSidebar.jsx';
 import AssetsPanel from './AssetsPanel.jsx';
+import CinematicPanel from './CinematicPanel.jsx';
+import { cinematicToPayload } from '../../lib/seedance/cinematic.mjs';
 
 // Resolve form state into the flat media list buildPayload expects, in the
 // slot order the mode declares (so first_frame precedes last_frame).
@@ -97,6 +99,8 @@ export default function SeedanceStudio() {
     const [batch, setBatch] = useState(1); // generations fired per Generate click
     const [mediaType, setMediaType] = useState('video'); // 'video' (Seedance) | 'image' (Nano Banana)
     const [imageRefs, setImageRefs] = useState([]); // Image-mode reference images (base64 inline parts for Gemini)
+    const [cinematic, setCinematic] = useState(null); // active Cinematic Cameras setup (image mode) or null = off
+    const [showCinematic, setShowCinematic] = useState(false); // the cinematic camera modal
     const [selectedId, setSelectedId] = useState(null); // rail selection; null = follow newest
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // studio left rail
     const autoSelectedRef = useRef(false); // one auto-pick per project; reset on project switch
@@ -744,8 +748,11 @@ export default function SeedanceStudio() {
         patchJob(localId, { status: 'error', error: 'Timed out waiting for the image.' });
     };
 
-    const launchImageJob = async (promptText, refs = []) => {
-        const job = newJob({ prompt: promptText, model: options.model, modeId: 'image', options: { ...options }, projectId, mediaType: 'image' });
+    const launchImageJob = async (promptText, refs = [], meta = null) => {
+        const base = newJob({ prompt: promptText, model: options.model, modeId: 'image', options: { ...options }, projectId, mediaType: 'image' });
+        // Cinematic: keep the raw prompt + camera setup on the job so history
+        // shows a raw-vs-structured compare and can label the look.
+        const job = meta ? { ...base, userPrompt: meta.userPrompt || null, cinematic: meta.cinematic || null } : base;
         updateJobs((prev) => [job, ...prev]);
         setSelectedId(job.id);
         patchJob(job.id, { status: 'running' });
@@ -779,10 +786,32 @@ export default function SeedanceStudio() {
         // header silently bills to Default, diverging from the shown project.
         if (projects.length && !projectId) { setError('Still loading your project — try again in a moment.'); return; }
 
-        // Image mode: prompt-only, straight to the gateway batch queue.
+        // Image mode: straight to the gateway batch queue. When a Cinematic
+        // Cameras setup is active, GPT-4o restructures the prompt around the
+        // camera settings first (one enhance for the whole batch).
         if (mediaType === 'image') {
-            if (!prompt.trim()) { setError('Describe the image you want to create.'); return; }
-            for (let i = 0; i < batch; i++) launchImageJob(prompt.trim(), imageRefs);
+            const raw = prompt.trim();
+            if (!raw) { setError('Describe the image you want to create.'); return; }
+            let structured = raw;
+            let meta = null;
+            if (cinematic) {
+                setEnhancing(true);
+                try {
+                    const result = await enhancePrompt({ style: 'cinematic_camera', prompt: raw, camera: cinematicToPayload(cinematic) });
+                    if (result.refused) {
+                        setNotice(result.reason || 'Prompt restructuring was declined — generating from your prompt as-is.');
+                    } else {
+                        structured = result.prompt;
+                        meta = { userPrompt: raw, cinematic };
+                    }
+                } catch (e) {
+                    setError(e.message);
+                    setEnhancing(false);
+                    return;
+                }
+                setEnhancing(false);
+            }
+            for (let i = 0; i < batch; i++) launchImageJob(structured, imageRefs, meta);
             return;
         }
         const problem = validate(mode, prompt, mediaByRole);
@@ -1154,6 +1183,15 @@ export default function SeedanceStudio() {
                 imageRefs={imageRefs}
                 onUploadImageRefs={onUploadImageRefs}
                 removeImageRef={removeImageRef}
+                cinematic={cinematic}
+                onOpenCinematic={() => setShowCinematic(true)}
+            />
+
+            <CinematicPanel
+                open={showCinematic}
+                setup={cinematic}
+                onApply={setCinematic}
+                onClose={() => setShowCinematic(false)}
             />
 
             {fullscreen && <Fullscreen url={fullscreen} onClose={() => setFullscreen(null)} />}

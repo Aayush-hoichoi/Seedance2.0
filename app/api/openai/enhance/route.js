@@ -55,10 +55,25 @@ export async function POST(request) {
         .map((a) => `- ${a.label} (${a.kind || 'asset'})${a.name ? ` — file: ${a.name}` : ''}`)
         .join('\n');
 
+    // Optional cinematic camera direction (Cinematic Cameras image mode). Each
+    // field is a short human-labeled string the system prompt weaves into the
+    // image prompt; coerce + cap so it's a bounded block, not free-form input.
+    const camStr = (v) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 120) : null);
+    const camera = body.camera && typeof body.camera === 'object' ? body.camera : null;
+    const cameraLines = camera
+        ? [
+            camStr(camera.camera) && `- Camera: ${camStr(camera.camera)}`,
+            camStr(camera.lens) && `- Lens: ${camStr(camera.lens)}`,
+            camStr(camera.focalLength) && `- Focal length: ${camStr(camera.focalLength)}`,
+            camStr(camera.aperture) && `- Aperture: ${camStr(camera.aperture)}`,
+        ].filter(Boolean).join('\n')
+        : '';
+
     const userMessage = [
         assetLines ? `Attached assets (reference these by their exact labels):\n${assetLines}` : 'No assets are attached.',
+        cameraLines ? `Camera settings:\n${cameraLines}` : null,
         `User request:\n${prompt}`,
-    ].join('\n\n');
+    ].filter(Boolean).join('\n\n');
 
     let res;
     try {
