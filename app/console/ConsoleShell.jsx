@@ -2,9 +2,9 @@
 
 // Console chrome: collapsible left nav, live-events indicator, event toasts.
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { UserButton } from '@clerk/nextjs';
 import toast, { Toaster } from 'react-hot-toast';
 import { useSWRConfig } from 'swr';
@@ -14,10 +14,13 @@ import {
     Wallet, ScrollText, Users, Clapperboard, PanelLeftClose, PanelLeftOpen, Radio,
 } from 'lucide-react';
 import { useEvents } from '../hooks/useEvents.js';
+import { useApi } from './lib.js';
 
+// managerOk marks the only tab org managers may see — everything else is
+// admin-only (and the APIs behind them already reject non-admins).
 const NAV = [
     { href: '/console', label: 'Dashboard', icon: LayoutDashboard, exact: true },
-    { href: '/console/projects', label: 'Projects', icon: FolderKanban },
+    { href: '/console/projects', label: 'Projects', icon: FolderKanban, managerOk: true },
     { href: '/console/models', label: 'Models', icon: Boxes },
     { href: '/console/queue', label: 'Queue', icon: ListOrdered },
     { href: '/console/usage', label: 'Usage', icon: BarChart3 },
@@ -42,6 +45,21 @@ export default function ConsoleShell({ children }) {
     const [live, setLive] = useState(false);
     const pathname = usePathname();
     const { mutate } = useSWRConfig();
+    // Only platform admins see every tab; managers get Projects only. Default
+    // to the restricted set until confirmed admin so extra tabs never flash.
+    const { data: me } = useApi('/api/projects');
+    const isAdmin = me?.role === 'admin';
+    const nav = isAdmin ? NAV : NAV.filter((n) => n.managerOk);
+    // A manager who reaches an admin-only console route by URL is bounced to
+    // Projects (the APIs already deny the data; this hides the empty shell).
+    const router = useRouter();
+    useEffect(() => {
+        if (me && !isAdmin) {
+            const allowed = nav.some((n) => (n.exact ? pathname === n.href : pathname.startsWith(n.href)));
+            if (!allowed) router.replace('/console/projects');
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [me, isAdmin, pathname]);
 
     useEvents('*', ({ type, data }) => {
         setLive(true);
@@ -64,7 +82,7 @@ export default function ConsoleShell({ children }) {
                     {!collapsed && <div className="font-display text-sm font-semibold tracking-tight text-ink">Model Gateway</div>}
                 </div>
                 <nav className="flex-1 space-y-0.5 px-2">
-                    {NAV.map(({ href, label, icon: Icon, exact }) => {
+                    {nav.map(({ href, label, icon: Icon, exact }) => {
                         const active = exact ? pathname === href : pathname.startsWith(href);
                         return (
                             <Link key={href} href={href} title={label}

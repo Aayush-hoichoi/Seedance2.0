@@ -159,9 +159,20 @@ export default function GalleryClient() {
                 </main>
             </div>
 
-            {lightbox && creator && (
-                <Lightbox item={lightbox} creator={creator} onClose={() => setLightbox(null)} onReuse={() => reuseInStudio(router, lightbox)} />
-            )}
+            {lightbox && creator && (() => {
+                const idx = items?.findIndex((i) => i.taskId === lightbox.taskId) ?? -1;
+                return (
+                    <Lightbox
+                        key={lightbox.taskId}
+                        item={lightbox}
+                        creator={creator}
+                        onClose={() => setLightbox(null)}
+                        onReuse={() => reuseInStudio(router, lightbox)}
+                        onPrev={idx > 0 ? () => setLightbox(items[idx - 1]) : null}
+                        onNext={items && idx >= 0 && idx < items.length - 1 ? () => setLightbox(items[idx + 1]) : null}
+                    />
+                );
+            })()}
         </div>
     );
 }

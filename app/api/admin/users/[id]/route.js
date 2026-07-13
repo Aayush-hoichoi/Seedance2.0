@@ -49,8 +49,8 @@ export async function PATCH(request, { params }) {
     let body;
     try { body = await request.json(); } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }); }
     const role = body?.role ?? null;
-    if (role !== 'admin' && role !== null) {
-        return NextResponse.json({ error: 'role must be "admin" or null.' }, { status: 400 });
+    if (role !== 'admin' && role !== 'manager' && role !== null) {
+        return NextResponse.json({ error: 'role must be "admin", "manager" or null.' }, { status: 400 });
     }
 
     try {

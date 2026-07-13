@@ -3,9 +3,9 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
-import { PageHeader, Card, Badge, Button, Modal, Field, Input, EmptyState } from '../ui.jsx';
+import { PageHeader, Badge, Button, Modal, Field, Input, EmptyState, DataTable, useColumns } from '../ui.jsx';
 import { useApi, sendJson } from '../lib.js';
-import { FolderKanban, Users, PauseCircle, Plus } from 'lucide-react';
+import { Users, Plus } from 'lucide-react';
 
 export default function ProjectsClient() {
     const { data, error, mutate } = useApi('/api/projects');
@@ -25,32 +25,67 @@ export default function ProjectsClient() {
     }
 
     const items = data?.items ?? [];
+
+    const columns = useColumns([
+        {
+            accessorKey: 'name',
+            header: 'Project',
+            cell: ({ row }) => (
+                <Link href={`/console/projects/${row.original.id}`} className="font-medium text-ink hover:text-accent-hi">
+                    {row.original.name}
+                </Link>
+            ),
+        },
+        {
+            accessorKey: 'paused',
+            header: 'Status',
+            cell: ({ getValue }) => (getValue() ? <Badge tone="amber">paused</Badge> : <Badge tone="green">active</Badge>),
+        },
+        {
+            accessorKey: 'member_count',
+            header: 'Members',
+            cell: ({ getValue }) => (
+                <span className="inline-flex items-center gap-1.5 font-mono tabular-nums text-ink-2">
+                    <Users size={12} className="text-ink-3" /> {getValue() ?? 0}
+                </span>
+            ),
+        },
+        {
+            accessorKey: 'my_role',
+            header: 'Your role',
+            cell: ({ getValue }) => (getValue() ? <Badge tone="violet">{getValue()}</Badge> : <span className="text-ink-3">—</span>),
+        },
+        {
+            accessorKey: 'spent_usd',
+            header: 'Spent',
+            cell: ({ getValue }) => <span className="font-mono tabular-nums text-ink">${Number(getValue() ?? 0).toFixed(2)}</span>,
+        },
+        {
+            id: 'manage',
+            header: '',
+            enableSorting: false,
+            cell: ({ row }) => (
+                <Link href={`/console/projects/${row.original.id}`} className="text-xs font-semibold text-ink-3 hover:text-ink">Manage</Link>
+            ),
+        },
+    ]);
+
     return (
         <div>
             <PageHeader title="Projects" subtitle="Model access, members and budgets are managed per project">
                 {isAdmin ? <Button variant="primary" onClick={() => setOpen(true)}><Plus size={14} /> New project</Button> : null}
             </PageHeader>
-            {error ? <EmptyState title="Couldn’t load projects" hint={error.message} /> : null}
-            {!error && !items.length ? (
-                <EmptyState icon={FolderKanban} title="No projects yet"
-                    hint="Run scripts/migrate-gateway.mjs to create the Default project, or create one here." />
-            ) : null}
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {items.map((p) => (
-                    <Link key={p.id} href={`/console/projects/${p.id}`}>
-                        <Card className="h-full transition-colors hover:border-line-strong">
-                            <div className="flex items-start justify-between">
-                                <div className="font-display text-sm font-semibold text-ink">{p.name}</div>
-                                {p.paused ? <Badge tone="amber"><PauseCircle size={11} /> paused</Badge> : <Badge tone="green">active</Badge>}
-                            </div>
-                            <div className="mt-3 flex items-center gap-3 text-xs text-ink-3">
-                                <span className="inline-flex items-center gap-1"><Users size={12} /> {p.member_count} member{p.member_count === 1 ? '' : 's'}</span>
-                                {p.my_role ? <Badge tone="blue">{p.my_role}</Badge> : null}
-                            </div>
-                        </Card>
-                    </Link>
-                ))}
-            </div>
+            {error ? (
+                <EmptyState title="Couldn’t load projects" hint={error.message} />
+            ) : (
+                <DataTable
+                    columns={columns}
+                    data={items}
+                    searchable={items.length > 8}
+                    pageSize={15}
+                    empty="No projects yet — run scripts/migrate-gateway.mjs to create the Default project, or create one here."
+                />
+            )}
             <Modal open={open} onOpenChange={setOpen} title="Create project"
                 footer={<>
                     <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>

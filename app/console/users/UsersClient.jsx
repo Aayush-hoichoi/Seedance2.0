@@ -3,7 +3,7 @@
 import toast from 'react-hot-toast';
 import { PageHeader, Card, Badge, Button, DataTable, EmptyState } from '../ui.jsx';
 import { useApi, sendJson, fmtDate } from '../lib.js';
-import { Users, ShieldCheck, ShieldOff, UserX } from 'lucide-react';
+import { Users, Shield, ShieldCheck, ShieldOff, UserX } from 'lucide-react';
 
 // Platform users (Clerk mirror) + the existing model access-request queue.
 export default function UsersClient() {
@@ -12,7 +12,7 @@ export default function UsersClient() {
 
     async function setRole(id, role) {
         const r = await sendJson(`/api/admin/users/${id}`, 'PATCH', { role });
-        r.ok ? (toast.success(role === 'admin' ? 'Promoted to admin' : 'Admin removed'), users.mutate()) : toast.error(r.data?.error || r.data?.message || 'Failed');
+        r.ok ? (toast.success(`Role set to ${role || 'member'}`), users.mutate()) : toast.error(r.data?.error || r.data?.message || 'Failed');
     }
     async function removeUser(id) {
         if (!window.confirm('Remove this user from the platform? Their Clerk account is deleted.')) return;
@@ -27,7 +27,15 @@ export default function UsersClient() {
     const me = users.data?.me;
     const columns = [
         { accessorKey: 'email', header: 'User', cell: ({ row }) => <span className="text-ink">{row.original.email || row.original.name || row.original.id}</span> },
-        { accessorKey: 'role', header: 'Role', cell: ({ getValue }) => (getValue() === 'admin' ? <Badge tone="violet">admin</Badge> : <Badge tone="zinc">member</Badge>) },
+        {
+            accessorKey: 'role', header: 'Role',
+            cell: ({ getValue }) => {
+                const r = getValue();
+                return r === 'admin' ? <Badge tone="violet">admin</Badge>
+                    : r === 'manager' ? <Badge tone="blue">manager</Badge>
+                        : <Badge tone="zinc">member</Badge>;
+            },
+        },
         { accessorKey: 'created_at', header: 'Joined', cell: ({ getValue }) => <span className="font-mono text-ink-3">{fmtDate(getValue())}</span> },
         {
             id: 'actions', header: '', enableSorting: false,
@@ -35,10 +43,16 @@ export default function UsersClient() {
                 const u = row.original;
                 if (u.id === me) return <span className="text-xs text-ink-3">you</span>;
                 return (
-                    <div className="flex gap-1">
-                        {u.role === 'admin'
-                            ? <Button variant="ghost" size="xs" title="Remove admin" onClick={() => setRole(u.id, null)}><ShieldOff size={13} className="text-warn" /></Button>
-                            : <Button variant="ghost" size="xs" title="Make admin" onClick={() => setRole(u.id, 'admin')}><ShieldCheck size={13} className="text-ok" /></Button>}
+                    <div className="flex items-center justify-end gap-1">
+                        {u.role !== 'admin' && (
+                            <Button variant="ghost" size="xs" title="Make admin" onClick={() => setRole(u.id, 'admin')}><ShieldCheck size={13} className="text-ok" /></Button>
+                        )}
+                        {u.role !== 'manager' && (
+                            <Button variant="ghost" size="xs" title="Make manager" onClick={() => setRole(u.id, 'manager')}><Shield size={13} className="text-accent-hi" /></Button>
+                        )}
+                        {(u.role === 'admin' || u.role === 'manager') && (
+                            <Button variant="ghost" size="xs" title="Make member" onClick={() => setRole(u.id, null)}><ShieldOff size={13} className="text-warn" /></Button>
+                        )}
                         <Button variant="ghost" size="xs" title="Remove from platform" onClick={() => removeUser(u.id)}><UserX size={13} className="text-danger" /></Button>
                     </div>
                 );

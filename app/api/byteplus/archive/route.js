@@ -14,7 +14,7 @@ export const maxDuration = 120;
 
 const BUCKET = process.env.TOS_BUCKET?.trim() || 'seedance-studio-assets';
 const MAX_VIDEO_BYTES = 200 * 1024 * 1024;
-const KEY_RE = /^(videos|uploads)\/[\w.-]+$/;
+const KEY_RE = /^(videos|uploads|images)\/[\w.-]+$/;
 
 function credentials() {
     const ak = process.env.ARK_AK?.trim();
