@@ -73,10 +73,6 @@ export default function ProjectsClient() {
                         </p>
                     </div>
                     <div className="flex items-center gap-2.5">
-                        <Link href="/seedance" className={BTN}>
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" /></svg>
-                            <span>Open Studio</span>
-                        </Link>
                         {isAdmin && (
                             <button type="button" onClick={() => setCreating((v) => !v)} className={BTN}>
                                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
