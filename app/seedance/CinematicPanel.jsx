@@ -56,7 +56,7 @@ function ReelPicker({ items, getId, activeId, onPick, renderItem }) {
             <div
                 ref={ref}
                 onScroll={onScroll}
-                className="h-full snap-y snap-mandatory overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                className="h-full snap-y snap-mandatory overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                 style={{
                     maskImage: 'linear-gradient(to bottom, transparent, #000 34%, #000 66%, transparent)',
                     WebkitMaskImage: 'linear-gradient(to bottom, transparent, #000 34%, #000 66%, transparent)',
