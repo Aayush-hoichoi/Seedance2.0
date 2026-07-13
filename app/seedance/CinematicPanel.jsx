@@ -8,11 +8,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-    CAMERAS, LENSES, APERTURES, FOCAL_MIN, FOCAL_MAX,
+    CAMERAS, LENSES, APERTURES, FOCAL_STOPS,
     CINEMATIC_PRESETS, DEFAULT_SETUP, presetToSetup, sanitizeSetup, summarize, findCamera, findLens,
 } from '../../lib/seedance/cinematic.mjs';
 import { loadPresets, savePresets } from '../../lib/seedance/cameraPresets.js';
-import { ApertureIris, CameraGlyph, LensGlyph, FocalGlyph } from './cinematicIcons.jsx';
+import { ApertureIris, CameraGlyph, LensGlyph } from './cinematicIcons.jsx';
 
 const TABS = [
     { id: 'all', label: 'All' },
@@ -20,63 +20,79 @@ const TABS = [
     { id: 'saved', label: 'Saved' },
 ];
 
-// A horizontal, scrollable option picker (replaces the native dropdown): scroll
-// through the choices and tap one. The active choice is highlighted and gets
-// centred in view when it changes (e.g. after a preset is applied). Scrolls the
-// strip only — never the modal — by setting scrollLeft directly.
-function ScrollSelect({ items, getId, activeId, onPick, renderChip }) {
+const ROW_H = 46; // px per reel row
+
+// A vertical "slot-machine" reel: scroll up/down through the options and whatever
+// lands in the centre band is selected; neighbours fade above and below. Only the
+// reel scrolls (never the modal). Clicking a row selects it; an external change
+// (e.g. applying a preset) scrolls the active row back to the centre.
+function ReelPicker({ items, getId, activeId, onPick, renderItem }) {
     const ref = useRef(null);
+    const idx = Math.max(0, items.findIndex((it) => getId(it) === activeId));
+
+    // Centre the active row on open / external change — but skip tiny
+    // corrections so it never fights the user's own scroll+snap.
     useEffect(() => {
-        const strip = ref.current;
-        const el = strip?.querySelector('[data-active="true"]');
-        if (strip && el) strip.scrollLeft = el.offsetLeft - (strip.clientWidth - el.clientWidth) / 2;
-    }, [activeId]);
+        const el = ref.current;
+        if (el && Math.abs(el.scrollTop - idx * ROW_H) > 2) el.scrollTop = idx * ROW_H;
+    }, [idx]);
+
+    // After the scroll settles (snap done), select whichever row is centred.
+    const onScroll = () => {
+        const el = ref.current;
+        if (!el) return;
+        clearTimeout(el._t);
+        el._t = setTimeout(() => {
+            const i = Math.max(0, Math.min(items.length - 1, Math.round(el.scrollTop / ROW_H)));
+            const id = getId(items[i]);
+            if (id !== activeId) onPick(id);
+        }, 90);
+    };
+
     return (
-        <div ref={ref} className="relative flex w-full gap-1.5 overflow-x-auto scroll-smooth snap-x pb-1 custom-scrollbar">
-            {items.map((it) => {
-                const id = getId(it);
-                const active = id === activeId;
-                return (
-                    <button
-                        key={id}
-                        type="button"
-                        data-active={active}
-                        onClick={() => onPick(id)}
-                        className={`shrink-0 snap-center rounded-lg border px-2 py-1.5 transition-colors ${active ? 'border-primary/50 bg-primary/10' : 'border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.06]'}`}
-                    >
-                        {renderChip(it, active)}
-                    </button>
-                );
-            })}
+        <div className="relative w-full" style={{ height: ROW_H * 3 }}>
+            {/* centre selection band */}
+            <div className="pointer-events-none absolute inset-x-1 top-1/2 z-10 -translate-y-1/2 rounded-lg border border-primary/40 bg-primary/[0.06]" style={{ height: ROW_H }} />
+            <div
+                ref={ref}
+                onScroll={onScroll}
+                className="h-full snap-y snap-mandatory overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                style={{
+                    maskImage: 'linear-gradient(to bottom, transparent, #000 34%, #000 66%, transparent)',
+                    WebkitMaskImage: 'linear-gradient(to bottom, transparent, #000 34%, #000 66%, transparent)',
+                }}
+            >
+                <div style={{ height: ROW_H }} aria-hidden />
+                {items.map((it) => {
+                    const active = getId(it) === activeId;
+                    return (
+                        <button
+                            key={getId(it)}
+                            type="button"
+                            onClick={() => onPick(getId(it))}
+                            className={`flex w-full snap-center items-center justify-center text-white transition-opacity ${active ? 'opacity-100' : 'opacity-30 hover:opacity-60'}`}
+                            style={{ height: ROW_H }}
+                        >
+                            {renderItem(it, active)}
+                        </button>
+                    );
+                })}
+                <div style={{ height: ROW_H }} aria-hidden />
+            </div>
         </div>
     );
 }
 
-// A Higgsfield-style option tile: label on top, a big glyph in the middle, the
-// current value name below, then the scroll-picker (or slider) control.
-function Tile({ label, glyph, name, sub, children }) {
+// A tile = label on top, the reel in the middle, the selected value's name below.
+function ReelTile({ label, name, sub, children }) {
     return (
-        <div className="flex flex-col items-center gap-1.5 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 pt-3 pb-3 text-center">
+        <div className="flex flex-col items-center gap-1 rounded-xl border border-white/[0.08] bg-white/[0.03] px-2 pt-3 pb-3 text-center">
             <div className="text-[10px] font-bold uppercase tracking-wider text-white/40">{label}</div>
-            <div className="flex h-16 items-center justify-center text-white/85">{glyph}</div>
-            {name && <div className="text-sm font-semibold leading-tight text-white line-clamp-2 min-h-[2.25rem] flex items-center">{name}</div>}
-            {sub && <div className="-mt-1 text-[10px] uppercase tracking-wide text-white/35">{sub}</div>}
-            <div className="mt-1 w-full">{children}</div>
-        </div>
-    );
-}
-
-// The faded at-a-glance strip above the tiles (mirrors Higgsfield's preview row).
-function PreviewStrip({ camera, lens, focal, aperture }) {
-    return (
-        <div className="mx-4 mb-1 mt-3 flex items-stretch justify-around gap-2 rounded-xl border border-white/[0.05] bg-white/[0.02] px-3 py-2 opacity-70">
-            <div className="flex flex-1 items-center justify-center text-white/70"><CameraGlyph type={camera?.type} size={34} /></div>
-            <div className="w-px bg-white/[0.06]" />
-            <div className="flex flex-1 items-center justify-center text-white/70"><LensGlyph type={lens?.type} size={34} /></div>
-            <div className="w-px bg-white/[0.06]" />
-            <div className="flex flex-1 items-center justify-center text-lg font-bold tabular-nums text-white/60">{focal}<span className="ml-0.5 text-[10px] font-normal">mm</span></div>
-            <div className="w-px bg-white/[0.06]" />
-            <div className="flex flex-1 items-center justify-center text-white/70"><ApertureIris aperture={aperture} size={34} /></div>
+            {children}
+            <div className="mt-1 flex min-h-[2.4rem] flex-col items-center justify-start">
+                {name && <div className="text-sm font-semibold leading-tight text-white line-clamp-2">{name}</div>}
+                {sub && <div className="text-[10px] uppercase tracking-wide text-white/35">{sub}</div>}
+            </div>
         </div>
     );
 }
@@ -155,53 +171,34 @@ export default function CinematicPanel({ open, setup, onApply, onClose }) {
                     </div>
                 </div>
 
-                {/* at-a-glance preview strip */}
-                <PreviewStrip
-                    camera={findCamera(draft.cameraId)}
-                    lens={findLens(draft.lensId)}
-                    focal={draft.focalLength}
-                    aperture={draft.aperture}
-                />
-
-                {/* editor tiles */}
-                <div className="grid grid-cols-2 gap-3 px-4 pb-3 pt-2 sm:grid-cols-4">
-                    <Tile label="Camera" glyph={<CameraGlyph type={findCamera(draft.cameraId)?.type} />} name={findCamera(draft.cameraId)?.name} sub={findCamera(draft.cameraId)?.type}>
-                        <ScrollSelect
+                {/* editor reels — scroll each column like a slot machine */}
+                <div className="grid grid-cols-2 gap-3 px-4 pb-3 pt-3 sm:grid-cols-4">
+                    <ReelTile label="Camera" name={findCamera(draft.cameraId)?.name} sub={findCamera(draft.cameraId)?.type}>
+                        <ReelPicker
                             items={CAMERAS} getId={(c) => c.id} activeId={draft.cameraId} onPick={(id) => set({ cameraId: id })}
-                            renderChip={(c, active) => (
-                                <div className="flex w-12 flex-col items-center gap-0.5">
-                                    <span className={active ? 'text-primary' : 'text-white/70'}><CameraGlyph type={c.type} size={22} /></span>
-                                    <span className="w-full truncate text-center text-[9px] leading-tight text-white/70">{c.name}</span>
-                                </div>
-                            )}
+                            renderItem={(c, active) => <CameraGlyph type={c.type} size={active ? 36 : 26} />}
                         />
-                    </Tile>
-                    <Tile label="Lens" glyph={<LensGlyph type={findLens(draft.lensId)?.type} />} name={findLens(draft.lensId)?.name} sub={findLens(draft.lensId)?.type}>
-                        <ScrollSelect
+                    </ReelTile>
+                    <ReelTile label="Lens" name={findLens(draft.lensId)?.name} sub={findLens(draft.lensId)?.type}>
+                        <ReelPicker
                             items={LENSES} getId={(l) => l.id} activeId={draft.lensId} onPick={(id) => set({ lensId: id })}
-                            renderChip={(l, active) => (
-                                <div className="flex w-12 flex-col items-center gap-0.5">
-                                    <span className={active ? 'text-primary' : 'text-white/70'}><LensGlyph type={l.type} size={22} /></span>
-                                    <span className="w-full truncate text-center text-[9px] leading-tight text-white/70">{l.name}</span>
-                                </div>
-                            )}
+                            renderItem={(l, active) => <LensGlyph type={l.type} size={active ? 36 : 26} />}
                         />
-                    </Tile>
-                    <Tile label="Focal length" glyph={<FocalGlyph mm={draft.focalLength} />} name={<span>{draft.focalLength}<span className="text-sm font-normal text-white/50"> mm</span></span>}>
-                        <input
-                            type="range" min={FOCAL_MIN} max={FOCAL_MAX} value={draft.focalLength}
-                            onChange={(e) => set({ focalLength: Number(e.target.value) })}
-                            className="w-full accent-primary"
+                    </ReelTile>
+                    <ReelTile label="Focal length" name="millimetres">
+                        <ReelPicker
+                            items={FOCAL_STOPS} getId={(f) => f}
+                            activeId={FOCAL_STOPS.reduce((b, s) => (Math.abs(s - draft.focalLength) < Math.abs(b - draft.focalLength) ? s : b), FOCAL_STOPS[0])}
+                            onPick={(f) => set({ focalLength: f })}
+                            renderItem={(f, active) => <span className={`font-bold tabular-nums ${active ? 'text-2xl' : 'text-base'}`}>{f}</span>}
                         />
-                    </Tile>
-                    <Tile label="Aperture" glyph={<ApertureIris aperture={draft.aperture} />} name={<span>f/{draft.aperture}</span>}>
-                        <ScrollSelect
+                    </ReelTile>
+                    <ReelTile label="Aperture" name={`f/${draft.aperture}`}>
+                        <ReelPicker
                             items={APERTURES} getId={(a) => a} activeId={draft.aperture} onPick={(a) => set({ aperture: a })}
-                            renderChip={(a, active) => (
-                                <span className={`block w-8 text-center text-xs font-bold tabular-nums ${active ? 'text-primary' : 'text-white/80'}`}>f/{a}</span>
-                            )}
+                            renderItem={(a, active) => <ApertureIris aperture={a} size={active ? 36 : 26} />}
                         />
-                    </Tile>
+                    </ReelTile>
                 </div>
 
                 {/* preset list */}
