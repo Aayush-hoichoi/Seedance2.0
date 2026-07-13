@@ -53,6 +53,7 @@ export async function POST(request) {
     const generatedPrompt = asText(body.generatedPrompt);
     const style = typeof body.style === 'string' ? body.style.slice(0, 50) : null;
     const refs = sanitizeRefs(body.refs);
+    const projectId = Number.isInteger(body.projectId) ? body.projectId : null;
 
     let sql;
     try {
@@ -65,13 +66,14 @@ export async function POST(request) {
     try {
         // COALESCE keeps refs written at creation when a later backfill
         // (which has no asset info) upserts the same task with refs = null.
-        await sql`INSERT INTO seedance_prompts (task_id, style, user_prompt, generated_prompt, refs)
-            VALUES (${taskId}, ${style}, ${userPrompt}, ${generatedPrompt}, ${refs ? JSON.stringify(refs) : null}::jsonb)
+        await sql`INSERT INTO seedance_prompts (task_id, style, user_prompt, generated_prompt, refs, project_id)
+            VALUES (${taskId}, ${style}, ${userPrompt}, ${generatedPrompt}, ${refs ? JSON.stringify(refs) : null}::jsonb, ${projectId})
             ON CONFLICT (task_id) DO UPDATE SET
                 style = EXCLUDED.style,
                 user_prompt = EXCLUDED.user_prompt,
                 generated_prompt = EXCLUDED.generated_prompt,
-                refs = COALESCE(EXCLUDED.refs, seedance_prompts.refs)`;
+                refs = COALESCE(EXCLUDED.refs, seedance_prompts.refs),
+                project_id = COALESCE(EXCLUDED.project_id, seedance_prompts.project_id)`;
     } catch {
         return bad('Failed to save the prompt record.', 502);
     }

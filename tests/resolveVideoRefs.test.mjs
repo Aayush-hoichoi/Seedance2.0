@@ -1,6 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveVideoRefs, resolveSensitiveRefs, createWithQuotaRecovery } from '../lib/seedance/assetsClient.js';
+import { resolveVideoRefs, resolveSensitiveRefs, createWithQuotaRecovery, uploadGroupName } from '../lib/seedance/assetsClient.js';
+
+// Per-project hard partition: each project routes assets into its own group,
+// keyed by project id so a rename can't merge two projects' libraries.
+test('uploadGroupName gives each project its own id-keyed group, legacy fallback without one', () => {
+    assert.equal(uploadGroupName(null), 'Seedance Studio');
+    assert.equal(uploadGroupName({ id: 7, name: 'Marketing' }), 'Seedance Studio · Marketing #7');
+    // Same id, renamed project → still ends with the stable "#<id>" suffix.
+    assert.ok(uploadGroupName({ id: 7, name: 'Ads' }).endsWith(' #7'));
+    // Different projects never collide.
+    assert.notEqual(uploadGroupName({ id: 7, name: 'A' }), uploadGroupName({ id: 8, name: 'A' }));
+});
 
 const fakeRegister = async ({ url }) => ({ url: 'asset://asset-test-1', assetId: 'asset-test-1', from: url });
 

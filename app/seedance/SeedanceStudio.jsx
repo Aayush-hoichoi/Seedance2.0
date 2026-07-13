@@ -11,7 +11,7 @@ import { sanitizeOptions } from '../../lib/seedance/options.mjs';
 import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js';
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
 import { buildTags, modeSupportsTags, normalizePromptForApi, restorePromptTokens, validatePromptReferences } from '../../lib/seedance/tags.js';
-import { getAsset, resolveVideoRefs, resolveSensitiveRefs, cleanupOldAssets } from '../../lib/seedance/assetsClient.js';
+import { getAsset, resolveVideoRefs, resolveSensitiveRefs, cleanupOldAssets, registerAssetFromUrl, registerAssetCached } from '../../lib/seedance/assetsClient.js';
 import { useEvents } from '../hooks/useEvents.js';
 import { enhancePrompt } from '../../lib/seedance/enhance.js';
 import { savePromptRecord, fetchPromptRecords, setLikeRecord, setBinRecord, deletePromptRecord } from '../../lib/seedance/promptsClient.js';
@@ -152,6 +152,34 @@ export default function SeedanceStudio() {
         try { localStorage.setItem('seedance:project', String(id)); } catch { /* private mode */ }
     };
 
+    // One-time backfill: history created before project tagging has no
+    // projectId. All of it predates project separation (single Default
+    // project), so stamp it onto the home project (the oldest — projects[0]).
+    useEffect(() => {
+        if (!projects.length) return;
+        const home = projects[0].id;
+        setJobs((prev) => {
+            if (!prev.some((j) => j.projectId == null)) return prev;
+            const next = prev.map((j) => (j.projectId == null ? { ...j, projectId: home } : j));
+            saveJobs(next);
+            return next;
+        });
+    }, [projects]);
+
+    // The active project as an object (id + name), for routing reference
+    // assets into that project's own BytePlus group. null when no project.
+    const activeProject = useMemo(
+        () => (projectId ? (projects.find((p) => p.id === projectId) || { id: projectId }) : null),
+        [projectId, projects],
+    );
+
+    // Sweep day-old studio assets from the active project's group so the tiny
+    // shared BytePlus pool never fills up (a full pool broke uploads before).
+    useEffect(() => {
+        if (!projectId) return;
+        cleanupOldAssets({ project: activeProject }).catch(() => {});
+    }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
     const mode = useMemo(() => MODES.find((m) => m.id === modeId), [modeId]);
     const tags = useMemo(() => buildTags(mode, mediaByRole), [mode, mediaByRole]);
     const selectedModel = useMemo(() => MODELS.find((m) => m.id === options.model), [options.model]);
@@ -278,9 +306,7 @@ export default function SeedanceStudio() {
         if (inFlight[0]) setSelectedId(inFlight[0].id);
         hydratePrompts(restored.filter((j) => !j.userPrompt).map((j) => j.taskId));
 
-        // Sweep day-old studio assets so the tiny shared pool never fills up
-        // again (a full pool is what broke uploads in the first place).
-        cleanupOldAssets().catch(() => {});
+        // (Stale-asset cleanup runs per project in its own effect above.)
 
         // Archived videos live in the user's own TOS bucket forever — refresh
         // their presigned URLs (pure local signing on the server, instant).
@@ -515,6 +541,7 @@ export default function SeedanceStudio() {
             modeId: creation.modeId ?? null,
             refs: creation.refs ?? null,
             options: creation.options ?? null,
+            projectId, // scope this generation to the active project
         });
         updateJobs((prev) => [job, ...prev]);
         setSelectedId(job.id); // a fresh generation takes the big stage
@@ -531,6 +558,7 @@ export default function SeedanceStudio() {
                     generatedPrompt: promptMeta ? promptText : null,
                     style: promptMeta?.style ?? null,
                     refs: creation.refs ?? null,
+                    projectId,
                 });
                 patchJob(job.id, { taskId, status: 'queued' });
                 watchJob(job.id, taskId);
@@ -542,7 +570,7 @@ export default function SeedanceStudio() {
                     resolvedSensitive = true;
                     patchJob(job.id, { status: 'waiting' });
                     try {
-                        payload = await resolveSensitiveRefs(payload);
+                        payload = await resolveSensitiveRefs(payload, (a) => registerAssetCached({ ...a, project: activeProject }));
                         continue;
                     } catch (e2) {
                         patchJob(job.id, { status: 'error', error: `Reference verification failed — ${e2.message}` });
@@ -624,7 +652,7 @@ export default function SeedanceStudio() {
             setEnhancing(true);
             setNotice('Verifying source video with BytePlus (takes ~30s)…');
             try {
-                resolvedItems = await resolveVideoRefs(mediaItems);
+                resolvedItems = await resolveVideoRefs(mediaItems, (a) => registerAssetFromUrl({ ...a, project: activeProject }));
             } catch (e) {
                 setError(`Source video verification failed — ${e.message}`);
                 return;
@@ -792,7 +820,11 @@ export default function SeedanceStudio() {
 
     // Binned jobs stay in `jobs` (so they persist + can be restored) but are
     // hidden from every main view. The Bin tab in the Assets overlay shows them.
-    const visibleJobs = jobs.filter((j) => !j.deleted);
+    // History is scoped to the active project. Legacy jobs (created before
+    // project tagging) carry no projectId — they're backfilled to the home
+    // project below and shown everywhere until then, so nothing ever hides.
+    const belongsToProject = (j) => projectId == null || j.projectId == null || j.projectId === projectId;
+    const visibleJobs = jobs.filter((j) => !j.deleted && belongsToProject(j));
 
     // Never open onto a blank hero when work exists: on FIRST load with
     // nothing selected, put the newest finished creation on the big stage.
@@ -805,7 +837,7 @@ export default function SeedanceStudio() {
         if (latest) setSelectedId(latest.id);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedId, visibleJobs.length]);
-    const binnedJobs = jobs.filter((j) => j.deleted);
+    const binnedJobs = jobs.filter((j) => j.deleted && belongsToProject(j));
     const activeCount = visibleJobs.filter((j) => ACTIVE_STATUSES.includes(j.status)).length;
     const doneCount = visibleJobs.filter((j) => j.status === 'done' && j.videoUrl).length;
     // What plays big in the center: only an explicitly selected job (set by a
