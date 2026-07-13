@@ -217,9 +217,9 @@ export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteFo
             </div>
 
             {selected.size > 0 && (
-                <div className="fixed bottom-6 inset-x-0 mx-auto z-[81] w-fit max-w-[94vw] flex items-center gap-2 px-3 py-2.5 rounded-xl border border-white/10 bg-[#0a0a0a]/90 backdrop-blur-2xl shadow-2xl animate-fade-in-up">
-                    <span className="pl-2 pr-1 text-sm font-semibold whitespace-nowrap">{selected.size} selected</span>
-                    {error && <span className="text-xs text-red-300 max-w-[34vw] truncate" title={error}>{error}</span>}
+                <div className="fixed bottom-6 inset-x-0 mx-auto z-[81] w-fit max-w-[94vw] flex items-center gap-2 px-3 py-2.5 rounded-xl border border-white/10 bg-paper-1/90 backdrop-blur-2xl shadow-2xl animate-fade-in-up">
+                    <span className="pl-2 pr-1 text-sm font-semibold whitespace-nowrap tabular-nums">{selected.size} selected</span>
+                    {error && <span className="text-xs text-danger max-w-[34vw] truncate" title={error}>{error}</span>}
                     {isBin ? (
                         <>
                             <button
@@ -235,7 +235,7 @@ export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteFo
                                 type="button"
                                 onClick={() => deleteForever([...selected])}
                                 disabled={busy}
-                                className="flex items-center gap-1.5 rounded-md bg-red-500/15 px-3.5 py-2 text-sm font-semibold text-red-300 border border-red-500/30 hover:bg-red-500/25 transition-colors disabled:opacity-60"
+                                className="flex items-center gap-1.5 rounded-md bg-danger/15 px-3.5 py-2 text-sm font-semibold text-danger border border-danger/30 hover:bg-danger/25 transition-colors disabled:opacity-60"
                             >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
                                 Delete forever
@@ -247,7 +247,7 @@ export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteFo
                                 type="button"
                                 onClick={onDownloadSelected}
                                 disabled={busy}
-                                className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-black hover:bg-[#e5ff33] transition-colors disabled:opacity-60 disabled:cursor-wait"
+                                className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-accent-ink hover:bg-accent-hi transition-colors disabled:opacity-60 disabled:cursor-wait"
                             >
                                 {busy ? (
                                     <><span className="animate-spin inline-block">◌</span> Zipping…</>
@@ -355,7 +355,7 @@ function AssetCard({ job, isBin, selected, disabled, onToggle, onDownload, onBin
                             disabled={disabled}
                             aria-label="Delete permanently"
                             title="Delete permanently"
-                            className="p-1.5 rounded-md bg-black/70 border border-white/15 text-white/80 hover:text-red-400 transition-colors backdrop-blur-sm disabled:opacity-40"
+                            className="p-1.5 rounded-md bg-black/70 border border-white/15 text-white/80 hover:text-danger transition-colors backdrop-blur-sm disabled:opacity-40"
                         >
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
                         </button>
@@ -378,7 +378,7 @@ function AssetCard({ job, isBin, selected, disabled, onToggle, onDownload, onBin
                             disabled={disabled}
                             aria-label="Move to bin"
                             title="Move to bin"
-                            className="p-1.5 rounded-md bg-black/70 border border-white/15 text-white/80 hover:text-red-400 transition-colors backdrop-blur-sm disabled:opacity-40"
+                            className="p-1.5 rounded-md bg-black/70 border border-white/15 text-white/80 hover:text-danger transition-colors backdrop-blur-sm disabled:opacity-40"
                         >
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                         </button>
@@ -407,7 +407,7 @@ function EmptyState({ isBin }) {
                     <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>
                 )}
             </div>
-            <h2 className="text-lg font-bold">{isBin ? 'The bin is empty' : 'No finished videos yet'}</h2>
+            <h2 className="text-lg font-bold font-display">{isBin ? 'The bin is empty' : 'No finished videos yet'}</h2>
             <p className="mt-1 text-sm text-white/40 max-w-xs">
                 {isBin
                     ? 'Videos you cross out from history land here — restore them or delete them for good.'

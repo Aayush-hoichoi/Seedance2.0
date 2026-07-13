@@ -53,15 +53,15 @@ export default function BudgetsClient() {
                                 return (
                                     <Card key={q.id}>
                                         <div className="mb-1 flex items-center justify-between">
-                                            <div className="text-sm font-medium text-zinc-200">
+                                            <div className="text-sm font-medium text-ink">
                                                 {q.user_id ? `User · ${emailOf(q.user_id)}` : q.project_name ? `Project · ${q.project_name}` : 'Whole organization'}
                                             </div>
                                             <div className="flex items-center gap-1.5">
                                                 <Badge tone={q.policy === 'hard' ? 'red' : 'amber'}>{q.policy}{q.policy === 'soft' ? ` +${q.soft_overage_pct}%` : ''}</Badge>
-                                                <Button variant="ghost" size="xs" onClick={() => remove(q.id)}><Trash2 size={13} className="text-red-400" /></Button>
+                                                <Button variant="ghost" size="xs" onClick={() => remove(q.id)}><Trash2 size={13} className="text-danger" /></Button>
                                             </div>
                                         </div>
-                                        <div className="mb-2 text-xs text-zinc-500">
+                                        <div className="mb-2 text-xs text-ink-3">
                                             {q.type} · {q.window} · alerts at {(q.alert_thresholds || []).join('/')}% ·
                                             {' '}{fmt(q, q.used)} used{Number(q.reserved) > 0 ? ` + ${fmt(q, q.reserved)} in flight` : ''} of {fmt(q, q.hard_limit)}
                                         </div>

@@ -1,9 +1,10 @@
 import { SignIn } from '@clerk/nextjs';
+import { AuthShell, clerkAppearance } from '../../authTheme.jsx';
 
 export default function Page() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-black">
-      <SignIn />
-    </div>
+    <AuthShell eyebrow="Open Generative AI" title="Welcome back" subtitle="Sign in to your studio workspace.">
+      <SignIn appearance={clerkAppearance} />
+    </AuthShell>
   );
 }

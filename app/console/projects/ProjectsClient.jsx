@@ -38,12 +38,12 @@ export default function ProjectsClient() {
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {items.map((p) => (
                     <Link key={p.id} href={`/console/projects/${p.id}`}>
-                        <Card className="h-full transition-colors hover:border-zinc-600">
+                        <Card className="h-full transition-colors hover:border-line-strong">
                             <div className="flex items-start justify-between">
-                                <div className="text-sm font-semibold text-zinc-100">{p.name}</div>
+                                <div className="font-display text-sm font-semibold text-ink">{p.name}</div>
                                 {p.paused ? <Badge tone="amber"><PauseCircle size={11} /> paused</Badge> : <Badge tone="green">active</Badge>}
                             </div>
-                            <div className="mt-3 flex items-center gap-3 text-xs text-zinc-500">
+                            <div className="mt-3 flex items-center gap-3 text-xs text-ink-3">
                                 <span className="inline-flex items-center gap-1"><Users size={12} /> {p.member_count} member{p.member_count === 1 ? '' : 's'}</span>
                                 {p.my_role ? <Badge tone="blue">{p.my_role}</Badge> : null}
                             </div>

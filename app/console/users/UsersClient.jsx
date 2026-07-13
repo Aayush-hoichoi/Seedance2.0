@@ -26,20 +26,20 @@ export default function UsersClient() {
 
     const me = users.data?.me;
     const columns = [
-        { accessorKey: 'email', header: 'User', cell: ({ row }) => <span className="text-zinc-200">{row.original.email || row.original.name || row.original.id}</span> },
+        { accessorKey: 'email', header: 'User', cell: ({ row }) => <span className="text-ink">{row.original.email || row.original.name || row.original.id}</span> },
         { accessorKey: 'role', header: 'Role', cell: ({ getValue }) => (getValue() === 'admin' ? <Badge tone="violet">admin</Badge> : <Badge tone="zinc">member</Badge>) },
-        { accessorKey: 'created_at', header: 'Joined', cell: ({ getValue }) => <span className="text-zinc-500">{fmtDate(getValue())}</span> },
+        { accessorKey: 'created_at', header: 'Joined', cell: ({ getValue }) => <span className="font-mono text-ink-3">{fmtDate(getValue())}</span> },
         {
             id: 'actions', header: '', enableSorting: false,
             cell: ({ row }) => {
                 const u = row.original;
-                if (u.id === me) return <span className="text-xs text-zinc-600">you</span>;
+                if (u.id === me) return <span className="text-xs text-ink-3">you</span>;
                 return (
                     <div className="flex gap-1">
                         {u.role === 'admin'
-                            ? <Button variant="ghost" size="xs" title="Remove admin" onClick={() => setRole(u.id, null)}><ShieldOff size={13} className="text-amber-400" /></Button>
-                            : <Button variant="ghost" size="xs" title="Make admin" onClick={() => setRole(u.id, 'admin')}><ShieldCheck size={13} className="text-emerald-400" /></Button>}
-                        <Button variant="ghost" size="xs" title="Remove from platform" onClick={() => removeUser(u.id)}><UserX size={13} className="text-red-400" /></Button>
+                            ? <Button variant="ghost" size="xs" title="Remove admin" onClick={() => setRole(u.id, null)}><ShieldOff size={13} className="text-warn" /></Button>
+                            : <Button variant="ghost" size="xs" title="Make admin" onClick={() => setRole(u.id, 'admin')}><ShieldCheck size={13} className="text-ok" /></Button>}
+                        <Button variant="ghost" size="xs" title="Remove from platform" onClick={() => removeUser(u.id)}><UserX size={13} className="text-danger" /></Button>
                     </div>
                 );
             },
@@ -53,11 +53,11 @@ export default function UsersClient() {
             <PageHeader title="Users" subtitle="Platform roles and pending model access requests" />
             {pending.length ? (
                 <Card className="mb-4">
-                    <div className="mb-2 text-sm font-medium text-zinc-300">Access requests</div>
+                    <div className="mb-2 text-sm font-medium text-ink-2">Access requests</div>
                     <ul className="space-y-2">
                         {pending.map((r) => (
-                            <li key={r.id} className="flex items-center justify-between rounded-lg border border-zinc-800 px-3 py-2 text-sm">
-                                <span className="text-zinc-300">{r.user_email} → <code className="text-xs text-zinc-400">{r.model_id}</code></span>
+                            <li key={r.id} className="flex items-center justify-between rounded-lg border border-line px-3 py-2 text-sm">
+                                <span className="text-ink-2">{r.user_email} → <code className="font-mono text-xs text-ink-2">{r.model_id}</code></span>
                                 <div className="flex gap-1.5">
                                     <Button variant="primary" size="xs" onClick={() => decide(r.id, 'approve')}>Approve</Button>
                                     <Button variant="outline" size="xs" onClick={() => decide(r.id, 'revoke')}>Deny</Button>

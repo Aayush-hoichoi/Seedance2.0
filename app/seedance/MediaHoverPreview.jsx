@@ -62,7 +62,7 @@ export default function MediaHoverPreview({ anchor, src, isVideo, tag, name, onM
             <div
                 onMouseEnter={onMouseEnter}
                 onMouseLeave={onMouseLeave}
-                className="pointer-events-auto rounded-xl overflow-hidden border border-primary/30 bg-[#0a0a0a] shadow-2xl shadow-black/60"
+                className="pointer-events-auto rounded-xl overflow-hidden border border-primary/30 bg-paper-1 shadow-2xl shadow-black/60"
             >
                 <div className="relative">
                     {isVideo ? (
@@ -105,7 +105,7 @@ export default function MediaHoverPreview({ anchor, src, isVideo, tag, name, onM
                 )}
             </div>
             {/* caret pointing down at the thumbnail */}
-            <div className="absolute top-full -mt-1.5 w-2.5 h-2.5 rotate-45 bg-[#0a0a0a] border-r border-b border-primary/30" style={{ left: pos.caret - 5 }} />
+            <div className="absolute top-full -mt-1.5 w-2.5 h-2.5 rotate-45 bg-paper-1 border-r border-b border-primary/30" style={{ left: pos.caret - 5 }} />
         </div>,
         document.body,
     );

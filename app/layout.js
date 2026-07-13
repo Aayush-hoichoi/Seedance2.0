@@ -1,11 +1,11 @@
 import './globals.css';
-import { Inter } from "next/font/google";
+import { Bricolage_Grotesque, Hanken_Grotesk, JetBrains_Mono } from "next/font/google";
 import { ClerkProvider } from '@clerk/nextjs';
 
-const inter = Inter({
-  variable: "--font-inter",
-  subsets: ["latin"],
-});
+// 2 + 1 type system (see design.md): display / body / mono.
+const display = Bricolage_Grotesque({ subsets: ["latin"], variable: "--font-display", display: "swap" });
+const body = Hanken_Grotesk({ subsets: ["latin"], variable: "--font-body", display: "swap" });
+const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", display: "swap" });
 
 export const metadata = {
   title: 'Open Generative AI — Free AI Image & Video Studio',
@@ -16,7 +16,7 @@ export default function RootLayout({ children }) {
   return (
     <ClerkProvider afterSignOutUrl="/sign-in">
       <html lang="en">
-        <body className={inter.variable}>{children}</body>
+        <body className={`${display.variable} ${body.variable} ${mono.variable}`}>{children}</body>
       </html>
     </ClerkProvider>
   );

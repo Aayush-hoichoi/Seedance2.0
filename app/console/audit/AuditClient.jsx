@@ -18,12 +18,12 @@ export default function AuditClient() {
     const { data, error } = useApi(`/api/admin/audit?${qs}`);
 
     const columns = [
-        { accessorKey: 'created_at', header: 'When', cell: ({ getValue }) => <span className="text-zinc-500">{fmtDate(getValue())}</span> },
-        { accessorKey: 'actor_email', header: 'Actor', cell: ({ row }) => <span className="text-zinc-300">{row.original.actor_email || row.original.actor_id}</span> },
+        { accessorKey: 'created_at', header: 'When', cell: ({ getValue }) => <span className="font-mono text-ink-3">{fmtDate(getValue())}</span> },
+        { accessorKey: 'actor_email', header: 'Actor', cell: ({ row }) => <span className="text-ink-2">{row.original.actor_email || row.original.actor_id}</span> },
         { accessorKey: 'action', header: 'Action', cell: ({ getValue }) => <Badge tone={ACTION_TONE(getValue())}>{getValue()}</Badge> },
-        { accessorKey: 'target_type', header: 'Target', cell: ({ row }) => <span className="text-zinc-500">{row.original.target_type} #{row.original.target_id}</span> },
-        { accessorKey: 'reason', header: 'Reason', cell: ({ getValue }) => <span className="text-zinc-500">{getValue() || '—'}</span> },
-        { accessorKey: 'ip', header: 'IP', cell: ({ getValue }) => <span className="text-zinc-600">{getValue() || '—'}</span> },
+        { accessorKey: 'target_type', header: 'Target', cell: ({ row }) => <span className="font-mono text-ink-3">{row.original.target_type} #{row.original.target_id}</span> },
+        { accessorKey: 'reason', header: 'Reason', cell: ({ getValue }) => <span className="text-ink-3">{getValue() || '—'}</span> },
+        { accessorKey: 'ip', header: 'IP', cell: ({ getValue }) => <span className="font-mono text-ink-3">{getValue() || '—'}</span> },
         {
             id: 'diff', header: '', enableSorting: false,
             cell: ({ row }) => (row.original.before || row.original.after)
@@ -49,12 +49,12 @@ export default function AuditClient() {
             <Modal open={!!diff} onOpenChange={(o) => !o && setDiff(null)} title={`${diff?.action} — before / after`}>
                 <div className="grid grid-cols-2 gap-3 text-xs">
                     <div>
-                        <div className="mb-1 font-medium text-red-300">Before</div>
-                        <pre className="max-h-64 overflow-auto rounded-lg bg-zinc-900 p-2 text-red-200/80">{JSON.stringify(diff?.before, null, 2) || '—'}</pre>
+                        <div className="mb-1 font-medium text-danger">Before</div>
+                        <pre className="max-h-64 overflow-auto rounded-lg bg-paper-0 p-2 font-mono text-danger/80">{JSON.stringify(diff?.before, null, 2) || '—'}</pre>
                     </div>
                     <div>
-                        <div className="mb-1 font-medium text-emerald-300">After</div>
-                        <pre className="max-h-64 overflow-auto rounded-lg bg-zinc-900 p-2 text-emerald-200/80">{JSON.stringify(diff?.after, null, 2) || '—'}</pre>
+                        <div className="mb-1 font-medium text-ok">After</div>
+                        <pre className="max-h-64 overflow-auto rounded-lg bg-paper-0 p-2 font-mono text-ok/80">{JSON.stringify(diff?.after, null, 2) || '—'}</pre>
                     </div>
                 </div>
             </Modal>

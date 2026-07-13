@@ -2,59 +2,101 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+/* Fonts are loaded via next/font in app/layout.js and exposed as
+   --font-display / --font-body / --font-mono. No CDN @import. */
+
+/* ── Design tokens (see design.md) ──────────────────────────────────────
+   sRGB channel triples so Tailwind can inject alpha: rgb(var(--x) / <a>). */
+:root {
+  --paper-0: 12 12 16;
+  --paper-1: 19 19 24;
+  --paper-2: 26 26 33;
+  --paper-3: 34 34 43;
+  --line: 42 42 52;
+  --line-strong: 58 58 71;
+  --ink: 244 243 247;
+  --ink-2: 180 178 192;
+  --ink-3: 124 122 136;
+  --accent: 139 124 246;
+  --accent-hi: 165 153 248;
+  --accent-ink: 20 18 28;
+  --ok: 63 207 142;
+  --warn: 232 178 76;
+  --danger: 242 109 109;
+
+  --r-sm: 6px;
+  --r-md: 9px;
+  --r-lg: 13px;
+  --r-xl: 18px;
+
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 16px rgb(0 0 0 / 0.28);
+  --shadow-2: 0 8px 24px rgb(0 0 0 / 0.45), 0 2px 6px rgb(0 0 0 / 0.4);
+
+  /* legacy aliases kept so older references don't break */
+  --color-primary: rgb(var(--accent));
+  --bg-app: rgb(var(--paper-0));
+  --bg-panel: rgb(var(--paper-1));
+  --bg-card: rgb(var(--paper-2));
+  --border-color: rgb(var(--line) / 0.9);
+  --border-radius-xl: var(--r-xl);
+  --glass-bg: rgb(var(--paper-2) / 0.72);
+  --glass-border: rgb(var(--line) / 0.9);
+}
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+html, body { overflow-x: clip; }
+
 body {
-  background: #050505;
-  color: white;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: rgb(var(--paper-0));
+  color: rgb(var(--ink));
+  font-family: var(--font-body), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-:root {
-  --color-primary: #22d3ee;
-  --bg-app: #030303;
-  --bg-panel: #0a0a0a;
-  --bg-card: #111111;
-  --border-color: rgba(255,255,255,0.05);
-  --border-radius-xl: 0.75rem;
-  --glass-bg: rgba(255, 255, 255, 0.03);
-  --glass-border: rgba(255, 255, 255, 0.08);
+h1, h2, h3, h4, .font-display {
+  font-family: var(--font-display), var(--font-body), sans-serif;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
 }
 
+:focus-visible {
+  outline: 2px solid rgb(var(--accent));
+  outline-offset: 2px;
+}
+
+::selection { background: rgb(var(--accent) / 0.3); color: rgb(var(--ink)); }
+
+/* Panel surface (was frosted glass) — now real depth, no backdrop blur. */
 .glass-panel {
-  background: var(--glass-bg);
-  backdrop-filter: blur(12px);
-  border: 1px solid var(--glass-border);
+  background: rgb(var(--paper-1));
+  border: 1px solid rgb(var(--line));
 }
 
 .custom-scrollbar::-webkit-scrollbar { width: 4px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: rgb(var(--line-strong)); border-radius: 999px; }
 
-.scrollbar-none::-webkit-scrollbar {
-  height: 2px;
-  width: 2px;
-}
-.scrollbar-none::-webkit-scrollbar-track {
-  background: transparent;
-}
-.scrollbar-none::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
-}
-.scrollbar-none::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
-}
-.scrollbar-none {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
-}
+.scrollbar-none::-webkit-scrollbar { height: 2px; width: 2px; }
+.scrollbar-none::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-none::-webkit-scrollbar-thumb { background: rgb(var(--line-strong)); border-radius: 999px; }
+.scrollbar-none::-webkit-scrollbar-thumb:hover { background: rgb(var(--ink-3)); }
+.scrollbar-none { scrollbar-width: thin; scrollbar-color: rgb(var(--line-strong)) transparent; }
+
+.tabular { font-variant-numeric: tabular-nums; }
 
 @keyframes fade-in-up {
   from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 .animate-fade-in-up { animation: fade-in-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

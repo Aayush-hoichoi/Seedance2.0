@@ -58,32 +58,32 @@ export default function DashboardClient() {
 
             <div className="mt-4 grid gap-4 lg:grid-cols-3">
                 <Card className="lg:col-span-2">
-                    <div className="mb-2 text-sm font-medium text-zinc-300">Spend by day</div>
-                    {days.length ? <SpendArea data={days} /> : <div className="grid h-[220px] place-items-center text-xs text-zinc-600">No settlements yet this month</div>}
+                    <div className="mb-2 text-sm font-medium text-ink-2">Spend by day</div>
+                    {days.length ? <SpendArea data={days} /> : <div className="grid h-[220px] place-items-center text-xs text-ink-3">No settlements yet this month</div>}
                 </Card>
                 <Card>
-                    <div className="mb-2 text-sm font-medium text-zinc-300">Spend by model</div>
-                    {models.length ? <SpendDonut data={models} /> : <div className="grid h-[220px] place-items-center text-xs text-zinc-600">No model spend yet</div>}
+                    <div className="mb-2 text-sm font-medium text-ink-2">Spend by model</div>
+                    {models.length ? <SpendDonut data={models} /> : <div className="grid h-[220px] place-items-center text-xs text-ink-3">No model spend yet</div>}
                 </Card>
             </div>
 
             <div className="mt-4 grid gap-4 lg:grid-cols-3">
                 <Card className="lg:col-span-2">
-                    <div className="mb-2 text-sm font-medium text-zinc-300">Top users</div>
-                    {users.length ? <TopBars data={users} /> : <div className="grid h-[220px] place-items-center text-xs text-zinc-600">No usage yet</div>}
+                    <div className="mb-2 text-sm font-medium text-ink-2">Top users</div>
+                    {users.length ? <TopBars data={users} /> : <div className="grid h-[220px] place-items-center text-xs text-ink-3">No usage yet</div>}
                 </Card>
                 <div className="space-y-4">
                     <Card>
-                        <div className="mb-3 text-sm font-medium text-zinc-300">Budgets</div>
+                        <div className="mb-3 text-sm font-medium text-ink-2">Budgets</div>
                         {budgetRows.length ? (
                             <div className="space-y-3">
                                 {budgetRows.map((q) => (
                                     <div key={q.id}>
                                         <div className="mb-1 flex items-center justify-between text-xs">
-                                            <span className="text-zinc-400">
+                                            <span className="text-ink-2">
                                                 {q.user_id ? 'user' : q.project_name || 'org'} · {q.type} · {q.window}
                                             </span>
-                                            <span className="tabular-nums text-zinc-300">
+                                            <span className="font-mono tabular-nums text-ink-2">
                                                 {q.type === 'usd' ? fmtUsd(q.used) : fmtInt(q.used)} / {q.type === 'usd' ? fmtUsd(q.hard_limit) : fmtInt(q.hard_limit)}
                                             </span>
                                         </div>
@@ -91,37 +91,37 @@ export default function DashboardClient() {
                                     </div>
                                 ))}
                             </div>
-                        ) : <div className="text-xs text-zinc-600">No budgets configured — add them under Budgets.</div>}
+                        ) : <div className="text-xs text-ink-3">No budgets configured — add them under Budgets.</div>}
                     </Card>
                     <Card>
-                        <div className="mb-3 flex items-center gap-2 text-sm font-medium text-zinc-300"><BellRing size={14} /> Live alerts</div>
+                        <div className="mb-3 flex items-center gap-2 text-sm font-medium text-ink-2"><BellRing size={14} /> Live alerts</div>
                         {alerts.length ? (
                             <ul className="space-y-2 text-xs">
                                 {alerts.map((a, i) => (
                                     <li key={i} className="flex items-start justify-between gap-2">
-                                        <span className="text-zinc-400">
+                                        <span className="text-ink-2">
                                             <Badge tone={a.type === 'budget.threshold_crossed' ? 'amber' : 'red'} className="mr-1.5">{a.type.split('.')[0]}</Badge>
                                             {a.type === 'budget.threshold_crossed'
                                                 ? `${a.data?.threshold}% of ${a.data?.type} ${a.data?.window} budget`
                                                 : a.data?.modelId || a.type}
                                         </span>
-                                        <span className="shrink-0 text-zinc-600">{timeAgo(a.at)}</span>
+                                        <span className="shrink-0 font-mono text-ink-3">{timeAgo(a.at)}</span>
                                     </li>
                                 ))}
                             </ul>
-                        ) : <div className="text-xs text-zinc-600">Quiet — governance events will appear here in real time.</div>}
+                        ) : <div className="text-xs text-ink-3">Quiet — governance events will appear here in real time.</div>}
                     </Card>
                 </div>
             </div>
 
             {projects.length ? (
                 <Card className="mt-4">
-                    <div className="mb-2 text-sm font-medium text-zinc-300">Spend by project</div>
+                    <div className="mb-2 text-sm font-medium text-ink-2">Spend by project</div>
                     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                         {projects.map((p) => (
-                            <div key={p.key} className="flex items-center justify-between rounded-lg border border-zinc-800 px-3 py-2 text-sm">
-                                <span className="text-zinc-300">Project #{p.key}</span>
-                                <span className="tabular-nums text-zinc-100">{fmtUsd(p.cost_usd)}</span>
+                            <div key={p.key} className="flex items-center justify-between rounded-lg border border-line px-3 py-2 text-sm">
+                                <span className="text-ink-2">Project #{p.key}</span>
+                                <span className="font-mono tabular-nums text-ink">{fmtUsd(p.cost_usd)}</span>
                             </div>
                         ))}
                     </div>

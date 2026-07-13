@@ -23,9 +23,9 @@ export default function QueueClient() {
 
     const items = jobs.data?.items ?? [];
     const columns = [
-        { accessorKey: 'id', header: '#', cell: ({ getValue }) => <span className="text-zinc-500">#{getValue()}</span> },
+        { accessorKey: 'id', header: '#', cell: ({ getValue }) => <span className="font-mono tabular-nums text-ink-3">#{getValue()}</span> },
         { accessorKey: 'model_id', header: 'Model' },
-        { accessorKey: 'user_id', header: 'User', cell: ({ getValue }) => <span className="text-zinc-400">{String(getValue()).slice(0, 16)}…</span> },
+        { accessorKey: 'user_id', header: 'User', cell: ({ getValue }) => <span className="font-mono text-ink-2">{String(getValue()).slice(0, 16)}…</span> },
         {
             accessorKey: 'status', header: 'Status',
             cell: ({ row, getValue }) => {
@@ -36,31 +36,31 @@ export default function QueueClient() {
                 return (
                     <div className="max-w-[26rem]">
                         <Badge tone={STATUS_TONE[status] || 'zinc'}>{status}</Badge>
-                        {reason ? <div className="mt-1 truncate text-xs text-red-300/70" title={row.original.error.message}>{reason}</div> : null}
+                        {reason ? <div className="mt-1 truncate text-xs text-danger/70" title={row.original.error.message}>{reason}</div> : null}
                     </div>
                 );
             },
         },
-        { accessorKey: 'priority', header: 'Priority', cell: ({ getValue }) => <span className={getValue() === 'interactive' ? 'text-sky-300' : 'text-zinc-500'}>{getValue()}</span> },
-        { accessorKey: 'attempt', header: 'Attempt', cell: ({ getValue }) => <span className="tabular-nums text-zinc-500">{getValue()}/3</span> },
+        { accessorKey: 'priority', header: 'Priority', cell: ({ getValue }) => <span className={getValue() === 'interactive' ? 'text-accent-hi' : 'text-ink-3'}>{getValue()}</span> },
+        { accessorKey: 'attempt', header: 'Attempt', cell: ({ getValue }) => <span className="font-mono tabular-nums text-ink-3">{getValue()}/3</span> },
         {
             id: 'wait', header: 'Waited',
             cell: ({ row }) => {
                 const j = row.original;
                 const from = new Date(j.created_at).getTime();
                 const to = j.started_at ? new Date(j.started_at).getTime() : Date.now();
-                return <span className="tabular-nums text-zinc-500">{Math.max(0, Math.round((to - from) / 1000))}s</span>;
+                return <span className="font-mono tabular-nums text-ink-3">{Math.max(0, Math.round((to - from) / 1000))}s</span>;
             },
         },
-        { accessorKey: 'created_at', header: 'Submitted', cell: ({ getValue }) => <span className="text-zinc-500" title={fmtDate(getValue())}>{timeAgo(getValue())}</span> },
+        { accessorKey: 'created_at', header: 'Submitted', cell: ({ getValue }) => <span className="font-mono text-ink-3" title={fmtDate(getValue())}>{timeAgo(getValue())}</span> },
         {
             id: 'cost', header: 'Est. cost',
-            cell: ({ row }) => <span className="tabular-nums text-zinc-400">{fmtUsd(row.original.request_body?.est_cost_usd)}</span>,
+            cell: ({ row }) => <span className="font-mono tabular-nums text-ink-2">{fmtUsd(row.original.request_body?.est_cost_usd)}</span>,
         },
         {
             id: 'actions', header: '', enableSorting: false,
             cell: ({ row }) => ['queued', 'running'].includes(row.original.status)
-                ? <Button variant="ghost" size="xs" onClick={() => cancel(row.original.id)} title="Cancel"><XCircle size={14} className="text-red-400" /></Button>
+                ? <Button variant="ghost" size="xs" onClick={() => cancel(row.original.id)} title="Cancel"><XCircle size={14} className="text-danger" /></Button>
                 : null,
         },
     ];

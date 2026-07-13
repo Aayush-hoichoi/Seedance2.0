@@ -896,9 +896,9 @@ export default function SeedanceStudio() {
                 {monthSpend != null && (
                     <span
                         title="What your generations cost this calendar month (in-flight ones counted at their estimate)"
-                        className="px-2.5 py-1.5 rounded-md border border-white/10 bg-white/[0.04] text-xs font-semibold tabular-nums text-white/70"
+                        className="px-2.5 py-1.5 rounded-md border border-white/10 bg-white/[0.04] text-xs font-semibold font-mono tabular-nums text-white/70"
                     >
-                        ${monthSpend.toFixed(2)}<span className="ml-1 font-medium text-white/35">this month</span>
+                        ${monthSpend.toFixed(2)}<span className="ml-1 font-sans font-medium text-white/35">this month</span>
                     </span>
                 )}
                 <Link
@@ -914,7 +914,7 @@ export default function SeedanceStudio() {
                         value={projectId ?? ''}
                         onChange={(e) => selectProject(Number(e.target.value))}
                         title="Project — model access and budgets are scoped per project"
-                        className="px-2 py-1.5 rounded-md border border-white/10 bg-white/[0.04] text-white/70 hover:border-white/25 text-xs font-semibold focus:outline-none [&>option]:bg-zinc-900"
+                        className="px-2 py-1.5 rounded-md border border-line bg-paper-3 text-ink-2 hover:border-line-strong text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-accent [&>option]:bg-paper-1"
                     >
                         {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
@@ -923,7 +923,7 @@ export default function SeedanceStudio() {
                     <Link
                         href="/console"
                         title="Governance console — access, budgets, queue, audit"
-                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-amber-400/25 bg-amber-400/[0.06] text-amber-300/80 hover:text-amber-200 hover:border-amber-400/50 hover:bg-amber-400/[0.12] transition-colors text-xs font-semibold"
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-warn/25 bg-warn/[0.06] text-warn/80 hover:text-warn hover:border-warn/50 hover:bg-warn/[0.12] transition-colors text-xs font-semibold"
                     >
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
                         <span>Console</span>
@@ -1124,11 +1124,11 @@ function BigStage({ job, onCancel, onFullscreen, onReuse, onRefresh }) {
         const placeholder = (
             <div className="flex flex-col items-center justify-center text-center px-6">
                 <IconTile pulse />
-                <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight mb-3">{STATUS_TEXT[job.status] || 'Working…'}</h2>
+                <h2 className="text-2xl md:text-3xl font-extrabold font-display tracking-tight mb-3">{STATUS_TEXT[job.status] || 'Working…'}</h2>
                 <p className="text-white/40 text-sm md:text-base max-w-md leading-relaxed">
                     Usually 1–5 minutes. It keeps rendering even if you reload — watch it land in the rail on the right.
                 </p>
-                {job.taskId && <p className="mt-3 text-[11px] text-white/20 break-all max-w-md">task {job.taskId}</p>}
+                {job.taskId && <p className="mt-3 text-[11px] font-mono text-white/20 break-all max-w-md">task {job.taskId}</p>}
                 <button type="button" onClick={onCancel} className="mt-5 px-3 py-2 rounded-md text-xs font-semibold text-white/60 hover:text-white border border-white/10 hover:border-white/25 transition-colors">Cancel</button>
             </div>
         );
@@ -1150,7 +1150,7 @@ function BigStage({ job, onCancel, onFullscreen, onReuse, onRefresh }) {
     }
     return (
         <div className="max-w-md text-center animate-fade-in-up">
-            <p className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-300 leading-relaxed">{job.error || 'Generation failed.'}</p>
+            <p className="px-4 py-3 rounded-xl bg-danger/10 border border-danger/20 text-sm text-danger leading-relaxed">{job.error || 'Generation failed.'}</p>
             <p className="mt-3 text-xs text-white/30 truncate" title={job.prompt}>{job.prompt}</p>
         </div>
     );
@@ -1399,7 +1399,7 @@ function HistoryRail({ jobs, selectedId, onSelect, onRemove, onToggleLike, onRef
                                             <span className="text-[9px] font-semibold text-white/50">{STATUS_TEXT[job.status]}</span>
                                         </>
                                     ) : (
-                                        <span className="text-[9px] text-red-300 leading-tight line-clamp-3">{job.error || 'Failed'}</span>
+                                        <span className="text-[9px] text-danger leading-tight line-clamp-3">{job.error || 'Failed'}</span>
                                     )}
                                 </div>
                             )}
@@ -1455,7 +1455,7 @@ function Hero() {
     return (
         <div className="flex flex-col items-center justify-center animate-fade-in-up">
             <IconTile />
-            <h1 className="text-3xl sm:text-5xl md:text-6xl font-extrabold text-white tracking-tight mb-4 text-center px-4 leading-[1.05]">
+            <h1 className="text-3xl sm:text-5xl md:text-6xl font-extrabold font-display text-white tracking-tight mb-4 text-center px-4 leading-[1.05]">
                 <span className="text-white/40 font-medium">START CREATING WITH</span><br />
                 <span className="text-white">SEEDANCE 2.0</span>
             </h1>

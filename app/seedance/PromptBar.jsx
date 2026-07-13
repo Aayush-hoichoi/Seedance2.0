@@ -63,7 +63,7 @@ function Popover({ children }) {
     return (
         <div
             onClick={(e) => e.stopPropagation()}
-            className="absolute bottom-[calc(100%+12px)] left-0 z-50 min-w-[170px] max-h-[min(60vh,22rem)] overflow-y-auto custom-scrollbar bg-[#0a0a0a] rounded-lg p-2 shadow-2xl border border-white/[0.05]"
+            className="absolute bottom-[calc(100%+12px)] left-0 z-50 min-w-[170px] max-h-[min(60vh,22rem)] overflow-y-auto custom-scrollbar bg-paper-1 rounded-lg p-2 shadow-2xl border border-white/[0.05]"
         >
             {children}
         </div>
@@ -412,7 +412,7 @@ export default function PromptBar({
                     type="button"
                     onClick={undock}
                     title="Back to the prompt bar"
-                    className="w-full bg-[#0a0a0a]/80 backdrop-blur-3xl rounded-full border border-white/10 pl-4 pr-3 py-2.5 flex items-center gap-3 shadow-2xl text-left hover:border-primary/40 transition-colors group"
+                    className="w-full bg-paper-1/80 backdrop-blur-3xl rounded-full border border-white/10 pl-4 pr-3 py-2.5 flex items-center gap-3 shadow-2xl text-left hover:border-primary/40 transition-colors group"
                 >
                     <span className="w-4 h-4 shrink-0 bg-primary rounded flex items-center justify-center"><span className="text-[9px] font-bold text-black">S</span></span>
                     <span className={`flex-1 min-w-0 truncate text-sm ${prompt ? 'text-white/80' : 'text-white/40'}`}>
@@ -429,11 +429,11 @@ export default function PromptBar({
 
     return (
         <div className="fixed bottom-4 inset-x-0 mx-auto w-[95%] max-w-4xl z-40 animate-fade-in-up" style={{ animationDelay: '0.15s' }}>
-            <div className="w-full bg-[#0a0a0a]/80 backdrop-blur-3xl rounded-2xl border border-white/10 p-4 flex flex-col gap-2 shadow-2xl">
+            <div className="w-full bg-paper-1/80 backdrop-blur-3xl rounded-2xl border border-white/10 p-4 flex flex-col gap-2 shadow-2xl">
                 {/* media + prompt */}
                 <div className="relative flex items-start gap-2 px-1">
                     {showMention && (
-                        <div className="absolute bottom-full left-0 mb-2 z-50 min-w-[190px] max-h-60 overflow-y-auto custom-scrollbar bg-[#0a0a0a] rounded-lg p-1.5 shadow-2xl border border-white/[0.08]">
+                        <div className="absolute bottom-full left-0 mb-2 z-50 min-w-[190px] max-h-60 overflow-y-auto custom-scrollbar bg-paper-1 rounded-lg p-1.5 shadow-2xl border border-white/[0.08]">
                             <div className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wide text-white/50">Reference an asset</div>
                             {mentionTags.map((t, i) => {
                                 const active = i === Math.min(mentionIdx, mentionTags.length - 1);
@@ -505,10 +505,10 @@ export default function PromptBar({
 
                 {/* error (red) / notice (amber) — descriptive hint line was removed to declutter the bar */}
                 {error && (
-                    <div className="mx-1 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-[11px] text-red-300">{error}</div>
+                    <div className="mx-1 px-3 py-1.5 rounded-lg bg-danger/10 border border-danger/20 text-[11px] text-danger">{error}</div>
                 )}
                 {!error && notice && (
-                    <div className="mx-1 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300">{notice}</div>
+                    <div className="mx-1 px-3 py-1.5 rounded-lg bg-warn/10 border border-warn/20 text-[11px] text-warn">{notice}</div>
                 )}
 
                 {/* controls (selectors left, toggles right) + generate (own row, right) */}
@@ -592,7 +592,7 @@ export default function PromptBar({
                             type="button"
                             onClick={onGenerate}
                             disabled={enhancing}
-                            className="bg-primary text-black px-5 py-2.5 rounded-md font-semibold text-sm hover:bg-[#e5ff33] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 w-full sm:w-auto shadow-lg shadow-primary/10 disabled:opacity-60 disabled:hover:scale-100"
+                            className="bg-primary text-accent-ink px-5 py-2.5 rounded-md font-semibold text-sm hover:bg-accent-hi transition-colors flex items-center justify-center gap-2 w-full sm:w-auto disabled:opacity-60"
                         >
                             {enhancing ? (
                                 <><span className="animate-spin inline-block">◌</span> Structuring prompt…</>

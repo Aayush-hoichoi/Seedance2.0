@@ -11,7 +11,7 @@ import { PauseCircle, PlayCircle, Plus, ShieldBan, ShieldCheck, Trash2 } from 'l
 const SpendDonut = dynamic(() => import('../../charts.jsx').then((m) => m.SpendDonut), { ssr: false });
 const TopBars = dynamic(() => import('../../charts.jsx').then((m) => m.TopBars), { ssr: false });
 
-const TAB = 'rounded-lg px-3 py-1.5 text-sm text-zinc-400 data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100';
+const TAB = 'rounded-lg px-3 py-1.5 text-sm text-ink-2 data-[state=active]:bg-paper-3 data-[state=active]:text-ink';
 
 export default function ProjectDetailClient({ projectId }) {
     const detail = useApi(`/api/projects/${projectId}`);
@@ -47,7 +47,7 @@ export default function ProjectDetailClient({ projectId }) {
             </PageHeader>
 
             <Tabs.Root defaultValue="members">
-                <Tabs.List className="mb-4 flex gap-1 border-b border-zinc-800 pb-2">
+                <Tabs.List className="mb-4 flex gap-1 border-b border-line pb-2">
                     <Tabs.Trigger value="members" className={TAB}>Members</Tabs.Trigger>
                     <Tabs.Trigger value="models" className={TAB}>Models</Tabs.Trigger>
                     <Tabs.Trigger value="overrides" className={TAB}>Overrides</Tabs.Trigger>
@@ -69,10 +69,10 @@ export default function ProjectDetailClient({ projectId }) {
                         {projectQuotas.length ? projectQuotas.map((q) => (
                             <Card key={q.id}>
                                 <div className="mb-1 flex items-center justify-between text-sm">
-                                    <span className="text-zinc-300">{q.user_id ? `User ${emailOf(q.user_id)}` : 'Whole project'} · {q.type} · {q.window}</span>
+                                    <span className="text-ink-2">{q.user_id ? `User ${emailOf(q.user_id)}` : 'Whole project'} · {q.type} · {q.window}</span>
                                     <Badge tone={q.policy === 'hard' ? 'red' : 'amber'}>{q.policy}{q.policy === 'soft' ? ` +${q.soft_overage_pct}%` : ''}</Badge>
                                 </div>
-                                <div className="mb-2 text-xs text-zinc-500">
+                                <div className="mb-2 text-xs text-ink-3">
                                     {q.type === 'usd' ? fmtUsd(q.used) : fmtInt(q.used)} used{Number(q.reserved) > 0 ? ` (+${q.type === 'usd' ? fmtUsd(q.reserved) : fmtInt(q.reserved)} reserved)` : ''} of {q.type === 'usd' ? fmtUsd(q.hard_limit) : fmtInt(q.hard_limit)}
                                 </div>
                                 <ProgressBar value={Number(q.used) + Number(q.reserved || 0)} max={Number(q.hard_limit)} />
@@ -83,16 +83,16 @@ export default function ProjectDetailClient({ projectId }) {
                 <Tabs.Content value="usage">
                     <div className="grid gap-4 lg:grid-cols-2">
                         <Card>
-                            <div className="mb-2 text-sm font-medium text-zinc-300">Per-user spend (this month)</div>
-                            {(usage.data?.items ?? []).length ? <TopBars data={usage.data.items} /> : <div className="grid h-[200px] place-items-center text-xs text-zinc-600">No usage yet</div>}
+                            <div className="mb-2 text-sm font-medium text-ink-2">Per-user spend (this month)</div>
+                            {(usage.data?.items ?? []).length ? <TopBars data={usage.data.items} /> : <div className="grid h-[200px] place-items-center text-xs text-ink-3">No usage yet</div>}
                         </Card>
                         <Card>
-                            <div className="mb-2 text-sm font-medium text-zinc-300">Per-model spend (this month)</div>
-                            {(usageByModel.data?.items ?? []).length ? <SpendDonut data={usageByModel.data.items} /> : <div className="grid h-[200px] place-items-center text-xs text-zinc-600">No usage yet</div>}
+                            <div className="mb-2 text-sm font-medium text-ink-2">Per-model spend (this month)</div>
+                            {(usageByModel.data?.items ?? []).length ? <SpendDonut data={usageByModel.data.items} /> : <div className="grid h-[200px] place-items-center text-xs text-ink-3">No usage yet</div>}
                         </Card>
                     </div>
                     <div className="mt-3 text-right">
-                        <a className="text-xs text-sky-400 hover:underline" href={`/api/projects/${projectId}/usage?group_by=user&format=csv`}>Export CSV</a>
+                        <a className="text-xs text-accent-hi hover:underline" href={`/api/projects/${projectId}/usage?group_by=user&format=csv`}>Export CSV</a>
                     </div>
                 </Tabs.Content>
             </Tabs.Root>
@@ -122,7 +122,7 @@ function MembersTab({ projectId, members, allUsers, onChange }) {
 
     const candidates = allUsers.filter((u) => !members.some((m) => m.user_id === (u.id || u.user_id)));
     const columns = [
-        { accessorKey: 'email', header: 'User', cell: ({ row }) => <span className="text-zinc-200">{row.original.email || row.original.name || row.original.user_id}</span> },
+        { accessorKey: 'email', header: 'User', cell: ({ row }) => <span className="text-ink">{row.original.email || row.original.name || row.original.user_id}</span> },
         {
             accessorKey: 'role', header: 'Role',
             cell: ({ row }) => (
@@ -131,10 +131,10 @@ function MembersTab({ projectId, members, allUsers, onChange }) {
                 </Select>
             ),
         },
-        { accessorKey: 'created_at', header: 'Added', cell: ({ getValue }) => <span className="text-zinc-500">{fmtDate(getValue())}</span> },
+        { accessorKey: 'created_at', header: 'Added', cell: ({ getValue }) => <span className="font-mono text-ink-3">{fmtDate(getValue())}</span> },
         {
             id: 'actions', header: '', enableSorting: false,
-            cell: ({ row }) => <Button variant="ghost" size="xs" onClick={() => remove(row.original.user_id)}><Trash2 size={13} className="text-red-400" /></Button>,
+            cell: ({ row }) => <Button variant="ghost" size="xs" onClick={() => remove(row.original.user_id)}><Trash2 size={13} className="text-danger" /></Button>,
         },
     ];
     return (
@@ -186,8 +186,8 @@ function ModelsTab({ projectId, grants, catalog, onChange }) {
                     <Card key={m.id}>
                         <div className="flex items-start justify-between">
                             <div>
-                                <div className="text-sm font-medium text-zinc-100">{m.displayName}</div>
-                                <div className="mt-0.5 flex items-center gap-1.5 text-xs text-zinc-500">
+                                <div className="text-sm font-medium text-ink">{m.displayName}</div>
+                                <div className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-3">
                                     <Badge tone={m.category === 'video' ? 'violet' : 'blue'}>{m.category}</Badge>
                                     {m.isDefault ? <Badge tone="green">org default</Badge> : null}
                                     {g?.valid_until ? <Badge tone="amber">expires {fmtDate(g.valid_until)}</Badge> : null}
@@ -237,8 +237,8 @@ function OverridesTab({ projectId, overrides, members, catalog, onChange }) {
                 ? <Badge tone="red"><ShieldBan size={11} /> deny</Badge>
                 : <Badge tone="green"><ShieldCheck size={11} /> allow</Badge>,
         },
-        { accessorKey: 'valid_until', header: 'Expires', cell: ({ getValue }) => <span className="text-zinc-500">{getValue() ? fmtDate(getValue()) : 'never'}</span> },
-        { id: 'actions', header: '', enableSorting: false, cell: ({ row }) => <Button variant="ghost" size="xs" onClick={() => remove(row.original)}><Trash2 size={13} className="text-red-400" /></Button> },
+        { accessorKey: 'valid_until', header: 'Expires', cell: ({ getValue }) => <span className="font-mono text-ink-3">{getValue() ? fmtDate(getValue()) : 'never'}</span> },
+        { id: 'actions', header: '', enableSorting: false, cell: ({ row }) => <Button variant="ghost" size="xs" onClick={() => remove(row.original)}><Trash2 size={13} className="text-danger" /></Button> },
     ];
     return (
         <div>

@@ -1,21 +1,34 @@
 'use client';
 
+/* Hallmark · page: projects (front door) · genre: modern-minimal · theme: refined-dark-studio
+ * pre-emit critique: P5 H5 E4 S4 R5 V4 · contrast: pass · defers to /design.md */
+
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { UserButton } from '@clerk/nextjs';
+import { Plus, Users, FolderKanban, ArrowUpRight } from 'lucide-react';
 
 // User-facing project list — the studio's front door. Every generation
 // belongs to a project, so spend rolls up per row. Members see only their
-// projects; platform admins see all and can create new ones (the server
-// enforces the project.manage permission regardless of what we render).
-
-const BTN = 'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-white/10 bg-white/[0.04] text-white/70 hover:text-white hover:border-white/25 hover:bg-white/[0.08] transition-colors text-xs font-semibold';
+// projects; platform admins/org managers see all and can create + manage
+// (the server enforces the permission regardless of what we render).
 
 function formatDate(iso) {
     if (!iso) return '—';
     const d = new Date(iso);
     return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function StatusPill({ paused }) {
+    return (
+        <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${paused
+            ? 'border-warn/25 bg-warn/10 text-warn'
+            : 'border-ok/25 bg-ok/10 text-ok'}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${paused ? 'bg-warn' : 'bg-ok'}`} />
+            {paused ? 'Paused' : 'Active'}
+        </span>
+    );
 }
 
 export default function ProjectsClient() {
@@ -41,6 +54,7 @@ export default function ProjectsClient() {
     const isAdmin = data?.role === 'admin';
     const canManage = !!data?.canManageProjects; // admin or org manager: create + manage any project
     const items = data?.items ?? [];
+    const totalSpend = items.reduce((sum, p) => sum + Number(p.spent_usd ?? 0), 0);
 
     async function create() {
         const trimmed = name.trim();
@@ -64,29 +78,49 @@ export default function ProjectsClient() {
         }
     }
 
+    const roleLabel = (p) => p.my_role || (isAdmin ? 'admin' : canManage ? 'manager' : 'member');
+
     return (
-        <div className="min-h-screen w-full bg-app-bg text-white">
-            <div className="mx-auto max-w-5xl px-6 py-12">
-                <div className="flex items-end justify-between gap-4">
-                    <div>
-                        <h1 className="text-2xl font-bold tracking-tight">Projects</h1>
-                        <p className="mt-1 text-sm text-white/40">
-                            {items.length} project{items.length === 1 ? '' : 's'} — spend, members and model access are scoped per project.
+        <div className="min-h-screen w-full bg-app-bg text-ink">
+            <div className="mx-auto max-w-5xl px-5 py-10 sm:px-6 sm:py-14">
+                {/* ── Header ── */}
+                <header className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="min-w-0">
+                        <div className="mb-2 inline-flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.16em] text-ink-3">
+                            <span className="h-1.5 w-1.5 rounded-full bg-accent" /> Studio Workspace
+                        </div>
+                        <h1 className="font-display text-3xl font-semibold leading-none tracking-tight sm:text-4xl">Projects</h1>
+                        <p className="mt-2 max-w-md text-sm text-ink-3">
+                            Spend, members and model access are scoped per project. Open one to work in the studio.
                         </p>
                     </div>
                     <div className="flex items-center gap-2.5">
                         {canManage && (
-                            <button type="button" onClick={() => setCreating((v) => !v)} className={BTN}>
-                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
-                                <span>New Project</span>
+                            <button
+                                type="button"
+                                onClick={() => setCreating((v) => !v)}
+                                className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent-hi"
+                            >
+                                <Plus size={15} strokeWidth={2.5} /> New Project
                             </button>
                         )}
-                        <UserButton />
+                        <div className="rounded-full ring-1 ring-line">
+                            <UserButton />
+                        </div>
                     </div>
-                </div>
+                </header>
+
+                {/* ── Summary strip (all real numbers) ── */}
+                {items.length > 0 && (
+                    <div className="mt-8 grid grid-cols-3 divide-x divide-line overflow-hidden rounded-lg border border-line bg-paper-1">
+                        <Stat label="Projects" value={String(items.length)} />
+                        <Stat label="Combined spend" value={`$${totalSpend.toFixed(2)}`} mono />
+                        <Stat label="Your role" value={roleLabel(items[0])} accent />
+                    </div>
+                )}
 
                 {error && (
-                    <div className="mt-6 rounded-md border border-rose-400/25 bg-rose-400/[0.08] px-4 py-3 text-sm text-rose-200">
+                    <div className="mt-6 rounded-md border border-danger/25 bg-danger/10 px-4 py-3 text-sm text-danger">
                         {error}
                     </div>
                 )}
@@ -94,78 +128,90 @@ export default function ProjectsClient() {
                 {creating && (
                     <form
                         onSubmit={(e) => { e.preventDefault(); create(); }}
-                        className="mt-6 flex items-center gap-2.5 rounded-lg border border-white/10 bg-white/[0.03] p-3"
+                        className="mt-6 flex flex-wrap items-center gap-2.5 rounded-lg border border-line bg-paper-1 p-3"
                     >
                         <input
                             autoFocus
                             value={name}
                             onChange={(e) => setName(e.target.value)}
                             placeholder="Project name — e.g. Marketing Videos"
-                            className="flex-1 rounded-md border border-white/10 bg-black/30 px-3 py-2 text-sm text-white placeholder:text-white/25 focus:border-white/30 focus:outline-none"
+                            className="min-w-0 flex-1 rounded-md border border-line bg-paper-3 px-3 py-2 text-sm text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none"
                         />
-                        <button type="submit" disabled={!name.trim() || saving} className={`${BTN} disabled:opacity-40`}>
+                        <button type="submit" disabled={!name.trim() || saving}
+                            className="rounded-md bg-accent px-3.5 py-2 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent-hi disabled:opacity-40">
                             {saving ? 'Creating…' : 'Create'}
                         </button>
-                        <button type="button" onClick={() => { setCreating(false); setName(''); }} className={BTN}>Cancel</button>
+                        <button type="button" onClick={() => { setCreating(false); setName(''); }}
+                            className="rounded-md border border-line px-3 py-2 text-sm font-medium text-ink-2 transition-colors hover:border-line-strong hover:text-ink">
+                            Cancel
+                        </button>
                     </form>
                 )}
 
-                <div className="mt-6 overflow-x-auto rounded-lg border border-white/10">
-                    <table className="w-full text-sm">
+                {/* ── List ── */}
+                <div className="mt-6 overflow-x-auto rounded-lg border border-line bg-paper-1">
+                    <table className="w-full min-w-[640px] text-sm">
                         <thead>
-                            <tr className="text-left text-[11px] uppercase tracking-wider text-white/35">
-                                <th className="px-4 py-3 font-semibold">Project Name</th>
-                                <th className="px-4 py-3 font-semibold">Members</th>
-                                <th className="px-4 py-3 font-semibold">Your Role</th>
-                                <th className="px-4 py-3 font-semibold">Status</th>
-                                <th className="px-4 py-3 font-semibold">Created</th>
-                                <th className="px-4 py-3 text-right font-semibold">Spent</th>
+                            <tr className="border-b border-line text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-3">
+                                <th className="px-4 py-3">Project</th>
+                                <th className="px-4 py-3">Members</th>
+                                <th className="px-4 py-3">Role</th>
+                                <th className="px-4 py-3">Status</th>
+                                <th className="px-4 py-3">Created</th>
+                                <th className="px-4 py-3 text-right">Spent</th>
                                 {canManage && <th className="px-4 py-3" />}
                             </tr>
                         </thead>
                         <tbody>
                             {data && !items.length && (
                                 <tr>
-                                    <td colSpan={canManage ? 7 : 6} className="px-4 py-12 text-center text-sm text-white/35">
-                                        {canManage
-                                            ? 'No projects yet — create one to get started.'
-                                            : 'You are not in any project yet — ask an admin to add you.'}
+                                    <td colSpan={canManage ? 7 : 6} className="px-4 py-16 text-center">
+                                        <FolderKanban size={26} className="mx-auto text-ink-3" strokeWidth={1.5} />
+                                        <p className="mt-3 font-display text-lg text-ink">
+                                            {canManage ? 'No projects yet' : 'You’re not in any project yet'}
+                                        </p>
+                                        <p className="mt-1 text-sm text-ink-3">
+                                            {canManage ? 'Create one to start tracking spend and access.' : 'Ask an admin to add you to a project.'}
+                                        </p>
                                     </td>
                                 </tr>
                             )}
                             {!data && !error && (
-                                <tr><td colSpan={canManage ? 7 : 6} className="px-4 py-12 text-center text-sm text-white/35">Loading projects…</td></tr>
+                                <tr><td colSpan={canManage ? 7 : 6} className="px-4 py-16 text-center text-sm text-ink-3">Loading projects…</td></tr>
                             )}
                             {items.map((p) => (
                                 <tr
                                     key={p.id}
                                     onClick={() => router.push(`/seedance?project=${p.id}`)}
                                     title={`Open the studio in “${p.name}”`}
-                                    className="cursor-pointer border-t border-white/5 transition-colors hover:bg-white/[0.04]"
+                                    className="group cursor-pointer border-b border-line/60 transition-colors last:border-0 hover:bg-paper-3"
                                 >
-                                    <td className="px-4 py-3 font-semibold text-white/85">{p.name}</td>
-                                    <td className="px-4 py-3 text-white/50">{p.member_count ?? 0}</td>
-                                    <td className="px-4 py-3">
-                                        <span className="rounded border border-sky-400/25 bg-sky-400/[0.08] px-1.5 py-0.5 text-[11px] font-semibold text-sky-300/90">
-                                            {p.my_role || (isAdmin ? 'admin' : canManage ? 'manager' : 'member')}
+                                    <td className="px-4 py-3.5">
+                                        <span className="inline-flex items-center gap-2 font-display font-medium text-ink group-hover:text-accent-hi">
+                                            {p.name}
+                                            <ArrowUpRight size={14} className="text-ink-3 opacity-0 transition-opacity group-hover:opacity-100" />
                                         </span>
                                     </td>
-                                    <td className="px-4 py-3">
-                                        {p.paused
-                                            ? <span className="rounded border border-amber-400/25 bg-amber-400/[0.08] px-1.5 py-0.5 text-[11px] font-semibold text-amber-300/90">paused</span>
-                                            : <span className="rounded border border-emerald-400/25 bg-emerald-400/[0.08] px-1.5 py-0.5 text-[11px] font-semibold text-emerald-300/90">active</span>}
+                                    <td className="px-4 py-3.5 text-ink-2">
+                                        <span className="inline-flex items-center gap-1.5"><Users size={13} className="text-ink-3" /> {p.member_count ?? 0}</span>
                                     </td>
-                                    <td className="px-4 py-3 text-white/50">{formatDate(p.created_at)}</td>
-                                    <td className="px-4 py-3 text-right font-semibold tabular-nums text-white/80">
+                                    <td className="px-4 py-3.5">
+                                        <span className="rounded-md border border-accent/25 bg-accent/10 px-1.5 py-0.5 text-[11px] font-semibold text-accent-hi">
+                                            {roleLabel(p)}
+                                        </span>
+                                    </td>
+                                    <td className="px-4 py-3.5"><StatusPill paused={p.paused} /></td>
+                                    <td className="px-4 py-3.5 font-mono text-xs text-ink-3">{formatDate(p.created_at)}</td>
+                                    <td className="px-4 py-3.5 text-right font-mono text-sm tabular-nums text-ink">
                                         ${Number(p.spent_usd ?? 0).toFixed(2)}
                                     </td>
                                     {canManage && (
-                                        <td className="px-4 py-3 text-right">
+                                        <td className="px-4 py-3.5 text-right">
                                             <Link
                                                 href={`/console/projects/${p.id}`}
                                                 onClick={(e) => e.stopPropagation()}
                                                 title="Members, model grants, overrides and budgets"
-                                                className="text-xs font-semibold text-white/40 hover:text-white"
+                                                className="text-xs font-semibold text-ink-3 transition-colors hover:text-ink"
                                             >
                                                 Manage
                                             </Link>
@@ -176,6 +222,17 @@ export default function ProjectsClient() {
                         </tbody>
                     </table>
                 </div>
+            </div>
+        </div>
+    );
+}
+
+function Stat({ label, value, mono, accent }) {
+    return (
+        <div className="px-4 py-3.5">
+            <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">{label}</div>
+            <div className={`mt-1 text-lg font-semibold ${mono ? 'font-mono tabular-nums' : 'font-display'} ${accent ? 'text-accent-hi' : 'text-ink'}`}>
+                {value}
             </div>
         </div>
     );

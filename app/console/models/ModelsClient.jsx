@@ -15,12 +15,12 @@ export default function ModelsClient() {
     const items = (catalog.data?.items ?? []).map((m) => ({ ...m, month_spend: Number(spendBy[m.id] || 0) }));
 
     const columns = [
-        { accessorKey: 'displayName', header: 'Model', cell: ({ row }) => <span className="font-medium text-zinc-100">{row.original.displayName}</span> },
-        { accessorKey: 'id', header: 'Alias', cell: ({ getValue }) => <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-300">{getValue()}</code> },
+        { accessorKey: 'displayName', header: 'Model', cell: ({ row }) => <span className="font-medium text-ink">{row.original.displayName}</span> },
+        { accessorKey: 'id', header: 'Alias', cell: ({ getValue }) => <code className="rounded bg-paper-3 px-1.5 py-0.5 font-mono text-xs text-ink-2">{getValue()}</code> },
         { accessorKey: 'category', header: 'Category', cell: ({ getValue }) => <Badge tone={getValue() === 'video' ? 'violet' : 'blue'}>{getValue()}</Badge> },
-        { accessorKey: 'kind', header: 'Pricing kind', cell: ({ getValue }) => <span className="text-zinc-400">{getValue()}</span> },
-        { accessorKey: 'isDefault', header: 'Org default', cell: ({ getValue }) => (getValue() ? <Badge tone="green">default</Badge> : <span className="text-zinc-600">—</span>) },
-        { accessorKey: 'month_spend', header: 'Spend (month)', cell: ({ getValue }) => <span className="tabular-nums">{fmtUsd(getValue())}</span> },
+        { accessorKey: 'kind', header: 'Pricing kind', cell: ({ getValue }) => <span className="text-ink-2">{getValue()}</span> },
+        { accessorKey: 'isDefault', header: 'Org default', cell: ({ getValue }) => (getValue() ? <Badge tone="green">default</Badge> : <span className="text-ink-3">—</span>) },
+        { accessorKey: 'month_spend', header: 'Spend (month)', cell: ({ getValue }) => <span className="font-mono tabular-nums">{fmtUsd(getValue())}</span> },
     ];
 
     return (
@@ -29,8 +29,8 @@ export default function ModelsClient() {
             {items.length
                 ? <DataTable columns={columns} data={items} searchable={false} />
                 : <EmptyState icon={Boxes} title="Catalog not loaded" hint="Join a project to see the effective catalog, or run the migration to seed it." />}
-            <Card className="mt-4 text-xs leading-relaxed text-zinc-500">
-                Access precedence: <span className="text-zinc-300">user DENY → user ALLOW → project grant → org default → deny</span>.
+            <Card className="mt-4 text-xs leading-relaxed text-ink-3">
+                Access precedence: <span className="text-ink-2">user DENY → user ALLOW → project grant → org default → deny</span>.
                 Grants and overrides can carry an expiry; enforcement happens on every request server-side, and revokes cancel queued jobs instantly.
             </Card>
         </div>
