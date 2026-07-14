@@ -1,7 +1,7 @@
 import ConsoleShell from './ConsoleShell.jsx';
 
 export const metadata = {
-    title: 'Console — Model Gateway',
+    title: 'Console — loglineAI Studio',
     description: 'Access, cost and queue governance for generation models.',
 };
 

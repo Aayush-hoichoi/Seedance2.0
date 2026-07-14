@@ -8,7 +8,7 @@ const body = Hanken_Grotesk({ subsets: ["latin"], variable: "--font-body", displ
 const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", display: "swap" });
 
 export const metadata = {
-  title: 'Open Generative AI — Free AI Image & Video Studio',
+  title: 'loglineAI Studio — AI Image & Video Studio',
   description: 'Generate AI images and videos using 200+ models — Flux, Midjourney, Kling, Veo, Seedance and more.',
 };
 

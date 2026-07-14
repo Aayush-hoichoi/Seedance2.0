@@ -36,10 +36,10 @@ export default function StudioSidebar({
     return (
         <aside className={`fixed left-0 top-0 z-40 hidden h-screen flex-col border-r border-line bg-paper-1 transition-all sm:flex ${collapsed ? 'w-14' : 'w-56'}`}>
             <button type="button" onClick={onHome} title="Home — back to the studio" className="flex items-center gap-2.5 px-3 py-4 text-left transition-opacity hover:opacity-90">
-                <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-accent font-display text-sm font-bold text-accent-ink">S</div>
+                <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-accent font-display text-sm font-bold text-accent-ink">L</div>
                 {!collapsed && (
                     <div className="min-w-0">
-                        <div className="truncate font-display text-sm font-semibold text-ink">Seedance 2.0</div>
+                        <div className="truncate font-display text-sm font-semibold text-ink">loglineAI Studio</div>
                         <div className="truncate text-[10px] text-ink-3">
                             {activeCount > 0 ? <span className="text-accent-hi">{activeCount} rendering…</span> : 'BytePlus ModelArk'}
                         </div>

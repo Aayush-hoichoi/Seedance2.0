@@ -78,8 +78,8 @@ export default function ConsoleShell({ children }) {
             <Toaster position="bottom-right" toastOptions={{ style: { background: '#1A1A21', color: '#F4F3F7', border: '1px solid #2A2A34' } }} />
             <aside className={clsx('sticky top-0 flex h-screen flex-col border-r border-line bg-paper-1 transition-all', collapsed ? 'w-14' : 'w-56')}>
                 <div className="flex items-center gap-2.5 px-3 py-4">
-                    <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-accent font-display text-sm font-bold text-accent-ink">G</div>
-                    {!collapsed && <div className="font-display text-sm font-semibold tracking-tight text-ink">Model Gateway</div>}
+                    <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-accent font-display text-sm font-bold text-accent-ink">L</div>
+                    {!collapsed && <div className="font-display text-sm font-semibold tracking-tight text-ink">loglineAI Studio</div>}
                 </div>
                 <nav className="flex-1 space-y-0.5 px-2">
                     {nav.map(({ href, label, icon: Icon, exact }) => {

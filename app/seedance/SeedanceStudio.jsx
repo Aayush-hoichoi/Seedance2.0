@@ -1,6 +1,6 @@
 'use client';
 
-// Seedance 2.0 Studio — muapi house look: hero headline, a scrollable grid of
+// loglineAI Studio — muapi house look: hero headline, a scrollable grid of
 // generation jobs (running + finished, persisted across reloads), and a fixed
 // bottom prompt-bar (PromptBar.jsx). Multiple generations can run in parallel;
 // in-flight tasks are resumed after a reload by re-polling their ModelArk id.

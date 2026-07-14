@@ -105,7 +105,7 @@ export default function ProjectsClient() {
                 <header className="flex flex-wrap items-start justify-between gap-4">
                     <div className="min-w-0">
                         <div className="mb-2 inline-flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.16em] text-ink-3">
-                            <span className="h-1.5 w-1.5 rounded-full bg-accent" /> Studio Workspace
+                            <span className="h-1.5 w-1.5 rounded-full bg-accent" /> loglineAI Studio
                         </div>
                         <h1 className="font-display text-3xl font-semibold leading-none tracking-tight sm:text-4xl">Projects</h1>
                         <p className="mt-2 max-w-md text-sm text-ink-3">

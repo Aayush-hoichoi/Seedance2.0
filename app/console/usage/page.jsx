@@ -1,6 +1,6 @@
 import UsageClient from './UsageClient.jsx';
 
-export const metadata = { title: 'Usage — Model Gateway' };
+export const metadata = { title: 'Usage — loglineAI Studio' };
 
 export default function UsagePage() {
     return <UsageClient />;
