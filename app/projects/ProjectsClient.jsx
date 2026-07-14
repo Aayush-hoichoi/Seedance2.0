@@ -135,7 +135,7 @@ export default function ProjectsClient() {
                     <div className="mt-8 grid grid-cols-3 divide-x divide-line overflow-hidden rounded-lg border border-line bg-paper-1">
                         <Stat label="Projects" value={String(items.length)} />
                         <Stat label="Combined spend" value={`$${totalSpend.toFixed(2)}`} mono />
-                        <Stat label="Your role" value={roleLabel(items[0])} accent />
+                        <Stat label="Your role" value={isAdmin ? 'admin' : canManage ? 'manager' : 'member'} accent />
                     </div>
                 )}
 

@@ -10,14 +10,16 @@ export async function GET(request, { params }) {
     const { id } = await params;
     const auth = await gatewayContext({ projectId: Number(id) });
     if (!auth.ok) return auth.response;
-    const { sql, project } = auth.ctx;
+    const { sql, project, role } = auth.ctx;
     const members = await sql`SELECT m.*, u.email, u.name FROM project_memberships m
         LEFT JOIN users u ON u.id = m.user_id WHERE m.project_id = ${project.id} ORDER BY m.created_at`;
     const grants = await sql`SELECT * FROM project_model_grants WHERE project_id = ${project.id} AND revoked_at IS NULL`;
     const overrides = await sql`SELECT o.*, u.email FROM user_model_overrides o
         LEFT JOIN users u ON u.id = o.user_id
         WHERE o.project_id = ${project.id} AND o.revoked_at IS NULL ORDER BY o.created_at DESC`;
-    return NextResponse.json({ project, members, grants, overrides });
+    // `role` is the caller's effective role on this project — the client uses it
+    // to hide the 'admin' option unless the caller can actually grant it.
+    return NextResponse.json({ project, role, members, grants, overrides });
 }
 
 // Rename / pause / resume.

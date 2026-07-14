@@ -22,7 +22,7 @@ export default function ProjectDetailClient({ projectId }) {
     const quotas = useApi('/api/admin/quotas?withUsage=1');
 
     if (detail.error) return <EmptyState title="Not available" hint={detail.error.message} />;
-    const { project, members = [], grants = [], overrides = [] } = detail.data || {};
+    const { project, role: viewerRole, members = [], grants = [], overrides = [] } = detail.data || {};
     if (!project) return null;
 
     const refresh = () => { detail.mutate(); models.mutate(); };
@@ -56,7 +56,7 @@ export default function ProjectDetailClient({ projectId }) {
                 </Tabs.List>
 
                 <Tabs.Content value="members">
-                    <MembersTab projectId={projectId} members={members} allUsers={usersApi.data?.users || usersApi.data?.items || []} onChange={refresh} />
+                    <MembersTab projectId={projectId} members={members} allUsers={usersApi.data?.users || usersApi.data?.items || []} canAssignAdmin={viewerRole === 'admin'} onChange={refresh} />
                 </Tabs.Content>
                 <Tabs.Content value="models">
                     <ModelsTab projectId={projectId} grants={grants} catalog={models.data?.items ?? []} onChange={refresh} />
@@ -100,10 +100,16 @@ export default function ProjectDetailClient({ projectId }) {
     );
 }
 
-function MembersTab({ projectId, members, allUsers, onChange }) {
+function MembersTab({ projectId, members, allUsers, canAssignAdmin, onChange }) {
     const [open, setOpen] = useState(false);
     const [userId, setUserId] = useState('');
     const [role, setRole] = useState('member');
+
+    // Only an admin may grant the 'admin' role (the server enforces this too);
+    // hide it from the picker for everyone else. For an existing admin member we
+    // still show 'admin' so their row's Select renders their current value.
+    const assignable = canAssignAdmin ? ['admin', 'manager', 'member', 'viewer'] : ['manager', 'member', 'viewer'];
+    const roleOptionsFor = (current) => (assignable.includes(current) ? assignable : [current, ...assignable]);
 
     async function add() {
         const r = await sendJson(`/api/projects/${projectId}/members`, 'POST', { userId, role });
@@ -127,7 +133,7 @@ function MembersTab({ projectId, members, allUsers, onChange }) {
             accessorKey: 'role', header: 'Role',
             cell: ({ row }) => (
                 <Select value={row.original.role} onChange={(e) => setMemberRole(row.original.user_id, e.target.value)}>
-                    {['admin', 'manager', 'member', 'viewer'].map((r) => <option key={r} value={r}>{r}</option>)}
+                    {roleOptionsFor(row.original.role).map((r) => <option key={r} value={r}>{r}</option>)}
                 </Select>
             ),
         },
@@ -156,7 +162,7 @@ function MembersTab({ projectId, members, allUsers, onChange }) {
                 </Field>
                 <Field label="Role">
                     <Select className="w-full" value={role} onChange={(e) => setRole(e.target.value)}>
-                        {['admin', 'manager', 'member', 'viewer'].map((r) => <option key={r} value={r}>{r}</option>)}
+                        {assignable.map((r) => <option key={r} value={r}>{r}</option>)}
                     </Select>
                 </Field>
             </Modal>
