@@ -372,12 +372,11 @@ export default function PromptBar({
     // Studio (Nano Banana Pro under the hood). Studio's picker value is distinct
     // so it can be the active choice even though the model sent is Pro.
     // Per-model gating: a gated image model the user hasn't been granted shows a
-    // 🔒 request pill. Cinematic Studio runs Nano Banana Pro, so it locks on Pro.
+    // 🔒 request pill. Cinematic Studio is its own gated model — gated like any other.
     const imgLocked = (id) => {
         const m = imageModels.find((x) => x.id === id);
         return !!m?.gated && allowedModelIds && !allowedModelIds.includes(id);
     };
-    const proLocked = imgLocked('nano-banana-pro');
     const lockName = (id, fallback) => {
         const name = imageModels.find((m) => m.id === id)?.name || fallback;
         return imgLocked(id) ? `${name} 🔒 (request access)` : name;
@@ -386,7 +385,7 @@ export default function PromptBar({
         { value: 'nano-banana-pro', label: lockName('nano-banana-pro', 'Nano Banana Pro') },
         { value: 'nano-banana-2', label: lockName('nano-banana-2', 'Nano Banana 2') },
         { value: 'seedream-5.0-pro', label: lockName('seedream-5.0-pro', 'Seedream 5.0 Pro') },
-        { value: IMAGE_STUDIO_ID, label: proLocked ? 'Cinematic Studio 🔒 (request access)' : 'Cinematic Studio' },
+        { value: IMAGE_STUDIO_ID, label: lockName(IMAGE_STUDIO_ID, 'Cinematic Studio') },
     ];
     const imageModeValue = imageStudio ? IMAGE_STUDIO_ID : options.model;
     const imageModeLabel = imageStudio ? 'Cinematic Studio' : (selectedImageModel?.name || 'Model');
@@ -623,9 +622,8 @@ export default function PromptBar({
                             options={imageModeOptions}
                             onSelect={(v) => {
                                 // A locked pick sends an access request instead of switching to a
-                                // model that would 403. Cinematic Studio requests Pro (its engine).
-                                if (v === IMAGE_STUDIO_ID) { if (proLocked) { requestModelAccess('nano-banana-pro'); return; } }
-                                else if (imgLocked(v)) { requestModelAccess(v); return; }
+                                // model that would 403 — Cinematic Studio is gated like any model.
+                                if (imgLocked(v)) { requestModelAccess(v); return; }
                                 onChangeImageModel?.(v);
                             }}
                         />

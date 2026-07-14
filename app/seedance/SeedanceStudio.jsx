@@ -964,15 +964,20 @@ export default function SeedanceStudio() {
         if (job.mediaType === 'image') {
             setMediaType('image');
             setImageRefs([]); // inline refs weren't persisted; user re-adds if needed
-            const imgModel = IMAGE_MODELS.some((m) => m.id === job.model) ? job.model
-                : IMAGE_MODELS.some((m) => m.id === job.options?.model) ? job.options.model
-                    : IMAGE_DEFAULT_MODEL_ID;
+            // Cinematic Studio if it carried a camera setup. It's its own model
+            // now, so a Studio reuse resolves to IMAGE_STUDIO_MODEL_ID even for
+            // pre-change jobs that were saved under 'nano-banana-pro'.
+            const studio = job.options?.imageStudio ?? !!job.cinematic;
+            const imgModel = studio ? IMAGE_STUDIO_MODEL_ID
+                : IMAGE_MODELS.some((m) => m.id === job.model) ? job.model
+                    : IMAGE_MODELS.some((m) => m.id === job.options?.model) ? job.options.model
+                        : IMAGE_DEFAULT_MODEL_ID;
             setOptions((cur) => ({
                 ...cur,
                 model: imgModel,
                 imageRatio: IMAGE_RATIOS.includes(job.options?.imageRatio) ? job.options.imageRatio : cur.imageRatio,
                 imageResolution: IMAGE_RESOLUTIONS.includes(job.options?.imageResolution) ? job.options.imageResolution : cur.imageResolution,
-                imageStudio: job.options?.imageStudio ?? !!job.cinematic, // Cinematic Studio if it carried a camera setup
+                imageStudio: studio,
             }));
             setPrompt(job.userPrompt || job.prompt || '');
             setCinematic(job.cinematic ? sanitizeSetup(job.cinematic) : null); // restore the camera setup so "Reuse this setup" re-enhances the same way
