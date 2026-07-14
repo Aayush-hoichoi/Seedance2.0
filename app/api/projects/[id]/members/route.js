@@ -5,38 +5,30 @@ import { writeAudit } from '../../../../../lib/gateway/db.js';
 
 export const runtime = 'nodejs';
 
-const ROLES = ['admin', 'manager', 'member', 'viewer'];
-
-// Add a member or change their role.
+// Add a member to the project. Roles are platform-level (Users console), NOT
+// per-project — this only records that the user belongs to the project. The
+// stored membership.role is always 'member' and is ignored by authz.
 export async function POST(request, { params }) {
     const { id } = await params;
     const auth = await gatewayContext({ projectId: Number(id), permission: 'member.manage' });
     if (!auth.ok) return auth.response;
-    const { sql, user, project, role } = auth.ctx;
+    const { sql, user, project } = auth.ctx;
     const body = await request.json().catch(() => null);
-    if (!body?.userId || (body.role && !ROLES.includes(body.role))) {
-        return apiError('BAD_REQUEST', `userId required; role must be one of ${ROLES.join(', ')}.`);
-    }
-    // Only admins/owners assign roles. Managers manage the roster but add plain
-    // members only — they can't mint managers/admins (prevents privilege
-    // escalation). The client hides the role picker for them; this is the gate.
-    const isAdmin = role === 'admin' || role === 'owner';
-    const requested = body.role || 'member';
-    if (!isAdmin && requested !== 'member') {
-        return apiError('FORBIDDEN', 'Managers can only add members; assigning roles is admin-only.');
-    }
-    const [before] = await sql`SELECT role FROM project_memberships WHERE project_id = ${project.id} AND user_id = ${body.userId}`;
+    if (!body?.userId) return apiError('BAD_REQUEST', 'userId is required.');
+
+    const [before] = await sql`SELECT 1 FROM project_memberships WHERE project_id = ${project.id} AND user_id = ${body.userId}`;
     const [row] = await sql`INSERT INTO project_memberships (project_id, user_id, role, added_by)
-        VALUES (${project.id}, ${body.userId}, ${body.role || 'member'}, ${user.userId})
-        ON CONFLICT (project_id, user_id) DO UPDATE SET role = EXCLUDED.role
+        VALUES (${project.id}, ${body.userId}, 'member', ${user.userId})
+        ON CONFLICT (project_id, user_id) DO NOTHING
         RETURNING *`;
-    await writeAudit(sql, {
-        actorId: user.userId, actorEmail: user.email,
-        action: before ? 'member.role_change' : 'member.add',
-        targetType: 'project_membership', targetId: `${project.id}:${body.userId}`,
-        before: before || null, after: { role: row.role }, ip: clientIp(request),
-    });
-    return NextResponse.json(row, { status: before ? 200 : 201 });
+    if (!before) {
+        await writeAudit(sql, {
+            actorId: user.userId, actorEmail: user.email, action: 'member.add',
+            targetType: 'project_membership', targetId: `${project.id}:${body.userId}`,
+            after: { added: true }, ip: clientIp(request),
+        });
+    }
+    return NextResponse.json(row ?? { ok: true, alreadyMember: true }, { status: before ? 200 : 201 });
 }
 
 export async function DELETE(request, { params }) {

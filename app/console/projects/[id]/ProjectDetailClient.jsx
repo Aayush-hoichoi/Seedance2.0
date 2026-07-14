@@ -59,7 +59,7 @@ export default function ProjectDetailClient({ projectId }) {
                 </Tabs.List>
 
                 <Tabs.Content value="members">
-                    <MembersTab projectId={projectId} members={members} allUsers={usersApi.data?.users || usersApi.data?.items || []} canManageRoles={isAdmin} onChange={refresh} />
+                    <MembersTab projectId={projectId} members={members} allUsers={usersApi.data?.users || usersApi.data?.items || []} onChange={refresh} />
                 </Tabs.Content>
                 {isAdmin && (
                     <Tabs.Content value="models">
@@ -107,26 +107,18 @@ export default function ProjectDetailClient({ projectId }) {
     );
 }
 
-function MembersTab({ projectId, members, allUsers, canManageRoles, onChange }) {
+function MembersTab({ projectId, members, allUsers, onChange }) {
     const [open, setOpen] = useState(false);
     const [userId, setUserId] = useState('');
-    const [role, setRole] = useState('member');
 
-    // Only admins/owners assign roles (canManageRoles). Managers add plain
-    // members only and never reach the role Selects below, so the full set is
-    // fine here — the server also rejects non-'member' roles from non-admins.
-    const assignable = ['admin', 'manager', 'member', 'viewer'];
-    const roleOptionsFor = (current) => (assignable.includes(current) ? assignable : [current, ...assignable]);
-
+    // Roles are platform-level (set on the Users console), NOT per-project. The
+    // Role column shows each member's platform role, read-only. Adding a member
+    // just records that they belong to this project; it never sets a role.
     async function add() {
-        const r = await sendJson(`/api/projects/${projectId}/members`, 'POST', { userId, role: canManageRoles ? role : 'member' });
+        const r = await sendJson(`/api/projects/${projectId}/members`, 'POST', { userId });
         if (!r.ok) return toast.error(r.data?.message || 'Failed');
-        toast.success('Member saved');
-        setOpen(false); onChange();
-    }
-    async function setMemberRole(uid, newRole) {
-        const r = await sendJson(`/api/projects/${projectId}/members`, 'POST', { userId: uid, role: newRole });
-        r.ok ? (toast.success('Role updated'), onChange()) : toast.error(r.data?.message || 'Failed');
+        toast.success('Member added');
+        setOpen(false); setUserId(''); onChange();
     }
     async function remove(uid) {
         const r = await sendJson(`/api/projects/${projectId}/members?userId=${encodeURIComponent(uid)}`, 'DELETE');
@@ -137,13 +129,8 @@ function MembersTab({ projectId, members, allUsers, canManageRoles, onChange }) 
     const columns = [
         { accessorKey: 'email', header: 'User', cell: ({ row }) => <span className="text-ink">{row.original.email || row.original.name || row.original.user_id}</span> },
         {
-            accessorKey: 'role', header: 'Role',
-            cell: ({ row }) => (canManageRoles
-                ? <Select value={row.original.role} onChange={(e) => setMemberRole(row.original.user_id, e.target.value)}>
-                    {roleOptionsFor(row.original.role).map((r) => <option key={r} value={r}>{r}</option>)}
-                  </Select>
-                : <span className="capitalize text-ink">{row.original.role}</span>
-            ),
+            accessorKey: 'platform_role', header: 'Role',
+            cell: ({ row }) => <span className="capitalize text-ink">{row.original.platform_role || 'member'}</span>,
         },
         { accessorKey: 'created_at', header: 'Added', cell: ({ getValue }) => <span className="font-mono text-ink-3">{fmtDate(getValue())}</span> },
         {
@@ -168,13 +155,6 @@ function MembersTab({ projectId, members, allUsers, canManageRoles, onChange }) 
                         {candidates.map((u) => <option key={u.id || u.user_id} value={u.id || u.user_id}>{u.email || u.name || u.id}</option>)}
                     </Select>
                 </Field>
-                {canManageRoles && (
-                    <Field label="Role">
-                        <Select className="w-full" value={role} onChange={(e) => setRole(e.target.value)}>
-                            {assignable.map((r) => <option key={r} value={r}>{r}</option>)}
-                        </Select>
-                    </Field>
-                )}
             </Modal>
         </div>
     );
