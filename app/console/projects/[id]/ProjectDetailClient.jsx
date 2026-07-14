@@ -24,6 +24,9 @@ export default function ProjectDetailClient({ projectId }) {
     if (detail.error) return <EmptyState title="Not available" hint={detail.error.message} />;
     const { project, role: viewerRole, members = [], grants = [], overrides = [] } = detail.data || {};
     if (!project) return null;
+    // Models (model.grant) and Overrides (override.manage) are admin-only actions —
+    // managers hold neither, so hide those tabs from them (their actions would 403).
+    const isAdmin = viewerRole === 'admin' || viewerRole === 'owner';
 
     const refresh = () => { detail.mutate(); models.mutate(); };
 
@@ -49,8 +52,8 @@ export default function ProjectDetailClient({ projectId }) {
             <Tabs.Root defaultValue="members">
                 <Tabs.List className="mb-4 flex gap-1 border-b border-line pb-2">
                     <Tabs.Trigger value="members" className={TAB}>Members</Tabs.Trigger>
-                    <Tabs.Trigger value="models" className={TAB}>Models</Tabs.Trigger>
-                    <Tabs.Trigger value="overrides" className={TAB}>Overrides</Tabs.Trigger>
+                    {isAdmin && <Tabs.Trigger value="models" className={TAB}>Models</Tabs.Trigger>}
+                    {isAdmin && <Tabs.Trigger value="overrides" className={TAB}>Overrides</Tabs.Trigger>}
                     <Tabs.Trigger value="budget" className={TAB}>Budget</Tabs.Trigger>
                     <Tabs.Trigger value="usage" className={TAB}>Usage</Tabs.Trigger>
                 </Tabs.List>
@@ -58,12 +61,16 @@ export default function ProjectDetailClient({ projectId }) {
                 <Tabs.Content value="members">
                     <MembersTab projectId={projectId} members={members} allUsers={usersApi.data?.users || usersApi.data?.items || []} canAssignAdmin={viewerRole === 'admin'} onChange={refresh} />
                 </Tabs.Content>
-                <Tabs.Content value="models">
-                    <ModelsTab projectId={projectId} grants={grants} catalog={models.data?.items ?? []} onChange={refresh} />
-                </Tabs.Content>
-                <Tabs.Content value="overrides">
-                    <OverridesTab projectId={projectId} overrides={overrides} members={members} catalog={models.data?.items ?? []} onChange={refresh} />
-                </Tabs.Content>
+                {isAdmin && (
+                    <Tabs.Content value="models">
+                        <ModelsTab projectId={projectId} grants={grants} catalog={models.data?.items ?? []} onChange={refresh} />
+                    </Tabs.Content>
+                )}
+                {isAdmin && (
+                    <Tabs.Content value="overrides">
+                        <OverridesTab projectId={projectId} overrides={overrides} members={members} catalog={models.data?.items ?? []} onChange={refresh} />
+                    </Tabs.Content>
+                )}
                 <Tabs.Content value="budget">
                     <div className="grid gap-3 lg:grid-cols-2">
                         {projectQuotas.length ? projectQuotas.map((q) => (
