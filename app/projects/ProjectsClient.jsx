@@ -98,8 +98,6 @@ export default function ProjectsClient() {
         }
     }
 
-    const roleLabel = (p) => p.my_role || (isAdmin ? 'admin' : canManage ? 'manager' : 'member');
-
     return (
         <div className="min-h-screen w-full bg-app-bg text-ink">
             <div className="mx-auto max-w-5xl px-5 py-10 sm:px-6 sm:py-14">
@@ -175,7 +173,6 @@ export default function ProjectsClient() {
                             <tr className="border-b border-line text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-3">
                                 <th className="px-4 py-3">Project</th>
                                 <th className="px-4 py-3">Members</th>
-                                <th className="px-4 py-3">Role</th>
                                 <th className="px-4 py-3">Status</th>
                                 <th className="px-4 py-3">Created</th>
                                 <th className="px-4 py-3 text-right">Spent</th>
@@ -185,7 +182,7 @@ export default function ProjectsClient() {
                         <tbody>
                             {data && !items.length && (
                                 <tr>
-                                    <td colSpan={canManage ? 7 : 6} className="px-4 py-16 text-center">
+                                    <td colSpan={canManage ? 6 : 5} className="px-4 py-16 text-center">
                                         <FolderKanban size={26} className="mx-auto text-ink-3" strokeWidth={1.5} />
                                         <p className="mt-3 font-display text-lg text-ink">
                                             {canManage ? 'No projects yet' : 'You’re not in any project yet'}
@@ -197,7 +194,7 @@ export default function ProjectsClient() {
                                 </tr>
                             )}
                             {!data && !error && (
-                                <tr><td colSpan={canManage ? 7 : 6} className="px-4 py-16 text-center text-sm text-ink-3">Loading projects…</td></tr>
+                                <tr><td colSpan={canManage ? 6 : 5} className="px-4 py-16 text-center text-sm text-ink-3">Loading projects…</td></tr>
                             )}
                             {items.map((p) => (
                                 <tr
@@ -214,11 +211,6 @@ export default function ProjectsClient() {
                                     </td>
                                     <td className="px-4 py-3.5 text-ink-2">
                                         <span className="inline-flex items-center gap-1.5"><Users size={13} className="text-ink-3" /> {p.member_count ?? 0}</span>
-                                    </td>
-                                    <td className="px-4 py-3.5">
-                                        <span className="rounded-md border border-accent/25 bg-accent/10 px-1.5 py-0.5 text-[11px] font-semibold text-accent-hi">
-                                            {roleLabel(p)}
-                                        </span>
                                     </td>
                                     <td className="px-4 py-3.5"><StatusPill paused={p.paused} /></td>
                                     <td className="px-4 py-3.5 font-mono text-xs text-ink-3">{formatDate(p.created_at)}</td>

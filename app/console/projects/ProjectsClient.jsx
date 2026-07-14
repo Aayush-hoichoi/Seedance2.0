@@ -51,11 +51,6 @@ export default function ProjectsClient() {
             ),
         },
         {
-            accessorKey: 'my_role',
-            header: 'Your role',
-            cell: ({ getValue }) => (getValue() ? <Badge tone="violet">{getValue()}</Badge> : <span className="text-ink-3">—</span>),
-        },
-        {
             accessorKey: 'spent_usd',
             header: 'Spent',
             cell: ({ getValue }) => <span className="font-mono tabular-nums text-ink">${Number(getValue() ?? 0).toFixed(2)}</span>,
