@@ -194,7 +194,7 @@ export async function POST(request, { params }) {
         const usage = await usageForQuotas(gw.sql, quotas);
         const verdict = evaluateQuotas({
             quotas, projectId: gw.project.id, userId: user.userId, now: new Date(),
-            estimate: { usd: estUsd ?? 0, video_seconds: parsed?.duration || 5, requests: 1 }, ...usage,
+            estimate: { usd: estUsd ?? 0, video_seconds: parsed?.duration > 0 ? parsed.duration : 5, requests: 1 }, ...usage,
         });
         if (!verdict.ok) {
             const v = verdict.violations[0];
@@ -240,7 +240,7 @@ export async function POST(request, { params }) {
         await insertBillingEvent(gw.sql, {
             eventType: 'reservation', generationId: job.id, orgId: gw.org.id, projectId: gw.project.id,
             userId: user.userId, modelId: gw.alias, modelVersionId: gw.versionId, providerId: 'byteplus',
-            units: { video_seconds: parsed?.duration || 5 }, estCostUsd: estUsd, pricingSnapshot: { basis: 'estimate' },
+            units: { video_seconds: parsed?.duration > 0 ? parsed.duration : 5 }, estCostUsd: estUsd, pricingSnapshot: { basis: 'estimate' },
         });
     }
 

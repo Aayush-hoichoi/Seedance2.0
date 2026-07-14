@@ -33,7 +33,7 @@ function estimateFor({ category, kind, mode, options = {} }) {
         return { usd: imageCost(kind, mode, n) ?? 0, images: n, video_seconds: 0, requests: 1 };
     }
     const usd = estimateCost({ kind, resolution: options.resolution, duration: options.duration, hasVideoInput: !!options.has_video_input }) ?? 0;
-    return { usd, images: 0, video_seconds: options.duration || 5, requests: 1 };
+    return { usd, images: 0, video_seconds: options.duration > 0 ? options.duration : 5, requests: 1 };
 }
 
 export async function POST(request) {
