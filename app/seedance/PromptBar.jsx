@@ -371,15 +371,22 @@ export default function PromptBar({
     // The image picker has three entries: the two real models plus Cinematic
     // Studio (Nano Banana Pro under the hood). Studio's picker value is distinct
     // so it can be the active choice even though the model sent is Pro.
-    // Nano Banana Pro is gated; Cinematic Studio runs Pro internally, so it locks
-    // on the same grant. A locked pick sends an access request instead of a 403.
-    const proLocked = !!imageModels.find((m) => m.id === 'nano-banana-pro')?.gated
-        && allowedModelIds && !allowedModelIds.includes('nano-banana-pro');
-    const lockLabel = (name) => (proLocked ? `${name} 🔒 (request access)` : name);
+    // Per-model gating: a gated image model the user hasn't been granted shows a
+    // 🔒 request pill. Cinematic Studio runs Nano Banana Pro, so it locks on Pro.
+    const imgLocked = (id) => {
+        const m = imageModels.find((x) => x.id === id);
+        return !!m?.gated && allowedModelIds && !allowedModelIds.includes(id);
+    };
+    const proLocked = imgLocked('nano-banana-pro');
+    const lockName = (id, fallback) => {
+        const name = imageModels.find((m) => m.id === id)?.name || fallback;
+        return imgLocked(id) ? `${name} 🔒 (request access)` : name;
+    };
     const imageModeOptions = [
-        { value: 'nano-banana-pro', label: lockLabel(imageModels.find((m) => m.id === 'nano-banana-pro')?.name || 'Nano Banana Pro') },
-        { value: 'nano-banana-2', label: imageModels.find((m) => m.id === 'nano-banana-2')?.name || 'Nano Banana 2' },
-        { value: IMAGE_STUDIO_ID, label: lockLabel('Cinematic Studio') },
+        { value: 'nano-banana-pro', label: lockName('nano-banana-pro', 'Nano Banana Pro') },
+        { value: 'nano-banana-2', label: lockName('nano-banana-2', 'Nano Banana 2') },
+        { value: 'seedream-5.0-pro', label: lockName('seedream-5.0-pro', 'Seedream 5.0 Pro') },
+        { value: IMAGE_STUDIO_ID, label: proLocked ? 'Cinematic Studio 🔒 (request access)' : 'Cinematic Studio' },
     ];
     const imageModeValue = imageStudio ? IMAGE_STUDIO_ID : options.model;
     const imageModeLabel = imageStudio ? 'Cinematic Studio' : (selectedImageModel?.name || 'Model');
@@ -615,8 +622,10 @@ export default function PromptBar({
                             display={imageModeLabel} label="Image model" value={imageModeValue}
                             options={imageModeOptions}
                             onSelect={(v) => {
-                                // Locked Pro / Cinematic Studio → request Pro access, don't switch.
-                                if (proLocked && (v === 'nano-banana-pro' || v === IMAGE_STUDIO_ID)) { requestModelAccess('nano-banana-pro'); return; }
+                                // A locked pick sends an access request instead of switching to a
+                                // model that would 403. Cinematic Studio requests Pro (its engine).
+                                if (v === IMAGE_STUDIO_ID) { if (proLocked) { requestModelAccess('nano-banana-pro'); return; } }
+                                else if (imgLocked(v)) { requestModelAccess(v); return; }
                                 onChangeImageModel?.(v);
                             }}
                         />
