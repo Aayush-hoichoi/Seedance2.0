@@ -1,7 +1,8 @@
 'use client';
 
+import toast from 'react-hot-toast';
 import { PageHeader, Card, Badge, DataTable, EmptyState } from '../ui.jsx';
-import { useApi, fmtUsd, monthStartIso } from '../lib.js';
+import { useApi, sendJson, fmtUsd, monthStartIso } from '../lib.js';
 import { Boxes } from 'lucide-react';
 
 // Catalog view: alias → current version → provider routes, with month spend.
@@ -10,16 +11,43 @@ export default function ModelsClient() {
     const firstProject = projects.data?.items?.[0]?.id;
     const catalog = useApi(firstProject ? `/api/models?projectId=${firstProject}` : null);
     const spend = useApi(`/api/orgs/usage?group_by=model&from=${monthStartIso()}`);
+    const isAdmin = projects.data?.role === 'admin'; // only admins toggle org defaults
 
     const spendBy = Object.fromEntries((spend.data?.items ?? []).map((r) => [r.key, r.cost_usd]));
     const items = (catalog.data?.items ?? []).map((m) => ({ ...m, month_spend: Number(spendBy[m.id] || 0) }));
+
+    async function toggleDefault(m) {
+        const next = !m.isDefault;
+        const r = await sendJson(`/api/admin/models/${m.id}`, 'PATCH', { isDefault: next });
+        if (!r.ok) return toast.error(r.data?.message || 'Could not update');
+        toast.success(next ? `${m.displayName} is now an org default` : `${m.displayName} removed from defaults`);
+        catalog.mutate();
+    }
 
     const columns = [
         { accessorKey: 'displayName', header: 'Model', cell: ({ row }) => <span className="font-medium text-ink">{row.original.displayName}</span> },
         { accessorKey: 'id', header: 'Alias', cell: ({ getValue }) => <code className="rounded bg-paper-3 px-1.5 py-0.5 font-mono text-xs text-ink-2">{getValue()}</code> },
         { accessorKey: 'category', header: 'Category', cell: ({ getValue }) => <Badge tone={getValue() === 'video' ? 'violet' : 'blue'}>{getValue()}</Badge> },
         { accessorKey: 'kind', header: 'Pricing kind', cell: ({ getValue }) => <span className="text-ink-2">{getValue()}</span> },
-        { accessorKey: 'isDefault', header: 'Org default', cell: ({ getValue }) => (getValue() ? <Badge tone="green">default</Badge> : <span className="text-ink-3">—</span>) },
+        {
+            accessorKey: 'isDefault', header: 'Org default',
+            cell: ({ row }) => {
+                const m = row.original;
+                if (!isAdmin) return m.isDefault ? <Badge tone="green">default</Badge> : <span className="text-ink-3">—</span>;
+                return (
+                    <button
+                        type="button"
+                        onClick={() => toggleDefault(m)}
+                        title={m.isDefault ? 'Remove from org defaults' : 'Make an org default'}
+                        className="group inline-flex items-center"
+                    >
+                        {m.isDefault
+                            ? <Badge tone="green">default ✕</Badge>
+                            : <span className="rounded-md border border-line px-2 py-0.5 text-xs font-medium text-ink-3 transition-colors group-hover:border-accent group-hover:text-accent-hi">+ Set default</span>}
+                    </button>
+                );
+            },
+        },
         { accessorKey: 'month_spend', header: 'Spend (month)', cell: ({ getValue }) => <span className="font-mono tabular-nums">{fmtUsd(getValue())}</span> },
     ];
 
