@@ -780,8 +780,10 @@ export default function SeedanceStudio() {
         const request = refs.length
             ? { prompt: promptText, parts: [{ text: promptText }, ...refs.map((r) => ({ inlineData: { mimeType: r.mimeType, data: r.b64 } }))] }
             : { prompt: promptText };
-        // Gemini imageConfig: aspect ratio on both models; resolution only for
-        // models that declare it (Nano Banana Pro) — Banana 2 has a fixed size.
+        // Gemini imageConfig: aspect ratio + resolution (imageSize) go on every
+        // image model. Pro honours 2K/4K fully; Banana 2 accepts the field but
+        // Google may cap it near 1K — still sent so the choice is respected where
+        // supported. `resolutions` gates it defensively for any future fixed model.
         const imgModelDef = IMAGE_MODELS.find((m) => m.id === options.model);
         try {
             const res = await fetch('/api/generations', {
