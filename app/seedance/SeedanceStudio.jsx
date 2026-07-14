@@ -160,8 +160,15 @@ export default function SeedanceStudio() {
             .then((r) => (r.ok ? r.json() : null))
             .then((d) => {
                 if (!alive || !Array.isArray(d?.items)) return;
-                const allowedKinds = new Set(d.items.filter((m) => m.allowed).map((m) => m.kind));
-                setAllowedModelIds(MODELS.filter((m) => allowedKinds.has(m.kind)).map((m) => m.id));
+                // Video picker keys by provider tag (MODELS[].id), so bridge via
+                // kind; image picker keys by the alias, which IS the item id — so
+                // add allowed image ids directly. Both must be present or the
+                // image picker can't tell Nano Banana Pro is unlocked.
+                const allowed = d.items.filter((m) => m.allowed);
+                const allowedKinds = new Set(allowed.map((m) => m.kind));
+                const videoIds = MODELS.filter((m) => allowedKinds.has(m.kind)).map((m) => m.id);
+                const imageIds = allowed.filter((m) => m.category === 'image').map((m) => m.id);
+                setAllowedModelIds([...videoIds, ...imageIds]);
             })
             .catch(() => {});
         return () => { alive = false; };

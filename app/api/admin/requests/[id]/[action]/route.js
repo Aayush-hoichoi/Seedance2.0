@@ -15,9 +15,13 @@ export const runtime = 'nodejs';
 async function syncGatewayOverride({ action, row, admin }) {
     const sql = await getDb();
     if (!sql) return;
-    // Requests store the provider tag; the gateway keys access by model alias.
-    const [version] = await sql`SELECT model_id FROM model_versions WHERE version_tag = ${row.model_id} LIMIT 1`;
-    if (!version) return; // catalog not migrated yet
+    // Requests store either the model alias (image models: nano-banana-*) or the
+    // provider version tag (video models); the gateway keys access by alias, so
+    // resolve both forms to the alias.
+    const [version] = await sql`SELECT m.id AS model_id FROM models m
+        LEFT JOIN model_versions v ON v.model_id = m.id
+        WHERE m.id = ${row.model_id} OR v.version_tag = ${row.model_id} LIMIT 1`;
+    if (!version) return; // catalog not migrated yet / unknown model
     // The requester's project — prefer the org's Default project.
     const [project] = await sql`SELECT p.id, p.org_id FROM projects p
         JOIN project_memberships m ON m.project_id = p.id AND m.user_id = ${row.user_id}

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getUser } from '../../../../lib/auth/user.js';
 import { requestAccess } from '../../../../lib/access/db.js';
-import { GATED_MODEL_IDS } from '../../../../lib/seedance/constants.js';
+import { GATED_MODEL_IDS, IMAGE_GATED_MODEL_IDS } from '../../../../lib/seedance/constants.js';
 
 export const runtime = 'nodejs';
 
@@ -11,7 +11,7 @@ export async function POST(request) {
     let body;
     try { body = await request.json(); } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }); }
     const { modelId, note } = body || {};
-    if (!GATED_MODEL_IDS.includes(modelId)) {
+    if (!GATED_MODEL_IDS.includes(modelId) && !IMAGE_GATED_MODEL_IDS.includes(modelId)) {
         return NextResponse.json({ error: 'That model does not require a request.' }, { status: 400 });
     }
     if (!user.email) return NextResponse.json({ error: 'No email on your account.' }, { status: 400 });

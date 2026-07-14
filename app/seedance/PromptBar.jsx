@@ -371,13 +371,33 @@ export default function PromptBar({
     // The image picker has three entries: the two real models plus Cinematic
     // Studio (Nano Banana Pro under the hood). Studio's picker value is distinct
     // so it can be the active choice even though the model sent is Pro.
+    // Nano Banana Pro is gated; Cinematic Studio runs Pro internally, so it locks
+    // on the same grant. A locked pick sends an access request instead of a 403.
+    const proLocked = !!imageModels.find((m) => m.id === 'nano-banana-pro')?.gated
+        && allowedModelIds && !allowedModelIds.includes('nano-banana-pro');
+    const lockLabel = (name) => (proLocked ? `${name} 🔒 (request access)` : name);
     const imageModeOptions = [
-        { value: 'nano-banana-pro', label: imageModels.find((m) => m.id === 'nano-banana-pro')?.name || 'Nano Banana Pro' },
+        { value: 'nano-banana-pro', label: lockLabel(imageModels.find((m) => m.id === 'nano-banana-pro')?.name || 'Nano Banana Pro') },
         { value: 'nano-banana-2', label: imageModels.find((m) => m.id === 'nano-banana-2')?.name || 'Nano Banana 2' },
-        { value: IMAGE_STUDIO_ID, label: 'Cinematic Studio' },
+        { value: IMAGE_STUDIO_ID, label: lockLabel('Cinematic Studio') },
     ];
     const imageModeValue = imageStudio ? IMAGE_STUDIO_ID : options.model;
     const imageModeLabel = imageStudio ? 'Cinematic Studio' : (selectedImageModel?.name || 'Model');
+    // Fire an access request for a locked model (shared by the image picker).
+    const requestModelAccess = (modelId) => {
+        fetch('/api/access/request', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ modelId }),
+        })
+            .then(async (r) => {
+                const d = await r.json().catch(() => null);
+                if (!r.ok) { setNotice?.(d?.error || 'Could not send the access request — try again.'); return; }
+                setNotice?.(d?.status === 'approved'
+                    ? 'You already have access — reload the page to unlock this model.'
+                    : 'Access requested — pending admin approval.');
+            })
+            .catch(() => setNotice?.('Could not send the access request — check your connection.'));
+    };
     const [openKey, setOpenKey] = useState(null);
     const [mention, setMention] = useState(null); // { start, query } while typing "@…"
     const [mentionIdx, setMentionIdx] = useState(0); // keyboard-highlighted menu row
@@ -594,7 +614,11 @@ export default function PromptBar({
                                 : <span className="w-4 h-4 bg-primary rounded flex items-center justify-center"><span className="text-[9px] font-bold text-black">N</span></span>}
                             display={imageModeLabel} label="Image model" value={imageModeValue}
                             options={imageModeOptions}
-                            onSelect={(v) => onChangeImageModel?.(v)}
+                            onSelect={(v) => {
+                                // Locked Pro / Cinematic Studio → request Pro access, don't switch.
+                                if (proLocked && (v === 'nano-banana-pro' || v === IMAGE_STUDIO_ID)) { requestModelAccess('nano-banana-pro'); return; }
+                                onChangeImageModel?.(v);
+                            }}
                         />
                         {imageStudio && (
                             <button
