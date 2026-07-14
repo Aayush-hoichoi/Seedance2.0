@@ -20,7 +20,9 @@ export async function GET(request, { params }) {
           AND (valid_until IS NULL OR valid_until > now())`;
     const overrides = await sql`SELECT o.*, u.email FROM user_model_overrides o
         LEFT JOIN users u ON u.id = o.user_id
-        WHERE o.project_id = ${project.id} AND o.revoked_at IS NULL ORDER BY o.created_at DESC`;
+        WHERE o.project_id = ${project.id} AND o.revoked_at IS NULL
+          AND (o.valid_until IS NULL OR o.valid_until > now())
+        ORDER BY o.created_at DESC`;
     // `role` is the caller's effective role on this project — the client uses it
     // to hide the 'admin' option unless the caller can actually grant it.
     return NextResponse.json({ project, role, members, grants, overrides });
