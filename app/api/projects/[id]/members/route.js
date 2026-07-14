@@ -17,10 +17,13 @@ export async function POST(request, { params }) {
     if (!body?.userId || (body.role && !ROLES.includes(body.role))) {
         return apiError('BAD_REQUEST', `userId required; role must be one of ${ROLES.join(', ')}.`);
     }
-    // Managers manage members but can't mint admins — only a project/platform
-    // admin may grant the 'admin' role (prevents privilege escalation).
-    if (body.role === 'admin' && role !== 'admin') {
-        return apiError('FORBIDDEN', 'Only an admin can grant the admin role.');
+    // Only admins/owners assign roles. Managers manage the roster but add plain
+    // members only — they can't mint managers/admins (prevents privilege
+    // escalation). The client hides the role picker for them; this is the gate.
+    const isAdmin = role === 'admin' || role === 'owner';
+    const requested = body.role || 'member';
+    if (!isAdmin && requested !== 'member') {
+        return apiError('FORBIDDEN', 'Managers can only add members; assigning roles is admin-only.');
     }
     const [before] = await sql`SELECT role FROM project_memberships WHERE project_id = ${project.id} AND user_id = ${body.userId}`;
     const [row] = await sql`INSERT INTO project_memberships (project_id, user_id, role, added_by)

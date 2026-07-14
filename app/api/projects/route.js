@@ -5,7 +5,7 @@ import { writeAudit } from '../../../lib/gateway/db.js';
 
 export const runtime = 'nodejs';
 
-// Project list. Platform admins and org managers see EVERY project; plain
+// Project list. Platform admins and workspace managers see EVERY project; plain
 // members/viewers see only the projects they belong to.
 export async function GET() {
     const auth = await gatewayContext({});
