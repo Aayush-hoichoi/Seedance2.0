@@ -1,8 +1,8 @@
 import SeedanceStudio from './SeedanceStudio.jsx';
 
 export const metadata = {
-    title: 'loglineAI Studio — BytePlus ModelArk',
-    description: 'Generate video with Seedance 2.0 via your BytePlus ModelArk key.',
+    title: 'loglineAI Studio',
+    description: 'Generate cinematic AI video, images, and more with loglineAI Studio.',
 };
 
 export default function SeedancePage() {

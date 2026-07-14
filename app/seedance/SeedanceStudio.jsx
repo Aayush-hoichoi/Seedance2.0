@@ -910,7 +910,7 @@ export default function SeedanceStudio() {
         let resolvedItems = mediaItems;
         if (mediaItems.some((m) => m.kind === 'video' && !String(m.url).startsWith('asset://'))) {
             setEnhancing(true);
-            setNotice('Verifying source video with BytePlus (takes ~30s)…');
+            setNotice('Verifying source video (takes ~30s)…');
             try {
                 resolvedItems = await resolveVideoRefs(mediaItems, (a) => registerAssetFromUrl({ ...a, project: activeProject }));
             } catch (e) {
@@ -1169,8 +1169,8 @@ export default function SeedanceStudio() {
             {/* Compact top bar for mobile — the sidebar is desktop-only. */}
             <div className="fixed inset-x-3 top-3 z-40 flex items-center justify-between gap-2 sm:hidden">
                 <button type="button" onClick={() => setSelectedId(null)} title="Home" className="flex items-center gap-1.5 rounded-md border border-line bg-paper-2 px-2.5 py-1.5 text-xs font-semibold text-ink-2">
-                    <span className="grid h-4 w-4 place-items-center rounded bg-accent font-display text-[10px] font-bold text-accent-ink">S</span>
-                    Seedance{activeCount > 0 && <span className="ml-0.5 text-accent-hi">· {activeCount}</span>}
+                    <span className="grid h-4 w-4 place-items-center rounded bg-accent font-display text-[10px] font-bold text-accent-ink">L</span>
+                    LoglineAI{activeCount > 0 && <span className="ml-0.5 text-accent-hi">· {activeCount}</span>}
                 </button>
                 <div className="flex items-center gap-2">
                     {projects.length > 0 && <ProjectSelect projects={projects} value={projectId} onChange={selectProject} />}
@@ -1740,7 +1740,7 @@ function Hero() {
             <IconTile />
             <h1 className="text-3xl sm:text-5xl md:text-6xl font-extrabold font-display text-white tracking-tight mb-4 text-center px-4 leading-[1.05]">
                 <span className="text-white/40 font-medium">START CREATING WITH</span><br />
-                <span className="text-white">SEEDANCE 2.0</span>
+                <span className="text-white">LOGLINEAI STUDIO</span>
             </h1>
             <p className="text-white/40 text-sm md:text-base font-medium tracking-wide text-center max-w-lg leading-relaxed">
                 Turn text, images, or references into cinematic AI video — governed, budgeted, and shared with your team.

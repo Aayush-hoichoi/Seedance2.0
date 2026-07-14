@@ -41,7 +41,7 @@ export default function StudioSidebar({
                     <div className="min-w-0">
                         <div className="truncate font-display text-sm font-semibold text-ink">loglineAI Studio</div>
                         <div className="truncate text-[10px] text-ink-3">
-                            {activeCount > 0 ? <span className="text-accent-hi">{activeCount} rendering…</span> : 'BytePlus ModelArk'}
+                            {activeCount > 0 ? <span className="text-accent-hi">{activeCount} rendering…</span> : 'Cinematic AI video'}
                         </div>
                     </div>
                 )}
