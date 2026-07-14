@@ -13,7 +13,11 @@ export async function GET(request, { params }) {
     const { sql, project, role } = auth.ctx;
     const members = await sql`SELECT m.*, u.email, u.name FROM project_memberships m
         LEFT JOIN users u ON u.id = m.user_id WHERE m.project_id = ${project.id} ORDER BY m.created_at`;
-    const grants = await sql`SELECT * FROM project_model_grants WHERE project_id = ${project.id} AND revoked_at IS NULL`;
+    // Only grants actually in effect — an expired grant (valid_until in the
+    // past) no longer grants access, so it must not show as an active grant.
+    const grants = await sql`SELECT * FROM project_model_grants
+        WHERE project_id = ${project.id} AND revoked_at IS NULL
+          AND (valid_until IS NULL OR valid_until > now())`;
     const overrides = await sql`SELECT o.*, u.email FROM user_model_overrides o
         LEFT JOIN users u ON u.id = o.user_id
         WHERE o.project_id = ${project.id} AND o.revoked_at IS NULL ORDER BY o.created_at DESC`;
