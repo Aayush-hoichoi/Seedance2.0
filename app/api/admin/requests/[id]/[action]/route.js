@@ -12,7 +12,7 @@ export const runtime = 'nodejs';
 // changed a status row but granted nothing. Same rows scripts/migrate-gateway.mjs
 // and the project overrides API write. Best-effort: a pre-migration DB (no
 // gateway tables) just keeps the legacy behavior.
-async function syncGatewayOverride({ action, row, admin }) {
+async function syncGatewayOverride({ action, row, admin, validUntil }) {
     const sql = await getDb();
     if (!sql) return;
     // Requests store either the model alias (image models: nano-banana-*) or the
@@ -31,14 +31,14 @@ async function syncGatewayOverride({ action, row, admin }) {
 
     if (action === 'approve') {
         const [override] = await sql`INSERT INTO user_model_overrides
-            (project_id, user_id, model_id, effect, created_by, revoked_at)
-            VALUES (${project.id}, ${row.user_id}, ${version.model_id}, 'allow', ${admin.userId}, NULL)
+            (project_id, user_id, model_id, effect, valid_until, created_by, revoked_at)
+            VALUES (${project.id}, ${row.user_id}, ${version.model_id}, 'allow', ${validUntil ?? null}, ${admin.userId}, NULL)
             ON CONFLICT (project_id, user_id, model_id)
-            DO UPDATE SET effect = 'allow', revoked_at = NULL, created_by = EXCLUDED.created_by
+            DO UPDATE SET effect = 'allow', revoked_at = NULL, valid_until = EXCLUDED.valid_until, created_by = EXCLUDED.created_by
             RETURNING id`;
         await emitEvent(sql, {
             projectId: project.id, userId: row.user_id,
-            type: 'access.granted', payload: { modelId: version.model_id, scope: 'user', effect: 'allow', via: 'access_request' },
+            type: 'access.granted', payload: { modelId: version.model_id, scope: 'user', effect: 'allow', validUntil: validUntil ?? null, via: 'access_request' },
         });
         await writeAudit(sql, {
             actorId: admin.userId, actorEmail: admin.email, action: 'override.allow',
@@ -64,7 +64,7 @@ async function syncGatewayOverride({ action, row, admin }) {
     });
 }
 
-export async function POST(_request, { params }) {
+export async function POST(request, { params }) {
     const admin = await getUser();
     if (!admin || admin.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     const { id, action } = await params;
@@ -75,10 +75,20 @@ export async function POST(_request, { params }) {
     if (!Number.isInteger(requestId) || requestId <= 0) {
         return NextResponse.json({ error: 'Invalid request id' }, { status: 400 });
     }
-    const row = await setRequestStatus(requestId, nextStatus(action), admin.email);
+    // Approving requires a future expiry — the grant is time-boxed.
+    let validUntil = null;
+    if (action === 'approve') {
+        const body = await request.json().catch(() => null);
+        validUntil = body?.validUntil ?? null;
+        const at = validUntil ? Date.parse(validUntil) : NaN;
+        if (!validUntil || Number.isNaN(at) || at <= Date.now()) {
+            return NextResponse.json({ error: 'A future expiry time (validUntil) is required to approve.' }, { status: 400 });
+        }
+    }
+    const row = await setRequestStatus(requestId, nextStatus(action), admin.email, validUntil);
     if (!row) return NextResponse.json({ error: 'Request not found' }, { status: 404 });
     try {
-        await syncGatewayOverride({ action, row, admin });
+        await syncGatewayOverride({ action, row, admin, validUntil });
     } catch (err) {
         console.error('[access] gateway override sync failed:', err.message); // legacy status is already saved
     }
