@@ -128,10 +128,6 @@ function MembersTab({ projectId, members, allUsers, onChange }) {
     const candidates = allUsers.filter((u) => !members.some((m) => m.user_id === (u.id || u.user_id)));
     const columns = [
         { accessorKey: 'email', header: 'User', cell: ({ row }) => <span className="text-ink">{row.original.email || row.original.name || row.original.user_id}</span> },
-        {
-            accessorKey: 'platform_role', header: 'Role',
-            cell: ({ row }) => <span className="capitalize text-ink">{row.original.platform_role || 'member'}</span>,
-        },
         { accessorKey: 'created_at', header: 'Added', cell: ({ getValue }) => <span className="font-mono text-ink-3">{fmtDate(getValue())}</span> },
         {
             id: 'actions', header: '', enableSorting: false,

@@ -11,11 +11,9 @@ export async function GET(request, { params }) {
     const auth = await gatewayContext({ projectId: Number(id) });
     if (!auth.ok) return auth.response;
     const { sql, project, role } = auth.ctx;
-    // Role shown is the member's PLATFORM role (users.role), not the vestigial
-    // per-project membership.role — a user is a manager/admin everywhere or a
-    // plain member, set on the Users console.
-    const members = await sql`SELECT m.project_id, m.user_id, m.created_at, u.email, u.name,
-            COALESCE(u.role, 'member') AS platform_role
+    // Membership only records who belongs to the project. Roles are platform-
+    // level (Users console), not per-project, so they aren't listed here.
+    const members = await sql`SELECT m.project_id, m.user_id, m.created_at, u.email, u.name
         FROM project_memberships m
         LEFT JOIN users u ON u.id = m.user_id WHERE m.project_id = ${project.id} ORDER BY m.created_at`;
     // Only grants actually in effect — an expired grant (valid_until in the
