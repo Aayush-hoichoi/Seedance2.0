@@ -16,7 +16,16 @@ export default function RootLayout({ children }) {
   return (
     <ClerkProvider afterSignOutUrl="/sign-in">
       <html lang="en">
-        <body className={`${display.variable} ${body.variable} ${mono.variable}`}>{children}</body>
+        <body className={`${display.variable} ${body.variable} ${mono.variable}`}>
+          {/* Apply the saved accent theme before first paint (no flash of the
+              default violet). Mirrors lib/theme/themeClient.js applyThemeVars. */}
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `try{var t=JSON.parse(localStorage.getItem('seedance:theme'));if(t&&t.accent){var s=document.documentElement.style;s.setProperty('--accent',t.accent);s.setProperty('--accent-hi',t.accentHi);s.setProperty('--accent-ink',t.accentInk);}}catch(e){}`,
+            }}
+          />
+          {children}
+        </body>
       </html>
     </ClerkProvider>
   );

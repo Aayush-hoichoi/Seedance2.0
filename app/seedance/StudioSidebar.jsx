@@ -11,6 +11,7 @@ import {
     PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import ProjectSelect from './ProjectSelect.jsx';
+import ThemePicker from './ThemePicker.jsx';
 
 function Item({ icon: Icon, label, href, onClick, badge, tone, collapsed }) {
     const cls = `relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors ${tone === 'warn'
@@ -61,6 +62,7 @@ export default function StudioSidebar({
             </nav>
 
             <div className="space-y-1 border-t border-line p-2">
+                <ThemePicker collapsed={collapsed} />
                 {monthSpend != null && !collapsed && (
                     <div className="px-1.5 py-1" title="What your generations cost this calendar month">
                         <div className="text-[10px] uppercase tracking-wider text-ink-3">This month</div>
