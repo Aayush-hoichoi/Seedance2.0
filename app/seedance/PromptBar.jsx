@@ -5,7 +5,7 @@
 // control pills + a cyan Generate button below. Wired to the Seedance modes/options.
 
 import { Fragment, useEffect, useRef, useState } from 'react';
-import { MODES, RATIOS, IMAGE_RATIOS } from '../../lib/seedance/constants.js';
+import { MODES, RATIOS, IMAGE_RATIOS, IMAGE_STUDIO_ID } from '../../lib/seedance/constants.js';
 import { estimateCost } from '../../lib/seedance/pricing.mjs';
 import { imageCost } from '../../lib/gateway/imagePricing.mjs';
 import { summarize as summarizeCinematic } from '../../lib/seedance/cinematic.mjs';
@@ -362,11 +362,22 @@ export default function PromptBar({
     error, notice, setNotice, onGenerate, enhancing = false, batch = 1, setBatch,
     onMediaError, onUploadFiles, tags, sidebarLeft = '',
     mediaType = 'video', onChangeMediaType, imageModels = [],
+    imageStudio = false, onChangeImageModel,
     imageRefs = [], onUploadImageRefs, removeImageRef,
     cinematic = null, onOpenCinematic,
 }) {
     const isImage = mediaType === 'image';
     const selectedImageModel = imageModels.find((m) => m.id === options.model);
+    // The image picker has three entries: the two real models plus Cinematic
+    // Studio (Nano Banana Pro under the hood). Studio's picker value is distinct
+    // so it can be the active choice even though the model sent is Pro.
+    const imageModeOptions = [
+        { value: 'nano-banana-pro', label: imageModels.find((m) => m.id === 'nano-banana-pro')?.name || 'Nano Banana Pro' },
+        { value: 'nano-banana-2', label: imageModels.find((m) => m.id === 'nano-banana-2')?.name || 'Nano Banana 2' },
+        { value: IMAGE_STUDIO_ID, label: 'Cinematic Studio' },
+    ];
+    const imageModeValue = imageStudio ? IMAGE_STUDIO_ID : options.model;
+    const imageModeLabel = imageStudio ? 'Cinematic Studio' : (selectedImageModel?.name || 'Model');
     const [openKey, setOpenKey] = useState(null);
     const [mention, setMention] = useState(null); // { start, query } while typing "@…"
     const [mentionIdx, setMentionIdx] = useState(0); // keyboard-highlighted menu row
@@ -578,22 +589,26 @@ export default function PromptBar({
                     <div className="flex items-center gap-1.5 flex-wrap">
                         <PillSelect
                             id="imodel" openKey={openKey} setOpenKey={setOpenKey}
-                            badge={<span className="w-4 h-4 bg-primary rounded flex items-center justify-center"><span className="text-[9px] font-bold text-black">N</span></span>}
-                            display={selectedImageModel?.name || 'Model'} label="Image model" value={options.model}
-                            options={imageModels.map((m) => ({ value: m.id, label: m.name }))}
-                            onSelect={(v) => setOpt('model', v)}
+                            badge={imageStudio
+                                ? <span className="w-4 h-4 bg-primary rounded flex items-center justify-center text-black"><FilmIcon /></span>
+                                : <span className="w-4 h-4 bg-primary rounded flex items-center justify-center"><span className="text-[9px] font-bold text-black">N</span></span>}
+                            display={imageModeLabel} label="Image model" value={imageModeValue}
+                            options={imageModeOptions}
+                            onSelect={(v) => onChangeImageModel?.(v)}
                         />
-                        <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); onOpenCinematic?.(); }}
-                            className={`${PILL} ${cinematic ? PILL_ON : PILL_IDLE}`}
-                            title="Cinematic camera, lens, focal length and aperture — GPT-4o structures your prompt around them"
-                        >
-                            <span className={cinematic ? 'text-primary' : 'text-white/65'}><FilmIcon /></span>
-                            <span className={`text-xs font-semibold transition-colors ${cinematic ? 'text-primary' : 'text-white/90 group-hover:text-primary'}`}>
-                                {cinematic ? summarizeCinematic(cinematic) : 'Cinematic Cameras'}
-                            </span>
-                        </button>
+                        {imageStudio && (
+                            <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); onOpenCinematic?.(); }}
+                                className={`${PILL} ${cinematic ? PILL_ON : PILL_IDLE}`}
+                                title="Cinematic camera, lens, focal length and aperture — GPT-4o structures your prompt around them"
+                            >
+                                <span className={cinematic ? 'text-primary' : 'text-white/65'}><FilmIcon /></span>
+                                <span className={`text-xs font-semibold transition-colors ${cinematic ? 'text-primary' : 'text-white/90 group-hover:text-primary'}`}>
+                                    {cinematic ? summarizeCinematic(cinematic) : 'Cinematic Cameras'}
+                                </span>
+                            </button>
+                        )}
                         <PillSelect
                             id="iar" openKey={openKey} setOpenKey={setOpenKey}
                             badge={<AspectIcon />} display={options.imageRatio} label="Aspect ratio" value={options.imageRatio}

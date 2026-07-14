@@ -6,7 +6,7 @@
 // in-flight tasks are resumed after a reload by re-polling their ModelArk id.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MODELS, MODES, RATIOS, RESOLUTIONS, DEFAULT_OPTIONS, IMAGE_MODELS, IMAGE_DEFAULT_MODEL_ID, IMAGE_RATIOS, IMAGE_RESOLUTIONS } from '../../lib/seedance/constants.js';
+import { MODELS, MODES, RATIOS, RESOLUTIONS, DEFAULT_OPTIONS, IMAGE_MODELS, IMAGE_DEFAULT_MODEL_ID, IMAGE_RATIOS, IMAGE_RESOLUTIONS, IMAGE_STUDIO_ID, IMAGE_STUDIO_MODEL_ID } from '../../lib/seedance/constants.js';
 import { sanitizeOptions } from '../../lib/seedance/options.mjs';
 import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js';
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
@@ -28,7 +28,7 @@ import ProjectSelect from './ProjectSelect.jsx';
 import StudioSidebar from './StudioSidebar.jsx';
 import AssetsPanel from './AssetsPanel.jsx';
 import CinematicPanel from './CinematicPanel.jsx';
-import { cinematicToPayload, sanitizeSetup } from '../../lib/seedance/cinematic.mjs';
+import { cinematicToPayload, sanitizeSetup, DEFAULT_SETUP } from '../../lib/seedance/cinematic.mjs';
 
 // Resolve form state into the flat media list buildPayload expects, in the
 // slot order the mode declares (so first_frame precedes last_frame).
@@ -240,6 +240,22 @@ export default function SeedanceStudio() {
         }
         return next;
     });
+
+    // The image picker offers three choices: Nano Banana Pro, Nano Banana 2 and
+    // Cinematic Studio. Studio isn't a model — it runs on Nano Banana Pro with the
+    // Cinematic Cameras panel always engaged, so it selects Pro and turns a camera
+    // setup on; the two plain models turn the camera styling off.
+    const onChangeImageModel = (value) => {
+        if (value === IMAGE_STUDIO_ID) {
+            setOptions((o) => ({ ...o, model: IMAGE_STUDIO_MODEL_ID, imageStudio: true }));
+            setCinematic((c) => c || DEFAULT_SETUP);
+        } else {
+            setOptions((o) => ({ ...o, model: value, imageStudio: false }));
+            setCinematic(null);
+        }
+        setError(null);
+        setNotice(null);
+    };
 
     // Persist every jobs change; functional setter keeps concurrent pollers safe.
     const updateJobs = (fn) => setJobs((prev) => { const next = fn(prev); saveJobs(next); return next; });
@@ -697,7 +713,10 @@ export default function SeedanceStudio() {
         setNotice(null);
         setImageRefs([]);
         if (t === 'image') {
-            if (!IMAGE_MODELS.some((m) => m.id === options.model)) setOpt('model', IMAGE_DEFAULT_MODEL_ID);
+            // Studio always runs on Nano Banana Pro; otherwise keep a valid image
+            // model (falling back to the default when arriving from video).
+            if (options.imageStudio) setOpt('model', IMAGE_STUDIO_MODEL_ID);
+            else if (!IMAGE_MODELS.some((m) => m.id === options.model)) setOpt('model', IMAGE_DEFAULT_MODEL_ID);
         } else if (!MODELS.some((m) => m.id === options.model)) {
             setOpt('model', DEFAULT_OPTIONS.model);
         }
@@ -944,6 +963,7 @@ export default function SeedanceStudio() {
                 model: imgModel,
                 imageRatio: IMAGE_RATIOS.includes(job.options?.imageRatio) ? job.options.imageRatio : cur.imageRatio,
                 imageResolution: IMAGE_RESOLUTIONS.includes(job.options?.imageResolution) ? job.options.imageResolution : cur.imageResolution,
+                imageStudio: job.options?.imageStudio ?? !!job.cinematic, // Cinematic Studio if it carried a camera setup
             }));
             setPrompt(job.userPrompt || job.prompt || '');
             setCinematic(job.cinematic ? sanitizeSetup(job.cinematic) : null); // restore the camera setup so "Reuse this setup" re-enhances the same way
@@ -984,6 +1004,7 @@ export default function SeedanceStudio() {
             // (Gemini) settings through untouched so a video reuse never wipes them.
             imageRatio: cur.imageRatio,
             imageResolution: cur.imageResolution,
+            imageStudio: cur.imageStudio,
             ...sanitizeOptions(job.options, {
                 defaults: cur,
                 modelIds: MODELS.map((m) => m.id),
@@ -1202,6 +1223,8 @@ export default function SeedanceStudio() {
                 mediaType={mediaType}
                 onChangeMediaType={changeMediaType}
                 imageModels={IMAGE_MODELS}
+                imageStudio={options.imageStudio}
+                onChangeImageModel={onChangeImageModel}
                 imageRefs={imageRefs}
                 onUploadImageRefs={onUploadImageRefs}
                 removeImageRef={removeImageRef}
