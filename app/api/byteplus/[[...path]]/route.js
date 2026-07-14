@@ -7,7 +7,7 @@ import { estimateCost } from '../../../../lib/seedance/pricing.mjs';
 import { getDb } from '../../../../lib/db/neon.js';
 import { effectiveAccess } from '../../../../lib/gateway/access.mjs';
 import { evaluateQuotas } from '../../../../lib/gateway/quota.mjs';
-import { activeQuotas, usageForQuotas, insertBillingEvent, emitEvent, resolveOrgForUser } from '../../../../lib/gateway/db.js';
+import { activeQuotas, usageForQuotas, insertBillingEvent, emitEvent } from '../../../../lib/gateway/db.js';
 import { PROJECT_CONCURRENCY } from '../../../../lib/gateway/queueLogic.mjs';
 
 // Server-side proxy to BytePlus ModelArk. The browser calls /api/byteplus/*,
@@ -46,12 +46,10 @@ function arkHeaders(extra = {}) {
 // Resolve the gateway context for a studio create-task call. Returns:
 //   null                  → gateway not migrated yet (legacy check applies)
 //   { error: Response }   → governed and rejected
-//   { sql, org, project, alias, versionId, kind, estimate } → governed, allowed
+//   { sql, project, alias, versionId, kind, estimate } → governed, allowed
 async function resolveGateway(request, user, modelId) {
     const sql = await getDb();
     if (!sql) return null;
-    const org = await resolveOrgForUser(sql, user.orgId, user.userId);
-    if (!org) return null;
     const [version] = await sql`SELECT v.*, m.category FROM model_versions v
         JOIN models m ON m.id = v.model_id WHERE v.version_tag = ${modelId} LIMIT 1`;
     if (!version) return null;
@@ -59,16 +57,16 @@ async function resolveGateway(request, user, modelId) {
     // Project attribution — the source of truth for billing + history, so it
     // must never silently land on the wrong project:
     //   • explicit header → THAT project. Platform admins may use any project
-    //     in the org (the studio shows them all); others must be a member.
-    //     An invalid/forbidden explicit project is a hard error, never a
-    //     silent fallback to Default (that caused client/server divergence).
+    //     (the studio shows them all); others must be a member. An invalid/
+    //     forbidden explicit project is a hard error, never a silent fallback
+    //     to Default (that caused client/server divergence).
     //   • no header → the user's Default project (member-scoped).
     const headerId = Number(request.headers.get('x-seedance-project')) || null;
     const isAdmin = user.role === 'admin';
     let project;
     if (headerId) {
         [project] = isAdmin
-            ? await sql`SELECT p.* FROM projects p WHERE p.id = ${headerId} AND p.org_id = ${org.id} AND p.archived_at IS NULL`
+            ? await sql`SELECT p.* FROM projects p WHERE p.id = ${headerId} AND p.archived_at IS NULL`
             : await sql`SELECT p.* FROM projects p JOIN project_memberships m ON m.project_id = p.id AND m.user_id = ${user.userId}
                 WHERE p.id = ${headerId} AND p.archived_at IS NULL`;
         if (!project) {
@@ -76,7 +74,7 @@ async function resolveGateway(request, user, modelId) {
         }
     } else {
         [project] = await sql`SELECT p.* FROM projects p JOIN project_memberships m ON m.project_id = p.id AND m.user_id = ${user.userId}
-            WHERE p.org_id = ${org.id} AND p.archived_at IS NULL ORDER BY (p.name = 'Default') DESC, p.id ASC LIMIT 1`;
+            WHERE p.archived_at IS NULL ORDER BY (p.name = 'Default') DESC, p.id ASC LIMIT 1`;
         if (!project) {
             return { error: NextResponse.json({ code: 'NOT_A_PROJECT_MEMBER', error: 'You are not in any project yet — ask an admin to add you.' }, { status: 403 }) };
         }
@@ -92,7 +90,7 @@ async function resolveGateway(request, user, modelId) {
     if (!decision.allowed) {
         return { error: NextResponse.json({ code: 'MODEL_ACCESS_DENIED', rule: decision.rule, error: 'You do not have access to this model. Request access from the model picker.' }, { status: 403 }) };
     }
-    return { sql, org, project, alias: version.model_id, versionId: version.id, kind: version.kind };
+    return { sql, project, alias: version.model_id, versionId: version.id, kind: version.kind };
 }
 
 // Free a proxy job's slot + reservation when the provider never accepted it.
@@ -100,7 +98,7 @@ async function releaseProxyJob(gw, jobId, user, reason) {
     try {
         await gw.sql`UPDATE jobs SET status = 'failed', finished_at = now(), error = ${JSON.stringify({ message: reason })} WHERE id = ${jobId}`;
         await insertBillingEvent(gw.sql, {
-            eventType: 'release', generationId: jobId, orgId: gw.org.id, projectId: gw.project.id,
+            eventType: 'release', generationId: jobId, projectId: gw.project.id,
             userId: user.userId, modelId: gw.alias, modelVersionId: gw.versionId, providerId: 'byteplus',
             units: null, estCostUsd: null, costUsd: null, pricingSnapshot: null,
         });
@@ -190,7 +188,7 @@ export async function POST(request, { params }) {
     const withVideo = hasVideoInput(parsed?.content);
     const estUsd = kind ? estimateCost({ kind, resolution: parsed?.resolution, duration: parsed?.duration, hasVideoInput: withVideo }) : null;
     if (gw) {
-        const quotas = await activeQuotas(gw.sql, gw.org.id);
+        const quotas = await activeQuotas(gw.sql);
         const usage = await usageForQuotas(gw.sql, quotas);
         const verdict = evaluateQuotas({
             quotas, projectId: gw.project.id, userId: user.userId, now: new Date(),
@@ -223,9 +221,9 @@ export async function POST(request, { params }) {
         const [, rows] = await gw.sql.transaction([
             gw.sql`SELECT pg_advisory_xact_lock(hashtext('gateway:claim'))`,
             gw.sql`INSERT INTO jobs
-                (org_id, project_id, user_id, model_id, model_version_id, priority, status, attempt,
+                (project_id, user_id, model_id, model_version_id, priority, status, attempt,
                  request_body, provider_id, started_at, timeout_at)
-                SELECT ${gw.org.id}, ${gw.project.id}, ${user.userId}, ${gw.alias}, ${gw.versionId}, 'interactive', 'running', 1,
+                SELECT ${gw.project.id}, ${user.userId}, ${gw.alias}, ${gw.versionId}, 'interactive', 'running', 1,
                        ${requestBody}, 'byteplus', now(), now() + interval '30 minutes'
                 WHERE (SELECT count(*) FROM jobs r WHERE r.project_id = ${gw.project.id} AND r.status = 'running') < ${PROJECT_CONCURRENCY}
                 RETURNING id`,
@@ -238,7 +236,7 @@ export async function POST(request, { params }) {
             }, { status: 429 });
         }
         await insertBillingEvent(gw.sql, {
-            eventType: 'reservation', generationId: job.id, orgId: gw.org.id, projectId: gw.project.id,
+            eventType: 'reservation', generationId: job.id, projectId: gw.project.id,
             userId: user.userId, modelId: gw.alias, modelVersionId: gw.versionId, providerId: 'byteplus',
             units: { video_seconds: parsed?.duration > 0 ? parsed.duration : 5 }, estCostUsd: estUsd, pricingSnapshot: { basis: 'estimate' },
         });
@@ -261,7 +259,7 @@ export async function POST(request, { params }) {
     if (response.ok && data?.id) {
         if (gw) {
             await gw.sql`UPDATE jobs SET provider_task_id = ${data.id} WHERE id = ${job.id}`;
-            await emitEvent(gw.sql, { orgId: gw.org.id, projectId: gw.project.id, userId: user.userId, type: 'job.status_changed', payload: { jobId: job.id, taskId: data.id, status: 'running' } });
+            await emitEvent(gw.sql, { projectId: gw.project.id, userId: user.userId, type: 'job.status_changed', payload: { jobId: job.id, taskId: data.id, status: 'running' } });
         } else {
             await logUsage({
                 userId: user.userId, email: user.email, modelId,

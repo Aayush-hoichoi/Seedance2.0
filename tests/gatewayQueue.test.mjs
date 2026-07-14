@@ -41,7 +41,7 @@ test('route timeout overrides class defaults', () => {
 
 function job(id, over = {}) {
     return {
-        id, org_id: 'org_1', project_id: 1, model_id: 'seedance-2.0',
+        id, project_id: 1, model_id: 'seedance-2.0',
         priority: 'interactive', created_at: '2026-07-11T11:00:00Z', run_after: null,
         ...over,
     };
@@ -63,13 +63,13 @@ test('older job wins within the same priority', () => {
     assert.equal(picked.id, 2);
 });
 
-test('org fairness: org with fewer running jobs goes first', () => {
+test('project fairness: project with fewer running jobs goes first', () => {
     const picked = pickNextJob({
-        queued: [job(1, { org_id: 'busy' }), job(2, { org_id: 'idle', created_at: '2026-07-11T11:30:00Z' })],
-        running: [job(90, { org_id: 'busy' }), job(91, { org_id: 'busy' })],
+        queued: [job(1, { project_id: 1 }), job(2, { project_id: 2, created_at: '2026-07-11T11:30:00Z' })],
+        running: [job(90, { project_id: 1 }), job(91, { project_id: 1 })],
         now: NOW,
     });
-    assert.equal(picked.id, 2);
+    assert.equal(picked.id, 2); // younger, but its project has 0 running vs 2
 });
 
 test('per-project concurrency cap holds jobs back', () => {

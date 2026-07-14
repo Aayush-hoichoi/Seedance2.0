@@ -22,8 +22,8 @@ async function syncGatewayOverride({ action, row, admin }) {
         LEFT JOIN model_versions v ON v.model_id = m.id
         WHERE m.id = ${row.model_id} OR v.version_tag = ${row.model_id} LIMIT 1`;
     if (!version) return; // catalog not migrated yet / unknown model
-    // The requester's project — prefer the org's Default project.
-    const [project] = await sql`SELECT p.id, p.org_id FROM projects p
+    // The requester's project — prefer the Default project.
+    const [project] = await sql`SELECT p.id FROM projects p
         JOIN project_memberships m ON m.project_id = p.id AND m.user_id = ${row.user_id}
         WHERE p.archived_at IS NULL
         ORDER BY (p.name = 'Default') DESC, p.id ASC LIMIT 1`;
@@ -37,7 +37,7 @@ async function syncGatewayOverride({ action, row, admin }) {
             DO UPDATE SET effect = 'allow', revoked_at = NULL, created_by = EXCLUDED.created_by
             RETURNING id`;
         await emitEvent(sql, {
-            orgId: project.org_id, projectId: project.id, userId: row.user_id,
+            projectId: project.id, userId: row.user_id,
             type: 'access.granted', payload: { modelId: version.model_id, scope: 'user', effect: 'allow', via: 'access_request' },
         });
         await writeAudit(sql, {
@@ -54,7 +54,7 @@ async function syncGatewayOverride({ action, row, admin }) {
         RETURNING id`;
     if (!override) return; // nothing granted on the gateway side
     await emitEvent(sql, {
-        orgId: project.org_id, projectId: project.id, userId: row.user_id,
+        projectId: project.id, userId: row.user_id,
         type: 'access.revoked', payload: { modelId: version.model_id, scope: 'user', removedEffect: 'allow', via: 'access_request' },
     });
     await writeAudit(sql, {

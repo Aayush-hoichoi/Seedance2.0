@@ -12,7 +12,7 @@ export async function POST(request, { params }) {
     const { id } = await params;
     const auth = await gatewayContext({ projectId: Number(id), permission: 'override.manage' });
     if (!auth.ok) return auth.response;
-    const { sql, user, org, project } = auth.ctx;
+    const { sql, user, project } = auth.ctx;
     const body = await request.json().catch(() => null);
     if (!body?.userId || !body?.modelId || !['allow', 'deny'].includes(body?.effect)) {
         return apiError('BAD_REQUEST', 'userId, modelId and effect (allow|deny) are required.');
@@ -24,7 +24,7 @@ export async function POST(request, { params }) {
         DO UPDATE SET effect = EXCLUDED.effect, revoked_at = NULL, valid_from = EXCLUDED.valid_from, valid_until = EXCLUDED.valid_until, created_by = EXCLUDED.created_by
         RETURNING *`;
     await emitEvent(sql, {
-        orgId: org.id, projectId: project.id, userId: body.userId,
+        projectId: project.id, userId: body.userId,
         type: body.effect === 'deny' ? 'access.revoked' : 'access.granted',
         payload: { modelId: body.modelId, scope: 'user', effect: body.effect, validUntil: body.validUntil ?? null },
     });
@@ -44,7 +44,7 @@ export async function DELETE(request, { params }) {
     const { id } = await params;
     const auth = await gatewayContext({ projectId: Number(id), permission: 'override.manage' });
     if (!auth.ok) return auth.response;
-    const { sql, user, org, project } = auth.ctx;
+    const { sql, user, project } = auth.ctx;
     const url = new URL(request.url);
     const userId = url.searchParams.get('userId');
     const modelId = url.searchParams.get('modelId');
@@ -55,7 +55,7 @@ export async function DELETE(request, { params }) {
         RETURNING *`;
     if (!override) return apiError('NOT_FOUND', 'No active override.');
     await emitEvent(sql, {
-        orgId: org.id, projectId: project.id, userId,
+        projectId: project.id, userId,
         type: override.effect === 'allow' ? 'access.revoked' : 'access.granted',
         payload: { modelId, scope: 'user', removedEffect: override.effect },
     });

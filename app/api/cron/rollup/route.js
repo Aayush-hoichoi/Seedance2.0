@@ -24,10 +24,10 @@ export async function GET(request) {
     // from around midnight are never lost.
     const rows = await sql`
         INSERT INTO usage_rollups_daily
-            (day, org_id, project_id, user_id, model_id, provider_id,
+            (day, project_id, user_id, model_id, provider_id,
              generations, failures, video_seconds, images, cost_usd)
         SELECT (created_at AT TIME ZONE 'UTC')::date AS day,
-               org_id, project_id, user_id, model_id, COALESCE(provider_id, 'unknown'),
+               project_id, user_id, model_id, COALESCE(provider_id, 'unknown'),
                count(*) FILTER (WHERE event_type = 'settlement')::int,
                count(*) FILTER (WHERE event_type = 'failure')::int,
                COALESCE(SUM(COALESCE((units->>'video_seconds')::numeric, 0)), 0),
@@ -36,8 +36,8 @@ export async function GET(request) {
         FROM billing_events
         WHERE event_type IN ('settlement', 'failure')
           AND created_at >= (now() AT TIME ZONE 'UTC')::date - interval '2 days'
-        GROUP BY 1, org_id, project_id, user_id, model_id, COALESCE(provider_id, 'unknown')
-        ON CONFLICT (day, org_id, project_id, user_id, model_id, provider_id) DO UPDATE SET
+        GROUP BY 1, project_id, user_id, model_id, COALESCE(provider_id, 'unknown')
+        ON CONFLICT (day, project_id, user_id, model_id, provider_id) DO UPDATE SET
             generations = EXCLUDED.generations, failures = EXCLUDED.failures,
             video_seconds = EXCLUDED.video_seconds, images = EXCLUDED.images,
             cost_usd = EXCLUDED.cost_usd

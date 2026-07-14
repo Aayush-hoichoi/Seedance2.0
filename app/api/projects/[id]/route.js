@@ -25,13 +25,13 @@ export async function PATCH(request, { params }) {
     const { id } = await params;
     const auth = await gatewayContext({ projectId: Number(id), permission: 'project.manage' });
     if (!auth.ok) return auth.response;
-    const { sql, user, org, project } = auth.ctx;
+    const { sql, user, project } = auth.ctx;
     const body = await request.json().catch(() => ({}));
 
     if (typeof body.paused === 'boolean' && body.paused !== project.paused) {
         await sql`UPDATE projects SET paused = ${body.paused} WHERE id = ${project.id}`;
         await emitEvent(sql, {
-            orgId: org.id, projectId: project.id,
+            projectId: project.id,
             type: body.paused ? 'project.paused' : 'project.resumed', payload: { projectId: project.id },
         });
         await writeAudit(sql, {

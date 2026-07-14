@@ -2,7 +2,7 @@ import { gatewayContext } from '../../../lib/gateway/authz.js';
 import { sweep } from '../../../lib/gateway/sweep.mjs';
 
 // SSE stream (design §6): tails the Neon events outbox every 2s, scoped to
-// the caller's audience (org-wide + their projects + personal). Supports
+// the caller's audience (workspace-wide + their projects + personal). Supports
 // Last-Event-ID resume; each connection lives ≤ ~4.5 min and the browser's
 // EventSource reconnects seamlessly. Every tick runs the guarded sweep() —
 // this is what replaces per-minute cron on the Vercel free plan.
@@ -17,7 +17,7 @@ const LIFETIME_MS = 270_000; // reconnect before the platform kills us
 export async function GET(request) {
     const auth = await gatewayContext({});
     if (!auth.ok) return auth.response;
-    const { sql, user, org, role } = auth.ctx;
+    const { sql, user, role } = auth.ctx;
 
     const memberships = await sql`SELECT project_id FROM project_memberships WHERE user_id = ${user.userId}`;
     const projectIds = memberships.map((m) => m.project_id);
@@ -41,10 +41,10 @@ export async function GET(request) {
                 try {
                     const rows = await sql.query(
                         `SELECT * FROM events
-                         WHERE id > $1 AND org_id = $2
-                           AND ($3 OR project_id IS NULL OR project_id = ANY($4::int[]) OR user_id = $5)
+                         WHERE id > $1
+                           AND ($2 OR project_id IS NULL OR project_id = ANY($3::int[]) OR user_id = $4)
                          ORDER BY id ASC LIMIT 100`,
-                        [cursor, org.id, isAdmin, projectIds, user.userId],
+                        [cursor, isAdmin, projectIds, user.userId],
                     );
                     for (const row of rows) {
                         cursor = row.id;

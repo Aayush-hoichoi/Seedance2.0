@@ -12,7 +12,7 @@ export async function POST(request, { params }) {
     const { id } = await params;
     const auth = await gatewayContext({ projectId: Number(id), permission: 'model.grant' });
     if (!auth.ok) return auth.response;
-    const { sql, user, org, project } = auth.ctx;
+    const { sql, user, project } = auth.ctx;
     const body = await request.json().catch(() => null);
     if (!body?.modelId) return apiError('BAD_REQUEST', 'modelId is required.');
 
@@ -22,7 +22,7 @@ export async function POST(request, { params }) {
         ON CONFLICT (project_id, model_id)
         DO UPDATE SET revoked_at = NULL, valid_from = EXCLUDED.valid_from, valid_until = EXCLUDED.valid_until, created_by = EXCLUDED.created_by
         RETURNING *`;
-    await emitEvent(sql, { orgId: org.id, projectId: project.id, type: 'access.granted', payload: { modelId: body.modelId, scope: 'project', validUntil: body.validUntil ?? null } });
+    await emitEvent(sql, { projectId: project.id, type: 'access.granted', payload: { modelId: body.modelId, scope: 'project', validUntil: body.validUntil ?? null } });
     await writeAudit(sql, {
         actorId: user.userId, actorEmail: user.email, action: 'model.grant',
         targetType: 'project_model_grant', targetId: grant.id,
@@ -37,7 +37,7 @@ export async function DELETE(request, { params }) {
     const { id } = await params;
     const auth = await gatewayContext({ projectId: Number(id), permission: 'model.grant' });
     if (!auth.ok) return auth.response;
-    const { sql, user, org, project } = auth.ctx;
+    const { sql, user, project } = auth.ctx;
     const modelId = new URL(request.url).searchParams.get('modelId');
     if (!modelId) return apiError('BAD_REQUEST', 'modelId query param required.');
 
@@ -45,7 +45,7 @@ export async function DELETE(request, { params }) {
         WHERE project_id = ${project.id} AND model_id = ${modelId} AND revoked_at IS NULL
         RETURNING *`;
     if (!grant) return apiError('NOT_FOUND', 'No active grant for that model.');
-    await emitEvent(sql, { orgId: org.id, projectId: project.id, type: 'access.revoked', payload: { modelId, scope: 'project' } });
+    await emitEvent(sql, { projectId: project.id, type: 'access.revoked', payload: { modelId, scope: 'project' } });
     await writeAudit(sql, {
         actorId: user.userId, actorEmail: user.email, action: 'model.revoke',
         targetType: 'project_model_grant', targetId: grant.id,

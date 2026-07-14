@@ -43,7 +43,7 @@ export async function POST(request) {
     }
     const auth = await gatewayContext({ projectId: body.projectId, permission: 'generation.create' });
     if (!auth.ok) return auth.response;
-    const { sql, user, org, project } = auth.ctx;
+    const { sql, user, project } = auth.ctx;
 
     if (project.paused) return apiError('PROJECT_PAUSED', 'This project is paused by an admin.');
     if (await queuedDepth(sql, project.id) >= QUEUE_DEPTH_CAP) {
@@ -81,7 +81,7 @@ export async function POST(request) {
         category: routing.model.category, kind: routing.version.kind, mode: route.mode, options: body.options,
     });
 
-    const quotas = await activeQuotas(sql, org.id);
+    const quotas = await activeQuotas(sql);
     const usage = await usageForQuotas(sql, quotas);
     const verdict = evaluateQuotas({
         quotas, projectId: project.id, userId: user.userId, now: new Date(), estimate, ...usage,
@@ -89,23 +89,23 @@ export async function POST(request) {
     if (!verdict.ok) {
         const v = verdict.violations[0];
         return apiError('QUOTA_EXCEEDED', 'A budget or quota limit would be exceeded.', {
-            limit: { type: v.quota.type, window: v.quota.window, amount: Number(v.quota.hard_limit), scope: v.quota.user_id ? 'user' : v.quota.project_id ? 'project' : 'org' },
+            limit: { type: v.quota.type, window: v.quota.window, amount: Number(v.quota.hard_limit), scope: v.quota.user_id ? 'user' : v.quota.project_id ? 'project' : 'workspace' },
             resets_at: v.resetsAt,
         });
     }
 
     const job = await insertJob(sql, {
-        orgId: org.id, projectId: project.id, userId: user.userId, modelId: body.modelId,
+        projectId: project.id, userId: user.userId, modelId: body.modelId,
         modelVersionId: routing.version.id, priority: body.priority === 'batch' ? 'batch' : 'interactive',
         requestBody: { ...requestBody, options: body.options ?? null, est_cost_usd: estimate.usd, category: routing.model.category },
     });
     await insertBillingEvent(sql, {
-        eventType: 'reservation', generationId: job.id, orgId: org.id, projectId: project.id,
+        eventType: 'reservation', generationId: job.id, projectId: project.id,
         userId: user.userId, modelId: body.modelId, modelVersionId: routing.version.id,
         units: { images: estimate.images || null, video_seconds: estimate.video_seconds || null },
         estCostUsd: estimate.usd, pricingSnapshot: { basis: 'estimate' },
     });
-    await emitEvent(sql, { orgId: org.id, projectId: project.id, userId: user.userId, type: 'job.status_changed', payload: { jobId: job.id, status: 'queued' } });
+    await emitEvent(sql, { projectId: project.id, userId: user.userId, type: 'job.status_changed', payload: { jobId: job.id, status: 'queued' } });
     after(() => processQueue().catch(() => {}));
 
     return NextResponse.json({ generationId: job.id, status: 'queued', estCostUsd: estimate.usd }, { status: 202 });
