@@ -174,6 +174,22 @@ export default function SeedanceStudio() {
         return () => { alive = false; };
     }, [projectId, permsVersion]);
 
+    // A locked model must never stay the active selection — when access lapses
+    // (revoke/expiry) or a persisted choice isn't granted here, fall back to the
+    // first available model of the current type. Locked models still appear in
+    // the picker (to request), just never selected. Cinematic Studio owns its
+    // own toggle, so leave it alone.
+    useEffect(() => {
+        if (!allowedModelIds) return;
+        const list = mediaType === 'image' ? IMAGE_MODELS : MODELS;
+        if (mediaType === 'image' && options.imageStudio) return;
+        const cur = list.find((m) => m.id === options.model);
+        const locked = cur?.gated && !allowedModelIds.includes(options.model);
+        if (!locked) return;
+        const avail = list.find((m) => !m.gated || allowedModelIds.includes(m.id));
+        if (avail && avail.id !== options.model) setOpt('model', avail.id);
+    }, [allowedModelIds, mediaType, options.model, options.imageStudio]); // eslint-disable-line react-hooks/exhaustive-deps
+
     // Live governance: revokes/expiries flip the picker instantly; budget
     // alerts surface as the studio's notice banner.
     useEvents('*', ({ type, data }) => {

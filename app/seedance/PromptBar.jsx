@@ -5,6 +5,7 @@
 // control pills + a cyan Generate button below. Wired to the Seedance modes/options.
 
 import { Fragment, useEffect, useRef, useState } from 'react';
+import { Lock } from 'lucide-react';
 import { MODES, RATIOS, IMAGE_RATIOS, IMAGE_STUDIO_ID } from '../../lib/seedance/constants.js';
 import { estimateCost } from '../../lib/seedance/pricing.mjs';
 import { imageCost } from '../../lib/gateway/imagePricing.mjs';
@@ -371,15 +372,21 @@ export default function PromptBar({
     // The image picker has three entries: the two real models plus Cinematic
     // Studio (Nano Banana Pro under the hood). Studio's picker value is distinct
     // so it can be the active choice even though the model sent is Pro.
+    // A model name followed by a small lock glyph — the locked-picker label.
+    const withLock = (name) => (
+        <span className="inline-flex items-center gap-1.5">{name}<Lock size={11} className="text-white/45" /></span>
+    );
     // Per-model gating: a gated image model the user hasn't been granted shows a
-    // 🔒 request pill. Cinematic Studio is its own gated model — gated like any other.
+    // lock glyph. Cinematic Studio is its own gated model — gated like any other.
     const imgLocked = (id) => {
         const m = imageModels.find((x) => x.id === id);
         return !!m?.gated && allowedModelIds && !allowedModelIds.includes(id);
     };
+    // Locked models show just their name + a lock glyph (no "(request access)"
+    // text); the confirm dialog on click carries the request affordance.
     const lockName = (id, fallback) => {
         const name = imageModels.find((m) => m.id === id)?.name || fallback;
-        return imgLocked(id) ? `${name} 🔒 (request access)` : name;
+        return imgLocked(id) ? withLock(name) : name;
     };
     const imageModeOptions = [
         { value: 'nano-banana-pro', label: lockName('nano-banana-pro', 'Nano Banana Pro') },
@@ -392,8 +399,11 @@ export default function PromptBar({
     // Fire an access request for a locked model (shared by the video + image
     // pickers). The request is scoped to the current project — approval grants
     // the model there. Without a project we can't scope it, so guide the user.
+    // A confirm step names the model so a stray click can't fire a request.
     const requestModelAccess = (modelId) => {
         if (!projectId) { setNotice?.('Pick a project first — access is granted per project.'); return; }
+        const name = [...models, ...imageModels].find((m) => m.id === modelId)?.name || modelId;
+        if (typeof window !== 'undefined' && !window.confirm(`Request access to “${name}” for this project? An admin will review it.`)) return;
         fetch('/api/access/request', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ modelId, projectId }),
@@ -669,7 +679,7 @@ export default function PromptBar({
                             id="model" openKey={openKey} setOpenKey={setOpenKey}                            display={selectedModel?.name || 'Model'} label="Model" value={options.model}
                             options={models.map((m) => {
                                 const locked = m.gated && allowedModelIds && !allowedModelIds.includes(m.id);
-                                return { value: m.id, label: locked ? `${m.name} 🔒 (request access)` : m.name, disabled: locked };
+                                return { value: m.id, label: locked ? withLock(m.name) : m.name, disabled: locked };
                             })}
                             onSelect={(v) => {
                                 const m = models.find((x) => x.id === v);
