@@ -22,11 +22,15 @@ async function syncGatewayOverride({ action, row, admin, validUntil }) {
         LEFT JOIN model_versions v ON v.model_id = m.id
         WHERE m.id = ${row.model_id} OR v.version_tag = ${row.model_id} LIMIT 1`;
     if (!version) return; // catalog not migrated yet / unknown model
-    // The requester's project — prefer the Default project.
-    const [project] = await sql`SELECT p.id FROM projects p
-        JOIN project_memberships m ON m.project_id = p.id AND m.user_id = ${row.user_id}
-        WHERE p.archived_at IS NULL
-        ORDER BY (p.name = 'Default') DESC, p.id ASC LIMIT 1`;
+    // Grant on the project the user requested from. Legacy requests (pre
+    // per-project) carry no project_id — fall back to the requester's Default.
+    let project = row.project_id ? { id: row.project_id } : null;
+    if (!project) {
+        [project] = await sql`SELECT p.id FROM projects p
+            JOIN project_memberships m ON m.project_id = p.id AND m.user_id = ${row.user_id}
+            WHERE p.archived_at IS NULL
+            ORDER BY (p.name = 'Default') DESC, p.id ASC LIMIT 1`;
+    }
     if (!project) return; // requester not enrolled in any project yet
 
     if (action === 'approve') {

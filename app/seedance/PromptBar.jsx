@@ -358,7 +358,7 @@ const BATCH_OPTIONS = [1, 2 /* , 4 — capped at ×2 for now; uncomment to bring
 
 export default function PromptBar({
     mode, onChangeMode, prompt, onPromptChange, options, setOpt,
-    mediaByRole, setMediaByRole, models, allowedModelIds, resolutions, selectedModel,
+    mediaByRole, setMediaByRole, models, allowedModelIds, projectId, resolutions, selectedModel,
     error, notice, setNotice, onGenerate, enhancing = false, batch = 1, setBatch,
     onMediaError, onUploadFiles, tags, sidebarLeft = '',
     mediaType = 'video', onChangeMediaType, imageModels = [],
@@ -389,11 +389,14 @@ export default function PromptBar({
     ];
     const imageModeValue = imageStudio ? IMAGE_STUDIO_ID : options.model;
     const imageModeLabel = imageStudio ? 'Cinematic Studio' : (selectedImageModel?.name || 'Model');
-    // Fire an access request for a locked model (shared by the image picker).
+    // Fire an access request for a locked model (shared by the video + image
+    // pickers). The request is scoped to the current project — approval grants
+    // the model there. Without a project we can't scope it, so guide the user.
     const requestModelAccess = (modelId) => {
+        if (!projectId) { setNotice?.('Pick a project first — access is granted per project.'); return; }
         fetch('/api/access/request', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ modelId }),
+            body: JSON.stringify({ modelId, projectId }),
         })
             .then(async (r) => {
                 const d = await r.json().catch(() => null);
@@ -671,22 +674,7 @@ export default function PromptBar({
                             onSelect={(v) => {
                                 const m = models.find((x) => x.id === v);
                                 const locked = m?.gated && allowedModelIds && !allowedModelIds.includes(v);
-                                if (locked) {
-                                    fetch('/api/access/request', {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ modelId: v }),
-                                    })
-                                        .then(async (r) => {
-                                            const d = await r.json().catch(() => null);
-                                            if (!r.ok) { setNotice?.(d?.error || 'Could not send the access request — try again.'); return; }
-                                            setNotice?.(d?.status === 'approved'
-                                                ? 'You already have access — reload the page to unlock this model.'
-                                                : 'Access requested — pending admin approval.');
-                                        })
-                                        .catch(() => setNotice?.('Could not send the access request — check your connection.'));
-                                    return;
-                                }
+                                if (locked) { requestModelAccess(v); return; }
                                 setOpt('model', v);
                             }}
                         />

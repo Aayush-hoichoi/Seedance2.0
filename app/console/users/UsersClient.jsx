@@ -19,7 +19,10 @@ function PendingRequest({ r, onApprove, onDeny }) {
     const preset = (days) => setUntil(toLocalInput(new Date(Date.now() + days * 86400000)));
     return (
         <li className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line px-3 py-2 text-sm">
-            <span className="text-ink-2">{r.user_email} → <code className="font-mono text-xs text-ink-2">{r.model_id}</code></span>
+            <span className="text-ink-2">
+                {r.user_email} → <code className="font-mono text-xs text-ink-2">{r.model_id}</code>
+                {' '}<span className="text-ink-3">on</span> <span className="text-ink">{r.project_name || (r.project_id ? `project #${r.project_id}` : 'any project')}</span>
+            </span>
             <div className="flex flex-wrap items-center gap-1.5">
                 {[7, 30, 90].map((d) => (
                     <button key={d} type="button" onClick={() => preset(d)}
@@ -101,6 +104,7 @@ export default function UsersClient() {
     const grantColumns = [
         { accessorKey: 'user_email', header: 'User', cell: ({ getValue, row }) => <span className="text-ink">{getValue() || row.original.user_id}</span> },
         { accessorKey: 'model_id', header: 'Model', cell: ({ getValue }) => <code className="rounded bg-paper-3 px-1.5 py-0.5 font-mono text-xs text-ink-2">{getValue()}</code> },
+        { accessorKey: 'project_name', header: 'Project', cell: ({ getValue, row }) => <span className="text-ink-2">{getValue() || (row.original.project_id ? `#${row.original.project_id}` : 'any')}</span> },
         { accessorKey: 'expires_at', header: 'Expires', cell: ({ getValue }) => (getValue() ? <span className="font-mono text-ink-2">{fmtDate(getValue())}</span> : <span className="text-ink-3">never</span>) },
         { accessorKey: 'decided_by', header: 'Granted by', cell: ({ getValue }) => <span className="text-ink-3">{getValue() || '—'}</span> },
         { id: 'revoke', header: '', enableSorting: false, cell: ({ row }) => <Button variant="ghost" size="xs" title="Revoke access" onClick={() => decide(row.original.id, 'revoke')}><span className="text-danger">Revoke</span></Button> },
