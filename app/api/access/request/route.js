@@ -3,6 +3,7 @@ import { getUser } from '../../../../lib/auth/user.js';
 import { requestAccess } from '../../../../lib/access/db.js';
 import { getDb } from '../../../../lib/db/neon.js';
 import { GATED_MODEL_IDS, IMAGE_GATED_MODEL_IDS } from '../../../../lib/seedance/constants.js';
+import { notifyAccessRequested } from '../../../../lib/notify/accessNotifications.mjs';
 
 export const runtime = 'nodejs';
 
@@ -25,8 +26,16 @@ export async function POST(request) {
     }
     const sql = await getDb();
     if (!sql) return NextResponse.json({ error: 'Access store unavailable.' }, { status: 503 });
-    const [member] = await sql`SELECT 1 FROM project_memberships WHERE project_id = ${pid} AND user_id = ${user.userId} LIMIT 1`;
+    const [member] = await sql`SELECT p.name FROM project_memberships m
+        JOIN projects p ON p.id = m.project_id
+        WHERE m.project_id = ${pid} AND m.user_id = ${user.userId} LIMIT 1`;
     if (!member) return NextResponse.json({ error: 'You are not a member of that project.' }, { status: 403 });
-    const status = await requestAccess(user.userId, user.email, modelId, typeof note === 'string' ? note.slice(0, 500) : null, pid);
+    const cleanNote = typeof note === 'string' ? note.slice(0, 500) : null;
+    const status = await requestAccess(user.userId, user.email, modelId, cleanNote, pid);
+    // Notify the admin only on a fresh pending request — a no-op re-request over
+    // an already-approved grant returns 'approved' and must not spam anyone.
+    if (status === 'pending') {
+        await notifyAccessRequested({ email: user.email, modelId, projectName: member.name, note: cleanNote }).catch(() => {});
+    }
     return NextResponse.json({ ok: true, status });
 }
