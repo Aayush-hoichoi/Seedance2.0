@@ -11,8 +11,12 @@ import { ListOrdered, XCircle } from 'lucide-react';
 export default function QueueClient() {
     const projects = useApi('/api/projects');
     const [projectId, setProjectId] = useState('');
+    const [category, setCategory] = useState(''); // '' = all | 'video' | 'image'
     const activeProject = projectId || projects.data?.items?.[0]?.id;
-    const jobs = useApi(activeProject ? `/api/generations?projectId=${activeProject}&scope=project` : null, { refreshInterval: 15000 });
+    const jobs = useApi(
+        activeProject ? `/api/generations?projectId=${activeProject}&scope=project${category ? `&category=${category}` : ''}` : null,
+        { refreshInterval: 15000 },
+    );
 
     useEvents('job.status_changed', () => jobs.mutate());
 
@@ -71,6 +75,11 @@ export default function QueueClient() {
     return (
         <div>
             <PageHeader title="Queue" subtitle={`${queued} queued · ${running} running — updates live over SSE`}>
+                <Select value={category} onChange={(e) => setCategory(e.target.value)} title="Filter by media type">
+                    <option value="">All media</option>
+                    <option value="video">Video</option>
+                    <option value="image">Image</option>
+                </Select>
                 <Select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
                     {(projects.data?.items ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </Select>

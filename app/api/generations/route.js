@@ -116,15 +116,26 @@ export async function GET(request) {
     const url = new URL(request.url);
     const projectId = Number(url.searchParams.get('projectId')) || null;
     const scope = url.searchParams.get('scope') === 'project' ? 'project' : 'mine';
+    // Optional media-type filter (video | image). Applied server-side so the
+    // newest-100 window isn't consumed by the other type — a project with 1000s
+    // of videos would otherwise bury every image job past the LIMIT.
+    const catParam = url.searchParams.get('category');
+    const category = catParam === 'image' || catParam === 'video' ? catParam : null;
     const auth = await gatewayContext(projectId ? { projectId, permission: scope === 'project' ? 'usage.view' : 'generation.create' } : {});
     if (!auth.ok) return auth.response;
     const { sql, user, role } = auth.ctx;
 
     const rows = projectId
         ? (scope === 'project'
-            ? await sql`SELECT * FROM jobs WHERE project_id = ${projectId} ORDER BY created_at DESC LIMIT 100`
-            : await sql`SELECT * FROM jobs WHERE project_id = ${projectId} AND user_id = ${user.userId} ORDER BY created_at DESC LIMIT 100`)
-        : await sql`SELECT * FROM jobs WHERE user_id = ${user.userId} ORDER BY created_at DESC LIMIT 100`;
+            ? await sql`SELECT * FROM jobs WHERE project_id = ${projectId}
+                AND (${category}::text IS NULL OR coalesce(request_body->>'category', 'video') = ${category})
+                ORDER BY created_at DESC LIMIT 100`
+            : await sql`SELECT * FROM jobs WHERE project_id = ${projectId} AND user_id = ${user.userId}
+                AND (${category}::text IS NULL OR coalesce(request_body->>'category', 'video') = ${category})
+                ORDER BY created_at DESC LIMIT 100`)
+        : await sql`SELECT * FROM jobs WHERE user_id = ${user.userId}
+            AND (${category}::text IS NULL OR coalesce(request_body->>'category', 'video') = ${category})
+            ORDER BY created_at DESC LIMIT 100`;
 
     const rolePerms = await sql`SELECT role_id, permission_id FROM role_permissions`;
     const seePrompts = rolePerms.some((r) => r.role_id === role && r.permission_id === 'prompt.view');
