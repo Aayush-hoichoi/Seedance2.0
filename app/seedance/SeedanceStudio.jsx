@@ -124,6 +124,7 @@ export default function SeedanceStudio() {
     const [projects, setProjects] = useState([]);
     const [projectId, setProjectId] = useState(null);
     const [projectsLoaded, setProjectsLoaded] = useState(false); // false → don't render the rail yet
+    const [canManageProjects, setCanManageProjects] = useState(false); // admins/managers may create projects
     const [permsVersion, setPermsVersion] = useState(0); // bump → refetch access
 
     useEffect(() => {
@@ -136,6 +137,7 @@ export default function SeedanceStudio() {
             .then((r) => (r.ok ? r.json() : null))
             .then((d) => {
                 if (!alive) return;
+                setCanManageProjects(!!d?.canManageProjects);
                 if (Array.isArray(d?.items) && d.items.length) {
                     setProjects(d.items);
                     // /projects deep-links with ?project=; that beats the stored last choice.
@@ -1184,6 +1186,28 @@ export default function SeedanceStudio() {
         if (!selectedJob.videoUrl || isStaleUrl(selectedJob)) refreshVideoUrl(selectedJob, { fromError: true });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedId]);
+
+    // No memberships → nothing to scope generations to. Signups are NOT
+    // auto-enrolled in any project (no silent Default fallback), so a plain
+    // member waits for an admin to add them. Admins/managers see every
+    // project, so for them this only appears on a fresh install.
+    if (projectsLoaded && projects.length === 0) {
+        return (
+            <div className="flex min-h-screen w-full flex-col items-center justify-center gap-4 bg-app-bg px-6 text-center text-white">
+                <h1 className="text-xl font-semibold">You’re not in a project yet</h1>
+                <p className="max-w-md text-sm leading-relaxed text-white/50">
+                    {canManageProjects
+                        ? 'Everything in the studio — generations, references, budgets — is scoped to a project. Create one to get started.'
+                        : 'Everything in the studio is scoped to a project. Ask your workspace admin to add you to one, then reload this page.'}
+                </p>
+                {canManageProjects && (
+                    <a href="/projects" className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-black hover:opacity-90">
+                        Create a project
+                    </a>
+                )}
+            </div>
+        );
+    }
 
     return (
         <div className="relative min-h-screen w-full bg-app-bg text-white">
