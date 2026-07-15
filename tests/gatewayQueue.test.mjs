@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     backoffDelayMs, isRetryable, timeoutSecondsFor, pickNextJob, MAX_ATTEMPTS,
-    PROJECT_CONCURRENCY, MODEL_CONCURRENCY,
+    PROJECT_CONCURRENCY, MODEL_CONCURRENCY, isStalledClaim,
 } from '../lib/gateway/queueLogic.mjs';
 
 const NOW = new Date('2026-07-11T12:00:00Z');
@@ -30,6 +30,15 @@ test('5xx/timeout/network errors retry; 4xx policy errors do not', () => {
 });
 
 // --- timeouts --------------------------------------------------------------------
+
+test('overdue job with no provider handle is a stalled claim (retry, not fail)', () => {
+    // Interactive image job: settled inline, never got a task id / batch name.
+    assert.equal(isStalledClaim({ provider_task_id: null, batch_job_name: null }), true);
+    // Video task reached the provider — a real over-run, must time out.
+    assert.equal(isStalledClaim({ provider_task_id: 'task-123', batch_job_name: null }), false);
+    // Google batch reached the provider too.
+    assert.equal(isStalledClaim({ provider_task_id: null, batch_job_name: 'batches/abc' }), false);
+});
 
 test('route timeout overrides class defaults', () => {
     assert.equal(timeoutSecondsFor({ category: 'image' }), 300);
