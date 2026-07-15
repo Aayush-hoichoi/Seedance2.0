@@ -14,6 +14,7 @@ import { buildTags, modeSupportsTags, normalizePromptForApi, restorePromptTokens
 import { getAsset, resolveVideoRefs, resolveSensitiveRefs, cleanupOldAssets, registerAssetFromUrl, registerAssetCached } from '../../lib/seedance/assetsClient.js';
 import { useEvents } from '../hooks/useEvents.js';
 import { enhancePrompt } from '../../lib/seedance/enhance.js';
+import { friendlyError } from '../../lib/seedance/friendlyError.js';
 import { savePromptRecord, fetchPromptRecords, setLikeRecord, setBinRecord, deletePromptRecord } from '../../lib/seedance/promptsClient.js';
 import { uploadToCdn } from '../../lib/seedance/upload.js';
 import { validateMediaFile } from '../../lib/seedance/inspectMedia.js';
@@ -235,11 +236,16 @@ export default function SeedanceStudio() {
         [projectId, projects],
     );
 
-    // Sweep day-old studio assets from the active project's group so the tiny
-    // shared BytePlus pool never fills up (a full pool broke uploads before).
+    // Sweep day-old studio assets from ALL studio groups so the tiny shared
+    // (account-wide) BytePlus pool never fills up — stale assets in other
+    // projects' groups count against the same pool and broke uploads before.
+    // Re-sweep every 30 min: a studio tab left open for days never remounts,
+    // and mount-only sweeping let the pool silently refill.
     useEffect(() => {
         if (!projectId) return;
-        cleanupOldAssets({ project: activeProject }).catch(() => {});
+        cleanupOldAssets().catch(() => {});
+        const timer = setInterval(() => cleanupOldAssets().catch(() => {}), 30 * 60 * 1000);
+        return () => clearInterval(timer);
     }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const mode = useMemo(() => MODES.find((m) => m.id === modeId), [modeId]);
@@ -1441,7 +1447,7 @@ function BigStage({ job, onCancel, onFullscreen, onReuse, onRefresh }) {
     }
     return (
         <div className="max-w-md text-center animate-fade-in-up">
-            <p className="px-4 py-3 rounded-xl bg-danger/10 border border-danger/20 text-sm text-danger leading-relaxed">{job.error || 'Generation failed.'}</p>
+            <p className="px-4 py-3 rounded-xl bg-danger/10 border border-danger/20 text-sm text-danger leading-relaxed">{friendlyError(job.error) || 'Generation failed.'}</p>
             <p className="mt-3 text-xs text-white/30 truncate" title={job.prompt}>{job.prompt}</p>
         </div>
     );
@@ -1703,7 +1709,7 @@ function HistoryRail({ jobs, selectedId, onSelect, onRemove, onToggleLike, onRef
                                             <span className="text-[9px] font-semibold text-white/50">{STATUS_TEXT[job.status]}</span>
                                         </>
                                     ) : (
-                                        <span className="text-[9px] text-danger leading-tight line-clamp-3">{job.error || 'Failed'}</span>
+                                        <span className="text-[9px] text-danger leading-tight line-clamp-3" title={job.error || undefined}>{friendlyError(job.error) || 'Failed'}</span>
                                     )}
                                 </div>
                             )}

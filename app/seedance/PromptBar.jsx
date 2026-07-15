@@ -11,6 +11,7 @@ import { estimateCost } from '../../lib/seedance/pricing.mjs';
 import { imageCost } from '../../lib/gateway/imagePricing.mjs';
 import { summarize as summarizeCinematic } from '../../lib/seedance/cinematic.mjs';
 import { filterTags, tagLabelFor, tagToken, TOKEN_RE } from '../../lib/seedance/tags.js';
+import { friendlyError } from '../../lib/seedance/friendlyError.js';
 import MediaHoverPreview from './MediaHoverPreview.jsx';
 
 // Render the prompt with @Image1 / @Video2 / @Audio3 tokens as cyan chips.
@@ -616,7 +617,7 @@ export default function PromptBar({
 
                 {/* error (red) / notice (amber) — descriptive hint line was removed to declutter the bar */}
                 {error && (
-                    <div className="mx-1 px-3 py-1.5 rounded-lg bg-danger/10 border border-danger/20 text-[11px] text-danger">{error}</div>
+                    <div className="mx-1 px-3 py-1.5 rounded-lg bg-danger/10 border border-danger/20 text-[11px] text-danger">{friendlyError(error)}</div>
                 )}
                 {!error && notice && (
                     <div className="mx-1 px-3 py-1.5 rounded-lg bg-warn/10 border border-warn/20 text-[11px] text-warn">{notice}</div>

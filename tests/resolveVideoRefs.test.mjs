@@ -108,6 +108,40 @@ test('resolveSensitiveRefs swaps raw image and video URLs in a payload', async (
     assert.equal(payload.content[1].image_url.url, 'https://tos.example/i.png');
 });
 
+test('cleanupOldAssets sweeps stale assets across ALL studio groups, never foreign groups', async () => {
+    const { cleanupOldAssets } = await import('../lib/seedance/assetsClient.js');
+    const old = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+    const fresh = new Date().toISOString();
+    const assetsByGroup = {
+        g1: [{ Id: 'a1', CreateTime: old, AssetType: 'Video' }, { Id: 'a2', CreateTime: fresh, AssetType: 'Image' }],
+        g2: [{ Id: 'a3', CreateTime: old, AssetType: 'Image' }],
+        g3: [{ Id: 'foreign', CreateTime: old, AssetType: 'Image' }],
+    };
+    const deleted = [];
+    const realFetch = global.fetch;
+    global.fetch = async (url, opts) => {
+        const { action, payload } = JSON.parse(opts.body);
+        let body = {};
+        if (action === 'ListAssetGroups') body = { Result: { Items: [
+            { Id: 'g1', Name: 'Seedance Studio · A #1' },
+            { Id: 'g2', Name: 'Seedance Studio · B #2' },
+            { Id: 'g3', Name: 'My personal library' },
+        ] } };
+        else if (action === 'ListAssets') body = { Result: { Items: assetsByGroup[payload.Filter.GroupIds[0]] || [] } };
+        else if (action === 'DeleteAsset') { deleted.push(payload.Id); body = { Result: {} }; }
+        return { ok: true, status: 200, json: async () => body };
+    };
+    try {
+        const freed = await cleanupOldAssets({ maxAgeHours: 24 });
+        assert.equal(freed, 2);
+        // Stale assets from BOTH studio groups go; the fresh one and the
+        // user's own (non-studio) library are untouched.
+        assert.deepEqual(deleted.sort(), ['a1', 'a3']);
+    } finally {
+        global.fetch = realFetch;
+    }
+});
+
 test('asset calls retry through BytePlus QPS throttling, then succeed', async () => {
     const { getAsset } = await import('../lib/seedance/assetsClient.js');
     const responses = [
