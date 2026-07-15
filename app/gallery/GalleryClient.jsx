@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { UserButton } from '@clerk/nextjs';
-import { VideoCard, Lightbox, reuseInStudio, gradientFor, initialOf, timeAgo } from './shared.jsx';
+import { VideoCard, ImageCard, Lightbox, reuseInStudio, gradientFor, initialOf, timeAgo } from './shared.jsx';
 
 export default function GalleryClient() {
     const router = useRouter();
@@ -145,14 +145,16 @@ export default function GalleryClient() {
                                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" /></svg>
                             </div>
                             <p className="text-sm text-white/45">Nothing here yet.</p>
-                            <p className="text-xs text-white/25 mt-1">This creator hasn’t generated any videos.</p>
+                            <p className="text-xs text-white/25 mt-1">This creator hasn’t generated anything yet.</p>
                         </div>
                     )}
 
                     {items?.length > 0 && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 pb-10">
                             {items.map((item) => (
-                                <VideoCard key={item.taskId} item={item} onOpen={() => setLightbox(item)} />
+                                item.mediaType === 'image'
+                                    ? <ImageCard key={item.taskId} item={item} onOpen={() => setLightbox(item)} />
+                                    : <VideoCard key={item.taskId} item={item} onOpen={() => setLightbox(item)} />
                             ))}
                         </div>
                     )}

@@ -346,7 +346,7 @@ export default function SeedanceStudio() {
                 localStorage.removeItem('seedance:reuse');
                 const r = JSON.parse(raw);
                 onReuseRefs(
-                    { modeId: r.modeId, style: r.style, userPrompt: r.userPrompt, prompt: r.prompt, options: r.options },
+                    { mediaType: r.mediaType, modeId: r.modeId, style: r.style, userPrompt: r.userPrompt, prompt: r.prompt, options: r.options },
                     Array.isArray(r.refs) ? r.refs : [],
                 );
                 setNotice('Loaded from the gallery — tweak anything and hit Generate.');
@@ -497,28 +497,41 @@ export default function SeedanceStudio() {
                 const toStatus = (s) => (s === 'succeeded' ? 'done' : ['queued', 'running'].includes(s) ? s : 'error');
                 updateJobs((prev) => {
                     const known = new Set(prev.map((j) => j.taskId).filter(Boolean));
-                    const added = items.filter((it) => it.taskId && !known.has(it.taskId)).map((it) => ({
-                        id: `srv-${it.taskId}`,
-                        taskId: it.taskId,
-                        projectId: it.projectId ?? null,
-                        prompt: it.prompt || '',
-                        userPrompt: it.userPrompt || null,
-                        style: it.style || null,
-                        modeId: null,
-                        refs: it.refs || null,
-                        options: { model: it.modelId, resolution: it.resolution, duration: it.duration, ratio: it.ratio },
-                        model: it.modelId,
-                        status: toStatus(it.status),
-                        genId: null,
-                        videoUrl: it.archiveUrl || null,
-                        archiveKey: it.taskId ? archiveKeyForTask(it.taskId) : null,
-                        imageUrl: null,
-                        error: null,
-                        liked: !!it.liked,
-                        deleted: false,
-                        deletedAt: null,
-                        createdAt: it.createdAt ? new Date(it.createdAt).getTime() : Date.now(),
-                    }));
+                    // Image jobs have no provider task id: the server keys them
+                    // 'job:<genId>'. Skip any we already track locally by genId,
+                    // else the same image shows twice (local card + server merge).
+                    const knownGen = new Set(prev.map((j) => (j.genId != null ? String(j.genId) : null)).filter(Boolean));
+                    const isDupImage = (it) => it.mediaType === 'image'
+                        && typeof it.taskId === 'string' && it.taskId.startsWith('job:')
+                        && knownGen.has(it.taskId.slice(4));
+                    const added = items
+                        .filter((it) => it.taskId && !known.has(it.taskId) && !isDupImage(it))
+                        .map((it) => {
+                            const isImage = it.mediaType === 'image';
+                            return {
+                                id: `srv-${it.taskId}`,
+                                taskId: it.taskId,
+                                mediaType: it.mediaType || 'video',
+                                projectId: it.projectId ?? null,
+                                prompt: it.prompt || '',
+                                userPrompt: it.userPrompt || null,
+                                style: it.style || null,
+                                modeId: isImage ? 'image' : null,
+                                refs: it.refs || null,
+                                options: { model: it.modelId, resolution: it.resolution, duration: it.duration, ratio: it.ratio },
+                                model: it.modelId,
+                                status: toStatus(it.status),
+                                genId: null,
+                                videoUrl: isImage ? null : (it.archiveUrl || null),
+                                archiveKey: isImage ? null : (it.taskId ? archiveKeyForTask(it.taskId) : null),
+                                imageUrl: isImage ? (it.imageUrl || null) : null,
+                                error: null,
+                                liked: !!it.liked,
+                                deleted: false,
+                                deletedAt: null,
+                                createdAt: it.createdAt ? new Date(it.createdAt).getTime() : Date.now(),
+                            };
+                        });
                     return added.length ? [...prev, ...added].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)) : prev;
                 });
             })

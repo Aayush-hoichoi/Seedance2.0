@@ -68,6 +68,7 @@ export async function reuseInStudio(router, item) {
     }));
     try {
         localStorage.setItem('seedance:reuse', JSON.stringify({
+            mediaType: item.mediaType || 'video',
             modeId: item.mode,
             style: item.style,
             userPrompt: item.userPrompt,
@@ -108,6 +109,48 @@ export function VideoCard({ item, creator, onOpen }) {
                     <span className="px-1.5 py-0.5 rounded bg-white/10 text-white/70">{item.modelName}</span>
                     {item.resolution && <span>{item.resolution}</span>}
                     {item.duration ? <span>{item.duration}s</span> : null}
+                    <span className="ml-auto font-medium">{timeAgo(item.createdAt)}</span>
+                </div>
+            </div>
+            {creator ? (
+                <span className="absolute top-2 left-2 flex items-center gap-1.5 pl-0.5 pr-2 py-0.5 rounded-full bg-black/60 border border-white/15 backdrop-blur-sm">
+                    <span className={`w-4 h-4 rounded-full bg-gradient-to-br ${gradientFor(creator.id)} flex items-center justify-center text-[8px] font-black text-black/80`}>{initialOf(creator)}</span>
+                    <span className="text-[9px] font-semibold text-white/75 max-w-28 truncate">{creator.name || creator.email}</span>
+                </span>
+            ) : item.liked && (
+                <span className="absolute top-2 left-2 w-5 h-5 rounded-full bg-black/60 border border-rose-400/40 text-rose-400 flex items-center justify-center">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" /></svg>
+                </span>
+            )}
+        </div>
+    );
+}
+
+// One generated image in the grid — same chrome as VideoCard, but a still.
+// No hover-preview (nothing to play); an "Image" tag distinguishes it in a
+// mixed grid. The presigned URL is long-lived (7 days), so no fallback dance.
+export function ImageCard({ item, creator, onOpen }) {
+    const [wrapRef, inView] = useInView();
+    const prompt = item.userPrompt || item.prompt || '';
+    return (
+        <div
+            ref={wrapRef}
+            role="button"
+            tabIndex={0}
+            onClick={onOpen}
+            onKeyDown={(e) => { if (e.key === 'Enter') onOpen(); }}
+            className="group relative aspect-video rounded-2xl overflow-hidden border border-white/10 bg-black/50 cursor-pointer hover:border-white/30 transition-all hover:shadow-xl hover:shadow-black/40"
+            title={prompt}
+        >
+            {inView && item.imageUrl
+                ? <img src={item.imageUrl} alt={prompt} loading="lazy" className="w-full h-full object-cover bg-black" />
+                : <div className="w-full h-full bg-white/[0.03] animate-pulse" />}
+            <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-black/60 border border-white/15 text-[8px] font-black uppercase tracking-wider text-white/70 pointer-events-none">Image</span>
+            <div className="absolute inset-x-0 bottom-0 p-2.5 pt-8 bg-gradient-to-t from-black/85 to-transparent pointer-events-none">
+                {prompt && <p className="text-[11px] leading-snug text-white/85 line-clamp-2">{prompt}</p>}
+                <div className="flex items-center gap-1.5 mt-1.5 text-[9px] font-bold text-white/45">
+                    <span className="px-1.5 py-0.5 rounded bg-white/10 text-white/70">{item.modelName}</span>
+                    {item.resolution && <span>{item.resolution}</span>}
                     <span className="ml-auto font-medium">{timeAgo(item.createdAt)}</span>
                 </div>
             </div>
@@ -187,7 +230,8 @@ export function SmartVideo({ item, videoRef, onUrl, className, ...videoProps }) 
 // Full view: the video big, everything about the generation beside it, and
 // the Reuse action that loads this exact setup back into the studio.
 export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext }) {
-    const [dlUrl, setDlUrl] = useState(null);
+    const isImage = item.mediaType === 'image';
+    const [dlUrl, setDlUrl] = useState(isImage ? item.imageUrl || null : null);
     // Esc closes; ← / → step to the neighbouring generation in the grid.
     useEffect(() => {
         const onKey = (e) => {
@@ -227,7 +271,9 @@ export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext }) {
             >
                 <div className="flex-1 min-w-0 flex items-start justify-center">
                     <div className="rounded-2xl overflow-hidden border border-white/10 bg-black shadow-2xl w-full">
-                        <SmartVideo item={item} onUrl={setDlUrl} className="w-full max-h-[70vh] aspect-video object-contain bg-black" controls autoPlay loop playsInline />
+                        {isImage
+                            ? <img src={item.imageUrl} alt={item.userPrompt || item.prompt || ''} className="w-full max-h-[80vh] object-contain bg-black" />
+                            : <SmartVideo item={item} onUrl={setDlUrl} className="w-full max-h-[70vh] aspect-video object-contain bg-black" controls autoPlay loop playsInline />}
                     </div>
                 </div>
                 <div className="w-full lg:w-80 xl:w-96 shrink-0 flex flex-col rounded-2xl border border-white/10 bg-white/[0.02] backdrop-blur-sm overflow-hidden lg:max-h-[70vh]">
@@ -285,7 +331,7 @@ export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext }) {
                             <a
                                 href={dlUrl}
                                 download
-                                title="Download this video"
+                                title={isImage ? 'Download this image' : 'Download this video'}
                                 className="flex items-center justify-center px-3 py-2 rounded-lg border border-white/10 bg-white/[0.04] text-white/70 hover:text-white hover:border-white/25 transition-colors"
                             >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>

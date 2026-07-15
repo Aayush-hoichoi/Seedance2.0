@@ -19,19 +19,25 @@ export const maxDuration = 15;
 
 const BUCKET = process.env.TOS_BUCKET?.trim() || 'seedance-studio-assets';
 
-function presignArchive(taskId) {
+// Presign a 7-day GET for any TOS object key (pure local HMAC, no round-trip).
+// Videos are archived under videos/<taskId>.mp4; images under the job-scoped
+// images/job-<id>-<index>.<ext> key the gateway stored on the job result.
+function presignKey(key) {
     const ak = process.env.ARK_AK?.trim();
     const sk = process.env.ARK_SK?.trim();
-    const key = archiveKeyForTask(taskId);
     if (!ak || !sk || !key) return null;
     const host = `${BUCKET}.${TOS_ENDPOINT}`;
     return presignGetUrl({ host, path: `/${encodePath(key)}`, ak, sk, expiresSec: 604800 });
 }
 
-// One DB row → the item shape the gallery/liked clients render.
+// One DB row → the item shape the gallery/liked clients render. Images carry no
+// seedance_prompts row, so their prompt comes off the job's request body
+// (image_prompt) and their media URL is the presigned first stored image.
 function toItem(r) {
+    const isImage = r.category === 'image';
     return {
         taskId: r.task_id,
+        mediaType: isImage ? 'image' : 'video',
         modelId: r.model_id,
         modelName: MODELS.find((m) => m.id === r.model_id)?.name ?? r.model_id ?? 'Seedance',
         resolution: r.resolution,
@@ -40,13 +46,14 @@ function toItem(r) {
         mode: r.mode,
         status: r.status,
         createdAt: r.created_at,
-        prompt: r.generated_prompt || r.user_prompt || '',
-        userPrompt: r.user_prompt || null,
+        prompt: r.generated_prompt || r.user_prompt || r.image_prompt || '',
+        userPrompt: r.user_prompt || r.image_prompt || null,
         style: r.style || null,
         refs: Array.isArray(r.refs) && r.refs.length ? r.refs : null,
         liked: !!r.liked,
         projectId: r.project_id ?? null,
-        archiveUrl: presignArchive(r.task_id),
+        archiveUrl: isImage ? null : presignKey(archiveKeyForTask(r.task_id)),
+        imageUrl: isImage ? presignKey(r.image_key) : null,
     };
 }
 
