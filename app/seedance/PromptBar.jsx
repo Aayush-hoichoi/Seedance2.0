@@ -6,7 +6,7 @@
 
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { Lock } from 'lucide-react';
-import { MODES, RATIOS, IMAGE_RATIOS, IMAGE_STUDIO_ID } from '../../lib/seedance/constants.js';
+import { MODES, RATIOS, IMAGE_RATIOS, IMAGE_STUDIO_ID, modeAllowedForModel } from '../../lib/seedance/constants.js';
 import { estimateCost } from '../../lib/seedance/pricing.mjs';
 import { imageCost } from '../../lib/gateway/imagePricing.mjs';
 import { summarize as summarizeCinematic } from '../../lib/seedance/cinematic.mjs';
@@ -674,7 +674,17 @@ export default function PromptBar({
                         <PillSelect
                             id="mode" openKey={openKey} setOpenKey={setOpenKey}                            badge={<span className="w-4 h-4 bg-primary rounded flex items-center justify-center shadow-lg shadow-primary/10"><span className="text-[9px] font-bold text-black">S</span></span>}
                             display={mode.name} label="Mode" value={mode.id}
-                            options={MODES.map((m) => ({ value: m.id, label: m.name }))} onSelect={onChangeMode}
+                            options={MODES.map((m) => {
+                                const allowed = modeAllowedForModel(m, selectedModel);
+                                return { value: m.id, label: allowed ? m.name : `${m.name} (needs Seedance 2.0)`, disabled: !allowed };
+                            })}
+                            onSelect={(v) => {
+                                if (!modeAllowedForModel(MODES.find((x) => x.id === v), selectedModel)) {
+                                    setNotice?.(`${selectedModel?.name || 'This model'} can't run reference-based modes — switch the model to Seedance 2.0 first.`);
+                                    return;
+                                }
+                                onChangeMode(v);
+                            }}
                         />
                         <PillSelect
                             id="model" openKey={openKey} setOpenKey={setOpenKey}                            display={selectedModel?.name || 'Model'} label="Model" value={options.model}
@@ -687,6 +697,12 @@ export default function PromptBar({
                                 const locked = m?.gated && allowedModelIds && !allowedModelIds.includes(v);
                                 if (locked) { requestModelAccess(v); return; }
                                 setOpt('model', v);
+                                // A model switch can strand a mode the new model can't run
+                                // (reference modes on 1.5 Pro) — fall back to Text → Video.
+                                if (!modeAllowedForModel(mode, m)) {
+                                    onChangeMode('t2v');
+                                    setNotice?.(`${m.name} doesn't support ${mode.name} — switched to Text → Video.`);
+                                }
                             }}
                         />
                         <PillSelect

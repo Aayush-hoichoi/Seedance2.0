@@ -1,5 +1,6 @@
 // One-off: enforce the org default-access policy on an EXISTING database.
-// Only Seedance 2.0 Mini + Nano Banana 2 stay org-default (open to everyone);
+// Seedance 2.0 Mini, Seedance 1.5 Pro + Nano Banana 2 stay org-default (open
+// to everyone, matching the non-gated models in lib/seedance/constants.js);
 // every other model (Seedance 2.0 full, Fast, Nano Banana Pro, Seedream 5.0 Pro)
 // moves behind permission — users request access, admins approve. The seed uses
 // ON CONFLICT DO NOTHING, so a previously-seeded row keeps its old is_default;
@@ -8,7 +9,7 @@
 
 import { getDb } from '../lib/db/neon.js';
 
-const OPEN = ['seedance-2.0-mini', 'nano-banana-2'];
+const OPEN = ['seedance-2.0-mini', 'seedance-1.5-pro', 'nano-banana-2'];
 const GATED = ['seedance-2.0', 'seedance-2.0-fast', 'nano-banana-pro', 'seedream-5.0-pro'];
 
 const sql = await getDb();

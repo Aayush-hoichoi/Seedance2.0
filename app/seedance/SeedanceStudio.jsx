@@ -6,7 +6,7 @@
 // in-flight tasks are resumed after a reload by re-polling their ModelArk id.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MODELS, MODES, RATIOS, RESOLUTIONS, DEFAULT_OPTIONS, IMAGE_MODELS, IMAGE_DEFAULT_MODEL_ID, IMAGE_RATIOS, IMAGE_RESOLUTIONS, IMAGE_STUDIO_ID, IMAGE_STUDIO_MODEL_ID } from '../../lib/seedance/constants.js';
+import { MODELS, MODES, RATIOS, RESOLUTIONS, DEFAULT_OPTIONS, IMAGE_MODELS, IMAGE_DEFAULT_MODEL_ID, IMAGE_RATIOS, IMAGE_RESOLUTIONS, IMAGE_STUDIO_ID, IMAGE_STUDIO_MODEL_ID, modeAllowedForModel } from '../../lib/seedance/constants.js';
 import { sanitizeOptions } from '../../lib/seedance/options.mjs';
 import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js';
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
@@ -887,6 +887,12 @@ export default function SeedanceStudio() {
                 setEnhancing(false);
             }
             for (let i = 0; i < batch; i++) launchImageJob(structured, imageRefs, meta);
+            return;
+        }
+        // Belt to the picker's suspenders: never submit a reference-based mode
+        // on a model that can't run r2v — the provider rejects it after the fact.
+        if (!modeAllowedForModel(mode, selectedModel)) {
+            setError(`${selectedModel?.name || 'This model'} doesn't support ${mode.name} — switch the model to Seedance 2.0, or the mode to Text/Image → Video.`);
             return;
         }
         const problem = validate(mode, prompt, mediaByRole);
