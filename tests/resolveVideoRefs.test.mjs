@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveVideoRefs, resolveSensitiveRefs, createWithQuotaRecovery, uploadGroupName } from '../lib/seedance/assetsClient.js';
+import { resolveVideoRefs, resolveSensitiveRefs, createWithQuotaRecovery, uploadGroupName, newlyRegisteredAssetIds } from '../lib/seedance/assetsClient.js';
 
 // Per-project hard partition: each project routes assets into its own group,
 // keyed by project id so a rename can't merge two projects' libraries.
@@ -37,6 +37,17 @@ test('does not mutate the input items', async () => {
     const item = { kind: 'video', url: 'https://tos.example/v.mp4' };
     await resolveVideoRefs([item], fakeRegister);
     assert.equal(item.url, 'https://tos.example/v.mp4');
+});
+
+test('newlyRegisteredAssetIds picks only items resolveVideoRefs swapped in — never library picks', async () => {
+    const items = [
+        { kind: 'video', url: 'https://tos.example/v.mp4' },                 // raw upload → registered this submit
+        { kind: 'video', url: 'asset://already', assetId: 'already' },       // library pick → passes through untouched
+        { kind: 'image', url: 'https://tos.example/i.png' },                 // images never register
+    ];
+    const out = await resolveVideoRefs(items, fakeRegister);
+    assert.deepEqual(newlyRegisteredAssetIds(items, out), ['asset-test-1']);
+    assert.deepEqual(newlyRegisteredAssetIds(items, items), []); // nothing resolved → nothing to delete
 });
 
 test('propagates registration failures', async () => {

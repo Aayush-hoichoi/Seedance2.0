@@ -11,7 +11,7 @@ import { sanitizeOptions } from '../../lib/seedance/options.mjs';
 import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js';
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
 import { buildTags, modeSupportsTags, normalizePromptForApi, restorePromptTokens, validatePromptReferences } from '../../lib/seedance/tags.js';
-import { getAsset, resolveVideoRefs, resolveSensitiveRefs, cleanupOldAssets, registerAssetFromUrl, registerAssetCached } from '../../lib/seedance/assetsClient.js';
+import { getAsset, resolveVideoRefs, resolveSensitiveRefs, cleanupOldAssets, registerAssetFromUrl, registerAssetCached, deleteAsset, newlyRegisteredAssetIds } from '../../lib/seedance/assetsClient.js';
 import { useEvents } from '../hooks/useEvents.js';
 import { enhancePrompt } from '../../lib/seedance/enhance.js';
 import { friendlyError } from '../../lib/seedance/friendlyError.js';
@@ -331,8 +331,21 @@ export default function SeedanceStudio() {
             .catch(() => {});
     };
 
+    // Source-video assets registered just for one submit are deleted the moment
+    // every batch job sharing them is terminal — the ~50-slot account-wide pool
+    // can't hold a working day's worth, and tosKey re-presign keeps Reuse
+    // working afterwards. The registry is in-memory: close the tab mid-render
+    // and the age sweeps collect the leftovers instead.
+    const tmpAssetsRef = useRef({}); // token → { ids, remaining }
+    const releaseTmpAssets = (token) => {
+        const entry = token ? tmpAssetsRef.current[token] : null;
+        if (!entry || --entry.remaining > 0) return;
+        delete tmpAssetsRef.current[token];
+        entry.ids.forEach((id) => deleteAsset(id).catch(() => {}));
+    };
+
     // Poll one task to its end and reflect progress on the job card.
-    const watchJob = (jobId, taskId) => {
+    const watchJob = (jobId, taskId, cleanupToken = null) => {
         const controller = new AbortController();
         controllersRef.current[jobId] = controller;
         pollTask(taskId, {
@@ -346,6 +359,7 @@ export default function SeedanceStudio() {
             .catch((e) => patchJob(jobId, { status: 'error', error: e.message }))
             .finally(() => {
                 delete controllersRef.current[jobId];
+                releaseTmpAssets(cleanupToken);
                 // Best-effort cost finalization on either terminal outcome — the
                 // server re-fetches the task to decide succeeded vs failed.
                 fetch('/api/usage/complete', {
@@ -679,7 +693,7 @@ export default function SeedanceStudio() {
     // Neon prompt-pair store, powering the GPT-4o/user comparison tabs.
     // `creation` snapshots the mode + reference assets at click time, so the
     // history panel can show what was attached and Reuse can restore it.
-    const launchJob = async (payload, promptText, promptMeta = null, creation = {}) => {
+    const launchJob = async (payload, promptText, promptMeta = null, creation = {}, cleanupToken = null) => {
         const job = newJob({
             prompt: promptText,
             model: payload.model,
@@ -708,7 +722,7 @@ export default function SeedanceStudio() {
                     projectId,
                 });
                 patchJob(job.id, { taskId, status: 'queued' });
-                watchJob(job.id, taskId);
+                watchJob(job.id, taskId, cleanupToken);
                 return;
             } catch (e) {
                 // Real-person refs rejected via raw URL pass as verified
@@ -721,6 +735,7 @@ export default function SeedanceStudio() {
                         continue;
                     } catch (e2) {
                         patchJob(job.id, { status: 'error', error: `Reference verification failed — ${e2.message}` });
+                        releaseTmpAssets(cleanupToken);
                         return;
                     }
                 }
@@ -730,6 +745,7 @@ export default function SeedanceStudio() {
                     continue;
                 }
                 patchJob(job.id, { status: 'error', error: e.message });
+                releaseTmpAssets(cleanupToken);
                 return;
             }
         }
@@ -992,7 +1008,15 @@ export default function SeedanceStudio() {
         const creation = { modeId: mode.id, refs: refs.length ? refs : null, options: { ...options } };
 
         // Fire `batch` parallel generations (seed -1 → each gets its own random seed).
-        for (let i = 0; i < batch; i++) launchJob(payload, apiPrompt, promptMeta, creation);
+        // Assets registered just for this submit are shared by the whole batch —
+        // they're deleted once every one of these jobs reaches a terminal state.
+        const tmpIds = newlyRegisteredAssetIds(mediaItems, resolvedItems);
+        let cleanupToken = null;
+        if (tmpIds.length) {
+            cleanupToken = `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            tmpAssetsRef.current[cleanupToken] = { ids: tmpIds, remaining: batch };
+        }
+        for (let i = 0; i < batch; i++) launchJob(payload, apiPrompt, promptMeta, creation, cleanupToken);
     };
 
     // "Reuse" on a history card: load that generation's reference assets AND
