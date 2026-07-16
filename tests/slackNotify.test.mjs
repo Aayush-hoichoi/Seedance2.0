@@ -2,7 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
     slackMessage, slackConfigured, notifySlackAccessRequested, notifySlackAccessDecided,
+    buildAccessRequestedMessage, buildAccessDecidedMessage,
 } from '../lib/notify/slack.mjs';
+
+function clearUrls() {
+    delete process.env.APP_URL;
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
+}
 
 test('slackMessage builds header + field section, drops empty fields', () => {
     const m = slackMessage('fallback', 'Header', [
@@ -22,12 +29,12 @@ test('slackMessage escapes Slack mrkdwn specials in values', () => {
     assert.ok(!m.blocks[1].fields[0].text.includes('<b>'));
 });
 
-test('slackMessage adds a link button only when a url is given', () => {
-    const withBtn = slackMessage('f', 'H', [{ title: 'A', value: '1' }], 'https://x/console');
-    assert.equal(withBtn.blocks[2].type, 'actions');
-    assert.equal(withBtn.blocks[2].elements[0].url, 'https://x/console');
-    const noBtn = slackMessage('f', 'H', [{ title: 'A', value: '1' }]);
-    assert.equal(noBtn.blocks.length, 2);
+test('slackMessage adds an actions block only when actions are given', () => {
+    const withActions = slackMessage('f', 'H', [{ title: 'A', value: '1' }],
+        [{ type: 'button', text: { type: 'plain_text', text: 'Review' }, url: 'https://x/console' }]);
+    assert.equal(withActions.blocks[2].type, 'actions');
+    assert.equal(withActions.blocks[2].elements[0].url, 'https://x/console');
+    assert.equal(slackMessage('f', 'H', [{ title: 'A', value: '1' }]).blocks.length, 2);
 });
 
 test('SLACK_MENTION is prepended to the notification text when set', () => {
@@ -45,9 +52,35 @@ test('slackConfigured reflects SLACK_WEBHOOK_URL', () => {
     delete process.env.SLACK_WEBHOOK_URL;
 });
 
+test('buildAccessRequestedMessage: no interactive buttons without a signing secret', () => {
+    delete process.env.SLACK_SIGNING_SECRET;
+    clearUrls();
+    const m = buildAccessRequestedMessage({ id: 42, email: 'u@x.com', modelId: 'nano-banana-pro', projectName: 'P' });
+    assert.equal(m.blocks.find((b) => b.type === 'actions'), undefined);
+});
+
+test('buildAccessRequestedMessage: Approve/Deny buttons carry the request id when signing secret is set', () => {
+    process.env.SLACK_SIGNING_SECRET = 'shhh';
+    clearUrls();
+    const m = buildAccessRequestedMessage({ id: 42, email: 'u@x.com', modelId: 'nano-banana-pro', projectName: 'P' });
+    const els = m.blocks.find((b) => b.type === 'actions').elements;
+    const approve = els.find((e) => e.action_id === 'access_approve');
+    const deny = els.find((e) => e.action_id === 'access_deny');
+    assert.ok(approve && deny, 'both buttons present');
+    assert.equal(approve.value, '42');
+    assert.equal(deny.value, '42');
+    assert.ok(approve.confirm && deny.confirm, 'confirm dialogs present');
+    delete process.env.SLACK_SIGNING_SECRET;
+});
+
+test('buildAccessDecidedMessage headers reflect the outcome', () => {
+    assert.match(buildAccessDecidedMessage({ email: 'u@x.com', modelId: 'nano-banana-pro', status: 'approved', expiresAt: null }).blocks[0].text.text, /approved/i);
+    assert.match(buildAccessDecidedMessage({ email: 'u@x.com', modelId: 'nano-banana-pro', status: 'revoked' }).blocks[0].text.text, /declined|revoked/i);
+});
+
 test('notify functions no-op (never throw) when the webhook is unset', async () => {
     delete process.env.SLACK_WEBHOOK_URL;
-    const a = await notifySlackAccessRequested({ email: 'u@x.com', modelId: 'nano-banana-pro', projectName: 'P', note: 'hi' });
+    const a = await notifySlackAccessRequested({ id: 1, email: 'u@x.com', modelId: 'nano-banana-pro', projectName: 'P', note: 'hi' });
     assert.equal(a.skipped, true);
     const b = await notifySlackAccessDecided({ email: 'u@x.com', modelId: 'nano-banana-pro', status: 'approved', expiresAt: null });
     assert.equal(b.skipped, true);
