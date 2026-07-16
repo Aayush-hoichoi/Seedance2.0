@@ -52,24 +52,27 @@ test('slackConfigured reflects SLACK_WEBHOOK_URL', () => {
     delete process.env.SLACK_WEBHOOK_URL;
 });
 
-test('buildAccessRequestedMessage: no interactive buttons without a signing secret', () => {
+test('buildAccessRequestedMessage: no interactive controls without a signing secret', () => {
     delete process.env.SLACK_SIGNING_SECRET;
     clearUrls();
     const m = buildAccessRequestedMessage({ id: 42, email: 'u@x.com', modelId: 'nano-banana-pro', projectName: 'P' });
-    assert.equal(m.blocks.find((b) => b.type === 'actions'), undefined);
+    assert.equal(m.blocks.some((b) => b.block_id === 'access_expiry'), false);
+    assert.equal(m.blocks.some((b) => b.block_id === 'access_decision'), false);
 });
 
-test('buildAccessRequestedMessage: Approve/Deny buttons carry the request id when signing secret is set', () => {
+test('buildAccessRequestedMessage: datepicker + preset/custom approve + deny when signing secret is set', () => {
     process.env.SLACK_SIGNING_SECRET = 'shhh';
     clearUrls();
     const m = buildAccessRequestedMessage({ id: 42, email: 'u@x.com', modelId: 'nano-banana-pro', projectName: 'P' });
-    const els = m.blocks.find((b) => b.type === 'actions').elements;
-    const approve = els.find((e) => e.action_id === 'access_approve');
+    const expiry = m.blocks.find((b) => b.block_id === 'access_expiry');
+    assert.equal(expiry.elements[0].type, 'datepicker');
+    assert.equal(expiry.elements[0].action_id, 'expiry_date');
+    const els = m.blocks.find((b) => b.block_id === 'access_decision').elements;
+    const approveVals = els.filter((e) => e.action_id === 'access_approve').map((e) => e.value);
+    assert.ok(['42:7', '42:30', '42:90', '42:custom'].every((v) => approveVals.includes(v)), 'presets + custom present');
     const deny = els.find((e) => e.action_id === 'access_deny');
-    assert.ok(approve && deny, 'both buttons present');
-    assert.equal(approve.value, '42');
     assert.equal(deny.value, '42');
-    assert.ok(approve.confirm && deny.confirm, 'confirm dialogs present');
+    assert.ok(els.filter((e) => e.action_id === 'access_approve').every((e) => e.confirm), 'approve confirms present');
     delete process.env.SLACK_SIGNING_SECRET;
 });
 
