@@ -9,7 +9,7 @@ const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", displ
 
 export const metadata = {
   title: 'loglineAI Studio — AI Image & Video Studio',
-  description: 'Generate AI images and videos using 200+ models — Flux, Midjourney, Kling, Veo, Seedance and more.',
+  description: 'Generate cinema-grade AI video and images with Seedance 2.0, Nano Banana and more — organised by project, reviewed by your team.',
 };
 
 export default function RootLayout({ children }) {
