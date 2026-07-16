@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { UserButton } from '@clerk/nextjs';
 import {
     FolderKanban, LayoutGrid, Users, Heart, ShieldCheck,
-    PanelLeftClose, PanelLeftOpen,
+    PanelLeftClose, PanelLeftOpen, ArrowLeft,
 } from 'lucide-react';
 import ProjectSelect from './ProjectSelect.jsx';
 import ThemePicker from './ThemePicker.jsx';
@@ -48,8 +48,17 @@ export default function StudioSidebar({
             </button>
 
             {!collapsed && projects.length > 0 && (
-                <div className="px-2 pb-2">
-                    <ProjectSelect projects={projects} value={projectId} onChange={selectProject} block />
+                <div className="flex items-center gap-1.5 px-2 pb-2">
+                    <Link
+                        href="/projects"
+                        title="Back to projects"
+                        className="grid h-[34px] w-8 shrink-0 place-items-center rounded-md border border-line text-ink-3 transition-colors hover:border-line-strong hover:text-ink"
+                    >
+                        <ArrowLeft size={15} />
+                    </Link>
+                    <div className="min-w-0 flex-1">
+                        <ProjectSelect projects={projects} value={projectId} onChange={selectProject} block />
+                    </div>
                 </div>
             )}
 
