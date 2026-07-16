@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server';
 // signed-in visitors on to /projects itself), the auth pages, the Clerk
 // webhook (called server-to-server by Clerk with a Svix signature), and the
 // Vercel cron endpoints (authenticated by CRON_SECRET inside the route).
-const isPublicRoute = createRouteMatcher(['/', '/sign-in(.*)', '/sign-up(.*)', '/api/webhooks(.*)', '/api/cron(.*)']);
+const isPublicRoute = createRouteMatcher(['/', '/sign-in(.*)', '/sign-up(.*)', '/api/webhooks(.*)', '/api/cron(.*)', '/api/mcp(.*)', '/.well-known(.*)']);
 
 export default clerkMiddleware(async (auth, request) => {
     const { pathname, search } = request.nextUrl;
