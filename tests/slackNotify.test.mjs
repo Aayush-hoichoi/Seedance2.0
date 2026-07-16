@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
     slackMessage, slackConfigured, notifySlackAccessRequested, notifySlackAccessDecided,
-    buildAccessRequestedMessage, buildAccessDecidedMessage,
+    buildAccessRequestedMessage, buildAccessDecidedMessage, buildAccessListMessage,
 } from '../lib/notify/slack.mjs';
 
 function clearUrls() {
@@ -79,6 +79,37 @@ test('buildAccessRequestedMessage: datepicker + single approve + deny when signi
         assert.ok(b.elements.length <= 5, `actions block ${b.block_id} has ${b.elements.length} elements (max 5)`);
     }
     delete process.env.SLACK_SIGNING_SECRET;
+});
+
+test('buildAccessListMessage: empty grants → ephemeral note, no revoke buttons', () => {
+    const m = buildAccessListMessage([]);
+    assert.equal(m.response_type, 'ephemeral');
+    assert.match(m.text, /no active/i);
+    const buttons = m.blocks.flatMap((b) => (b.accessory ? [b.accessory] : []));
+    assert.equal(buttons.length, 0);
+});
+
+test('buildAccessListMessage: one section per grant, each with a Revoke button carrying the id', () => {
+    process.env.SLACK_SIGNING_SECRET = 'shhh';
+    const grants = [
+        { id: 7, user_email: 'a@x.com', model_id: 'nano-banana-pro', project_name: 'P', expires_at: null },
+        { id: 8, user_email: 'b@x.com', model_id: 'nano-banana-pro', project_id: 3, expires_at: '2099-01-01T00:00:00Z' },
+    ];
+    const m = buildAccessListMessage(grants);
+    assert.match(m.blocks[0].text.text, /2 active/);
+    const sections = m.blocks.filter((b) => b.type === 'section');
+    assert.equal(sections.length, 2, 'one section per grant');
+    assert.equal(sections[0].accessory.action_id, 'access_revoke');
+    assert.equal(sections[0].accessory.value, '7');
+    assert.equal(sections[1].accessory.value, '8');
+    assert.ok(sections[0].accessory.confirm, 'revoke is behind a confirm dialog');
+    delete process.env.SLACK_SIGNING_SECRET;
+});
+
+test('buildAccessListMessage: no Revoke buttons without a signing secret (read-only)', () => {
+    delete process.env.SLACK_SIGNING_SECRET;
+    const m = buildAccessListMessage([{ id: 7, user_email: 'a@x.com', model_id: 'nano-banana-pro', expires_at: null }]);
+    assert.equal(m.blocks.filter((b) => b.accessory).length, 0);
 });
 
 test('buildAccessDecidedMessage headers reflect the outcome', () => {

@@ -1,6 +1,7 @@
 // Slack interaction handler for the Approve / Deny buttons on model-access
-// request cards. Public (matches the /api/webhooks(.*) middleware allowlist);
-// authenticated instead by Slack's request signature.
+// request cards, and the Revoke buttons on the /all-access list. Public
+// (matches the /api/webhooks(.*) middleware allowlist); authenticated instead
+// by Slack's request signature.
 //
 // Security: every request must carry a valid Slack signature (SLACK_SIGNING_SECRET).
 // The request channel is admins-only, so any signature-verified click may decide.
@@ -12,10 +13,11 @@
 //   SLACK_APPROVE_DAYS    fallback grant window if no expiry date is picked (default 2)
 
 import { NextResponse } from 'next/server';
-import { setRequestStatus } from '../../../../lib/access/db.js';
+import { setRequestStatus, listActiveGrants } from '../../../../lib/access/db.js';
 import { syncGatewayOverride } from '../../../../lib/access/gatewaySync.mjs';
 import { nextStatus } from '../../../../lib/access/requestStatus.mjs';
 import { verifySlackSignature } from '../../../../lib/slack/verify.mjs';
+import { buildAccessListMessage } from '../../../../lib/notify/slack.mjs';
 import { MODELS, IMAGE_MODELS } from '../../../../lib/seedance/constants.js';
 
 export const runtime = 'nodejs';
@@ -75,12 +77,14 @@ export async function POST(request) {
     try { payload = JSON.parse(new URLSearchParams(rawBody).get('payload')); }
     catch { return NextResponse.json({ error: 'bad payload' }, { status: 400 }); }
 
-    // access_approve grants until the picked expiry date; access_deny declines.
-    // The datepicker's own change events (expiry_date) are ignored.
+    // access_approve grants until the picked expiry date; access_deny declines a
+    // pending request; access_revoke (from the /all-access list) pulls a live
+    // grant. The datepicker's own change events (expiry_date) are ignored.
     const act = payload?.actions?.[0];
     const isApprove = !!act?.action_id?.startsWith('access_approve');
     const isDeny = act?.action_id === 'access_deny';
-    if (!act || (!isApprove && !isDeny)) {
+    const isRevoke = act?.action_id === 'access_revoke';
+    if (!act || (!isApprove && !isDeny && !isRevoke)) {
         return NextResponse.json({ ok: true }); // not one of our buttons — ack and ignore
     }
     const responseUrl = payload.response_url;
@@ -104,7 +108,7 @@ export async function POST(request) {
     const byUser = `${payload.user?.username || payload.user?.name || clicker} (Slack)`;
 
     // Grant window = the picked expiry date (end of day, UTC); if untouched, fall
-    // back to SLACK_APPROVE_DAYS (default 30).
+    // back to SLACK_APPROVE_DAYS (default 2).
     let validUntil = null;
     if (approve) {
         const picked = pickedDate(payload);
@@ -130,6 +134,15 @@ export async function POST(request) {
         });
     } catch (err) {
         console.error('[slack] gateway sync failed:', err.message); // status is already saved
+    }
+
+    if (isRevoke) {
+        // Redraw the /all-access list in place so the pulled grant drops off.
+        let granted = [];
+        try { granted = await listActiveGrants(); }
+        catch (err) { console.error('[slack] revoke list refresh failed:', err.message); }
+        await respond(responseUrl, { ...buildAccessListMessage(granted), replace_original: true });
+        return NextResponse.json({ ok: true });
     }
 
     await respond(responseUrl, outcomeMessage({
