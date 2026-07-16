@@ -2,6 +2,7 @@ import { createMcpHandler, withMcpAuth } from 'mcp-handler';
 import { auth } from '@clerk/nextjs/server';
 import { verifyClerkToken } from '@clerk/mcp-tools/next';
 import { registerCatalogTools } from '../../../../lib/mcp/tools/catalog.js';
+import { registerProjectTools } from '../../../../lib/mcp/tools/projects.js';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300; // register_asset polls; video status may sweep
@@ -12,6 +13,7 @@ const handler = createMcpHandler(
             content: [{ type: 'text', text: JSON.stringify({ pong: true, userId: extra?.authInfo?.extra?.userId ?? null }) }],
         }));
         registerCatalogTools(server);
+        registerProjectTools(server);
     },
     {},
     { basePath: '/api/mcp' }, // endpoint: /api/mcp/mcp (streamable HTTP)
