@@ -52,3 +52,25 @@ test('server callAsset: non-throttle errors still fail immediately', async () =>
         process.env.ARK_SK = prevSk;
     }
 });
+
+test('pollAssetActive rejects with STILL_PROCESSING once an expired deadline is hit, without polling', async () => {
+    const prevAk = process.env.ARK_AK;
+    const prevSk = process.env.ARK_SK;
+    process.env.ARK_AK = 'test-ak';
+    process.env.ARK_SK = 'test-sk';
+    const { pollAssetActive } = await import('../lib/byteplus/assetsServer.js');
+    let calls = 0;
+    const realFetch = global.fetch;
+    global.fetch = async () => { calls++; return { ok: true, status: 200, json: async () => ({ Result: { Id: 'a1', Status: 'Processing' } }) }; };
+    try {
+        await assert.rejects(
+            () => pollAssetActive('a1', { deadlineMs: Date.now() - 1 }),
+            (err) => err.code === 'STILL_PROCESSING',
+        );
+        assert.equal(calls, 0); // deadline check happens before the getAsset fetch
+    } finally {
+        global.fetch = realFetch;
+        process.env.ARK_AK = prevAk;
+        process.env.ARK_SK = prevSk;
+    }
+});
