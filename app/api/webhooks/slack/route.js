@@ -74,8 +74,12 @@ export async function POST(request) {
     try { payload = JSON.parse(new URLSearchParams(rawBody).get('payload')); }
     catch { return NextResponse.json({ error: 'bad payload' }, { status: 400 }); }
 
+    // Approve buttons carry unique action_ids (access_approve_7/_30/_90/_custom);
+    // the datepicker's own change events (expiry_date) are ignored.
     const act = payload?.actions?.[0];
-    if (!act || (act.action_id !== 'access_approve' && act.action_id !== 'access_deny')) {
+    const isApprove = !!act?.action_id?.startsWith('access_approve');
+    const isDeny = act?.action_id === 'access_deny';
+    if (!act || (!isApprove && !isDeny)) {
         return NextResponse.json({ ok: true }); // not one of our buttons — ack and ignore
     }
     const responseUrl = payload.response_url;
@@ -95,7 +99,7 @@ export async function POST(request) {
         await respond(responseUrl, note('This request is no longer valid.'));
         return NextResponse.json({ ok: true });
     }
-    const approve = act.action_id === 'access_approve';
+    const approve = isApprove;
     const byUser = `${payload.user?.username || payload.user?.name || clicker} (Slack)`;
 
     // Resolve the grant window: a custom picked date, or a preset number of days.

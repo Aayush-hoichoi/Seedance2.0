@@ -68,11 +68,17 @@ test('buildAccessRequestedMessage: datepicker + preset/custom approve + deny whe
     assert.equal(expiry.elements[0].type, 'datepicker');
     assert.equal(expiry.elements[0].action_id, 'expiry_date');
     const els = m.blocks.find((b) => b.block_id === 'access_decision').elements;
-    const approveVals = els.filter((e) => e.action_id === 'access_approve').map((e) => e.value);
+    const approves = els.filter((e) => e.action_id?.startsWith('access_approve'));
+    const approveVals = approves.map((e) => e.value);
     assert.ok(['42:7', '42:30', '42:90', '42:custom'].every((v) => approveVals.includes(v)), 'presets + custom present');
-    const deny = els.find((e) => e.action_id === 'access_deny');
-    assert.equal(deny.value, '42');
-    assert.ok(els.filter((e) => e.action_id === 'access_approve').every((e) => e.confirm), 'approve confirms present');
+    const ids = approves.map((e) => e.action_id);
+    assert.equal(new Set(ids).size, ids.length, 'approve action_ids are unique within the block');
+    assert.equal(els.find((e) => e.action_id === 'access_deny').value, '42');
+    assert.ok(approves.every((e) => e.confirm), 'approve confirms present');
+    // Slack caps an actions block at 5 elements — regressions here 400 at post time.
+    for (const b of m.blocks.filter((x) => x.type === 'actions')) {
+        assert.ok(b.elements.length <= 5, `actions block ${b.block_id} has ${b.elements.length} elements (max 5)`);
+    }
     delete process.env.SLACK_SIGNING_SECRET;
 });
 
