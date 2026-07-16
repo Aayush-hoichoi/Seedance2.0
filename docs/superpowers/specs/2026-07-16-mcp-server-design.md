@@ -27,19 +27,46 @@ token system:
   requires building inbound personal-access-token auth from scratch plus a
   second deployment for the same result.
 
-## Tools (v1 — 9 tools)
+## Tools (v1 — full studio parity, ~24 tools)
 
+Scope decision (Aayush, 2026-07-16): **everything a user can do in the studio
+should be doable over MCP**, permission-gated identically. Grouped:
+
+**Catalog & access**
 | Tool | Purpose | Permission / scope |
 |---|---|---|
+| `list_models` | Model catalog (video + image) with gating, resolutions, durations, and which models THIS user can use (`/api/access/me` logic) | any signed-in user |
+| `get_my_access` | Current grants + pending requests | any signed-in user |
+| `request_model_access` | Request a gated model (feeds the existing Slack approval flow) | any signed-in user |
+
+**Projects**
 | `list_projects` | Projects the user can act on | membership-scoped (admin/manager see all) |
-| `list_generations` | Recent generations for a project: prompt, status, output URLs | membership; other users' prompts require `prompt.view` |
-| `list_assets` | Browse/search the project's asset pool (BytePlus asset group) | `generation.create` |
-| `get_usage` | Spend + remaining quota per project | `usage.view` |
+| `create_project` / `update_project` | Create, rename, pause, archive | `project.manage` |
+
+**Generation**
 | `create_video` | Seedance video generation through the governed gateway path | `generation.create` + model grants + quotas |
-| `create_image` | Image generation (Nano Banana 2/Pro, Seedream 5.0 Pro) through `/api/generations` logic incl. `sanitizeImageRequest` | `generation.create` + model grants + quotas |
+| `create_image` | Image generation (Nano Banana 2/Pro, Seedream 5.0 Pro, Cinematic Studio) through the `/api/generations` logic incl. `sanitizeImageRequest` | `generation.create` + model grants + quotas |
 | `get_job_status` | Poll a task until output URL is ready (video + image) | own jobs / project membership |
+| `cancel_job` | Cancel a queued/running job (gateway `cancel.mjs`) | own jobs |
+
+**History & gallery**
+| `list_generations` | Recent generations for a project: prompt, status, output URLs | membership; other users' prompts require `prompt.view` |
+| `get_generation` | One generation's detail + presigned output URL (covers download — the client fetches the URL directly; server-side zip stays studio-only) | as above |
+| `bin_generation` | Soft-delete / restore (existing `deleted` flag semantics) | own generations |
+| `like_generation` | Like / unlike | any signed-in user |
+| `browse_gallery` | Community gallery: creators, per-creator items, liked feed | any signed-in user |
+
+**Assets**
+| `list_assets` | Browse/search the project's asset pool (BytePlus asset group) | `generation.create` |
 | `register_asset` | Register a **public URL** into the project's asset group (existing `registerUrlAsset` flow, polls past `Processing`) | `generation.create` |
 | `create_upload_url` | Presigned TOS PUT URL + final public URL, for local-file upload from Claude Code (curl), then `register_asset` | `generation.create` |
+| `delete_asset` | Remove an asset from the pool | `generation.create`, own project |
+
+**Usage & admin** (admin tools appear only if the token's user has the permission)
+| `get_usage` | Spend + remaining quota per project (org rollup for admin/manager) | `usage.view` |
+| `list_access_requests` / `resolve_access_request` | View + approve/deny model access requests (mirrors the Slack command) | `model.grant` |
+| `list_quotas` / `set_quota` | View + edit budgets/quotas | `quota.manage` |
+| `view_audit` | Audit trail | `audit.view` |
 
 Reference media on `create_video` / `create_image`: `refs: [{ assetId, role }]`
 with the studio's existing roles (`first_frame`, `reference_image`,
@@ -52,13 +79,24 @@ Nothing new. Every tool declares the same permission the equivalent studio
 action requires and resolves through `gatewayContext` (platform roles from
 Clerk `publicMetadata.role`; seeded role → permission table applies verbatim).
 
-Deliberate v1 exclusions:
-- **No admin write tools** over MCP — no model grants, quota edits, member
-  management, or provider keys. Console + Slack approvals only.
+Deliberate v1 exclusions (everything else is parity):
+- **Provider API keys** (`key.manage`) — secrets never travel over MCP;
+  console only.
+- **User role management** — roles live in Clerk `publicMetadata`; Clerk
+  dashboard / Users console only.
+- **Workflow builder / creative agent / muapi proxy surfaces** — separate
+  product surface with its own key system (`x-api-key` to api.muapi.ai);
+  revisit as a separate MCP later if wanted.
+- **Bulk zip download** — MCP clients fetch presigned URLs directly;
+  the server-side zip stream stays a browser feature.
+
+Invariants:
 - **Gated models still gate** — denial mirrors the studio's friendly
-  request-access message.
+  request-access message and points at `request_model_access`.
 - **All generations log usage/billing events** under the real user + project,
   indistinguishable from studio usage.
+- **Admin tools are permission-gated per call** via `gatewayContext`, exactly
+  like the console routes they mirror.
 
 ## Known limitations (accepted)
 
