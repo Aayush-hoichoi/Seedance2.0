@@ -727,7 +727,7 @@ export default function PromptBar({
                         {/* Cost transparency: the same estimate the gateway reserves against. */}
                         {(() => {
                             const est = isImage
-                                ? imageCost(selectedImageModel?.kind, 'interactive', 1)
+                                ? imageCost(selectedImageModel?.kind, 'interactive', 1, selectedImageModel?.resolutions ? options.imageResolution || null : null)
                                 : estimateCost({ kind: selectedModel?.kind, resolution: options.resolution, duration: options.duration });
                             return est != null ? (
                                 <span className="hidden sm:inline text-[11px] font-semibold tabular-nums text-white/35 pr-1" title="Estimated cost (final cost uses real token usage)">
