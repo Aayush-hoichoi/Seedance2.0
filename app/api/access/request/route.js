@@ -3,7 +3,7 @@ import { getUser } from '../../../../lib/auth/user.js';
 import { requestAccess } from '../../../../lib/access/db.js';
 import { getDb } from '../../../../lib/db/neon.js';
 import { GATED_MODEL_IDS, IMAGE_GATED_MODEL_IDS } from '../../../../lib/seedance/constants.js';
-import { notifyAccessRequested } from '../../../../lib/notify/accessNotifications.mjs';
+import { notifyTeamsAccessRequested } from '../../../../lib/notify/teams.mjs';
 
 export const runtime = 'nodejs';
 
@@ -32,10 +32,11 @@ export async function POST(request) {
     if (!member) return NextResponse.json({ error: 'You are not a member of that project.' }, { status: 403 });
     const cleanNote = typeof note === 'string' ? note.slice(0, 500) : null;
     const status = await requestAccess(user.userId, user.email, modelId, cleanNote, pid);
-    // Notify the admin only on a fresh pending request — a no-op re-request over
-    // an already-approved grant returns 'approved' and must not spam anyone.
+    // Post to the Teams channel only on a fresh pending request — a no-op
+    // re-request over an already-approved grant returns 'approved' and must not
+    // ping anyone.
     if (status === 'pending') {
-        await notifyAccessRequested({ email: user.email, modelId, projectName: member.name, note: cleanNote }).catch(() => {});
+        await notifyTeamsAccessRequested({ email: user.email, modelId, projectName: member.name, note: cleanNote }).catch(() => {});
     }
     return NextResponse.json({ ok: true, status });
 }

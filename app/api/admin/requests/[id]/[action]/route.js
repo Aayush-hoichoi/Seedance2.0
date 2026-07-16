@@ -4,7 +4,7 @@ import { setRequestStatus } from '../../../../../../lib/access/db.js';
 import { nextStatus } from '../../../../../../lib/access/requestStatus.mjs';
 import { getDb } from '../../../../../../lib/db/neon.js';
 import { emitEvent, writeAudit } from '../../../../../../lib/gateway/db.js';
-import { notifyAccessDecided } from '../../../../../../lib/notify/accessNotifications.mjs';
+import { notifyTeamsAccessDecided } from '../../../../../../lib/notify/teams.mjs';
 
 export const runtime = 'nodejs';
 
@@ -97,7 +97,7 @@ export async function POST(request, { params }) {
     } catch (err) {
         console.error('[access] gateway override sync failed:', err.message); // legacy status is already saved
     }
-    // Tell the requester the outcome (approved / declined). Best-effort.
-    await notifyAccessDecided({ email: row.user_email, modelId: row.model_id, status: row.status, expiresAt: row.expires_at }).catch(() => {});
+    // Post the outcome (approved / declined) to the Teams channel. Best-effort.
+    await notifyTeamsAccessDecided({ email: row.user_email, modelId: row.model_id, status: row.status, expiresAt: row.expires_at }).catch(() => {});
     return NextResponse.json({ ok: true, request: row });
 }
