@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { verifyClerkToken } from '@clerk/mcp-tools/next';
 import { registerCatalogTools } from '../../../../lib/mcp/tools/catalog.js';
 import { registerProjectTools } from '../../../../lib/mcp/tools/projects.js';
+import { registerHistoryTools } from '../../../../lib/mcp/tools/history.js';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300; // register_asset polls; video status may sweep
@@ -14,6 +15,7 @@ const handler = createMcpHandler(
         }));
         registerCatalogTools(server);
         registerProjectTools(server);
+        registerHistoryTools(server);
     },
     {},
     { basePath: '/api/mcp' }, // endpoint: /api/mcp/mcp (streamable HTTP)
