@@ -6,6 +6,7 @@ import { registerProjectTools } from '../../../../lib/mcp/tools/projects.js';
 import { registerHistoryTools } from '../../../../lib/mcp/tools/history.js';
 import { registerAssetTools } from '../../../../lib/mcp/tools/assets.js';
 import { registerGenerateTools } from '../../../../lib/mcp/tools/generate.js';
+import { registerAdminTools } from '../../../../lib/mcp/tools/admin.js';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300; // register_asset polls; video status may sweep
@@ -20,6 +21,7 @@ const handler = createMcpHandler(
         registerHistoryTools(server);
         registerAssetTools(server);
         registerGenerateTools(server);
+        registerAdminTools(server);
     },
     {},
     { basePath: '/api/mcp' }, // endpoint: /api/mcp/mcp (streamable HTTP)
