@@ -1,7 +1,7 @@
 # MCP Server for LoglineAI Studio — Design
 
 **Date:** 2026-07-16
-**Status:** Approved (brainstormed with Aayush)
+**Status:** Implemented (Tasks 1-12 complete; E2E pending) — see docs/mcp.md
 
 ## Goal
 
