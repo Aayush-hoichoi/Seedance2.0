@@ -238,11 +238,12 @@ export default function SeedanceStudio() {
         [projectId, projects],
     );
 
-    // Sweep day-old studio assets from ALL studio groups so the tiny shared
-    // (account-wide) BytePlus pool never fills up — stale assets in other
-    // projects' groups count against the same pool and broke uploads before.
-    // Re-sweep every 30 min: a studio tab left open for days never remounts,
-    // and mount-only sweeping let the pool silently refill.
+    // Sweep leaked studio assets (2h+, from closed or pre-update tabs) from
+    // ALL studio groups so the tiny shared (account-wide) BytePlus pool never
+    // fills up — stale assets in other projects' groups count against the
+    // same pool and broke uploads before. Re-sweep every 30 min: a studio tab
+    // left open for days never remounts, and mount-only sweeping let the pool
+    // silently refill.
     useEffect(() => {
         if (!projectId) return;
         cleanupOldAssets().catch(() => {});
