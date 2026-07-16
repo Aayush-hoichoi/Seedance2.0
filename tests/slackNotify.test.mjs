@@ -60,7 +60,7 @@ test('buildAccessRequestedMessage: no interactive controls without a signing sec
     assert.equal(m.blocks.some((b) => b.block_id === 'access_decision'), false);
 });
 
-test('buildAccessRequestedMessage: datepicker + preset/custom approve + deny when signing secret is set', () => {
+test('buildAccessRequestedMessage: datepicker + single approve + deny when signing secret is set', () => {
     process.env.SLACK_SIGNING_SECRET = 'shhh';
     clearUrls();
     const m = buildAccessRequestedMessage({ id: 42, email: 'u@x.com', modelId: 'nano-banana-pro', projectName: 'P' });
@@ -69,12 +69,11 @@ test('buildAccessRequestedMessage: datepicker + preset/custom approve + deny whe
     assert.equal(expiry.elements[0].action_id, 'expiry_date');
     const els = m.blocks.find((b) => b.block_id === 'access_decision').elements;
     const approves = els.filter((e) => e.action_id?.startsWith('access_approve'));
-    const approveVals = approves.map((e) => e.value);
-    assert.ok(['42:7', '42:30', '42:90', '42:custom'].every((v) => approveVals.includes(v)), 'presets + custom present');
-    const ids = approves.map((e) => e.action_id);
-    assert.equal(new Set(ids).size, ids.length, 'approve action_ids are unique within the block');
+    assert.equal(approves.length, 1, 'exactly one approve button (custom picker only, no presets)');
+    assert.equal(approves[0].action_id, 'access_approve');
+    assert.equal(approves[0].value, '42', 'approve carries the bare request id');
+    assert.ok(approves[0].confirm, 'approve confirm present');
     assert.equal(els.find((e) => e.action_id === 'access_deny').value, '42');
-    assert.ok(approves.every((e) => e.confirm), 'approve confirms present');
     // Slack caps an actions block at 5 elements — regressions here 400 at post time.
     for (const b of m.blocks.filter((x) => x.type === 'actions')) {
         assert.ok(b.elements.length <= 5, `actions block ${b.block_id} has ${b.elements.length} elements (max 5)`);

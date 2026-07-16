@@ -2,13 +2,14 @@
 // request cards. Public (matches the /api/webhooks(.*) middleware allowlist);
 // authenticated instead by Slack's request signature.
 //
-// Security: every request must carry a valid Slack signature (SLACK_SIGNING_SECRET),
-// and the clicking Slack user must be in the SLACK_APPROVER_IDS allowlist — a
-// signature only proves Slack sent it, not that the clicker may grant access.
+// Security: every request must carry a valid Slack signature (SLACK_SIGNING_SECRET).
+// The request channel is admins-only, so any signature-verified click may decide.
+// SLACK_APPROVER_IDS stays supported as an optional allowlist: set it to restrict
+// deciders to specific member ids; leave it unset and any admin in the channel can.
 //
 //   SLACK_SIGNING_SECRET  the Slack app's signing secret (Basic Information)
-//   SLACK_APPROVER_IDS    comma-separated Slack member ids allowed to decide
-//   SLACK_APPROVE_DAYS    fallback grant window if a button omits one (default 30)
+//   SLACK_APPROVER_IDS    optional: comma-separated Slack member ids allowed to decide
+//   SLACK_APPROVE_DAYS    fallback grant window if no expiry date is picked (default 2)
 
 import { NextResponse } from 'next/server';
 import { setRequestStatus } from '../../../../lib/access/db.js';
@@ -74,8 +75,8 @@ export async function POST(request) {
     try { payload = JSON.parse(new URLSearchParams(rawBody).get('payload')); }
     catch { return NextResponse.json({ error: 'bad payload' }, { status: 400 }); }
 
-    // Approve buttons carry unique action_ids (access_approve_7/_30/_90/_custom);
-    // the datepicker's own change events (expiry_date) are ignored.
+    // access_approve grants until the picked expiry date; access_deny declines.
+    // The datepicker's own change events (expiry_date) are ignored.
     const act = payload?.actions?.[0];
     const isApprove = !!act?.action_id?.startsWith('access_approve');
     const isDeny = act?.action_id === 'access_deny';
@@ -83,18 +84,18 @@ export async function POST(request) {
         return NextResponse.json({ ok: true }); // not one of our buttons — ack and ignore
     }
     const responseUrl = payload.response_url;
-
-    // Authz: only allowlisted Slack users may decide.
-    const allow = (process.env.SLACK_APPROVER_IDS || '').split(',').map((s) => s.trim()).filter(Boolean);
     const clicker = payload.user?.id;
-    if (!allow.includes(clicker)) {
+
+    // Authz: the channel is admins-only, so any signed click decides. If
+    // SLACK_APPROVER_IDS is set, enforce it as an optional allowlist.
+    const allow = (process.env.SLACK_APPROVER_IDS || '').split(',').map((s) => s.trim()).filter(Boolean);
+    if (allow.length && !allow.includes(clicker)) {
         await respond(responseUrl, note("You're not authorized to approve model access. Ask an admin, or use the console."));
         return NextResponse.json({ ok: true });
     }
 
-    // Value is "<requestId>" (deny) or "<requestId>:<days>" (approve preset).
-    const [reqIdStr, daysStr] = String(act.value).split(':');
-    const requestId = Number(reqIdStr);
+    // Value is "<requestId>" (tolerate a legacy "<id>:<days>" from older cards).
+    const requestId = Number(String(act.value).split(':')[0]);
     if (!Number.isInteger(requestId) || requestId <= 0) {
         await respond(responseUrl, note('This request is no longer valid.'));
         return NextResponse.json({ ok: true });
@@ -102,25 +103,19 @@ export async function POST(request) {
     const approve = isApprove;
     const byUser = `${payload.user?.username || payload.user?.name || clicker} (Slack)`;
 
-    // Resolve the grant window: a custom picked date, or a preset number of days.
+    // Grant window = the picked expiry date (end of day, UTC); if untouched, fall
+    // back to SLACK_APPROVE_DAYS (default 30).
     let validUntil = null;
     if (approve) {
-        if (daysStr === 'custom') {
-            const picked = pickedDate(payload);
-            const at = picked ? Date.parse(`${picked}T23:59:59.000Z`) : NaN;
-            if (!Number.isFinite(at)) {
-                await respond(responseUrl, note('Pick an expiry date first, then click “Use picked date.”'));
-                return NextResponse.json({ ok: true });
-            }
-            if (at <= Date.now()) {
-                await respond(responseUrl, note('That expiry date is in the past — pick a future date.'));
-                return NextResponse.json({ ok: true });
-            }
-            validUntil = new Date(at).toISOString();
-        } else {
-            const days = Number(daysStr) || Number(process.env.SLACK_APPROVE_DAYS) || 30;
-            validUntil = new Date(Date.now() + days * 86400000).toISOString();
+        const picked = pickedDate(payload);
+        const at = picked
+            ? Date.parse(`${picked}T23:59:59.000Z`)
+            : Date.now() + (Number(process.env.SLACK_APPROVE_DAYS) || 2) * 86400000;
+        if (!Number.isFinite(at) || at <= Date.now()) {
+            await respond(responseUrl, note('That expiry date is in the past — pick a future date.'));
+            return NextResponse.json({ ok: true });
         }
+        validUntil = new Date(at).toISOString();
     }
 
     const row = await setRequestStatus(requestId, nextStatus(approve ? 'approve' : 'revoke'), byUser, validUntil);
