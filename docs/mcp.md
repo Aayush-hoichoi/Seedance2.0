@@ -159,6 +159,11 @@ asset flips to `Active`; call `list_assets` shortly after to confirm.
 | Tool | Purpose | Permission / scope |
 |---|---|---|
 | `get_usage` | Spend rollup grouped by model/user/provider/project/day. With `projectId`: that project (needs `usage.view` there). Without: workspace-wide, admin/manager only | `usage.view` (or admin/manager for workspace-wide) |
+
+Workspace-wide usage (no `projectId`) is available to **admins and managers**
+over MCP per the approved design spec — this deliberately differs from the
+console's `/api/orgs/usage` route, which restricts the same workspace-wide
+rollup to admins only.
 | `list_access_requests` | Pending + decided model access requests | `model.grant` |
 | `resolve_access_request` | Approve or deny a model access request; approval grants access until `validUntilDays` from now (default 2, same as the Slack flow) and syncs the gateway override | `model.grant` |
 | `list_quotas` | Active budgets/quotas with current usage/reserved amounts | `quota.manage` |
