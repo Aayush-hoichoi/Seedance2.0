@@ -42,6 +42,14 @@ test('full-tier per-5s estimates rise strictly with resolution', () => {
     assert.ok(est('1080p') < est('4k'), '1080p < 4k');
 });
 
+test('resolution casing from raw client input never lands on the wrong tier', () => {
+    assert.equal(resolutionTier('4K'), '4k');
+    assert.equal(resolutionTier('1080P'), '1080p');
+    assert.equal(resolutionTier(null), 'sd');
+    assert.equal(unitPrice('full', '4K', false), 4.0); // was tiering to sd (7.0)
+    assert.equal(estimateCost({ kind: 'full', resolution: '4K', duration: 5 }), 3.89); // was falling back to 720p (0.76)
+});
+
 test('estimateCost applies the measured video-input drift (~17% up)', () => {
     assert.equal(estimateCost({ kind: 'mini', resolution: '480p', duration: 5, hasVideoInput: true }), 0.2106);
     const plain = estimateCost({ kind: 'full', resolution: '1080p', duration: 10 });

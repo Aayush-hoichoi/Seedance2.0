@@ -21,3 +21,12 @@ test('create_video shape validates refs and rejects junk', () => {
     const badRole = z.object({ refs: z.array(z.object(refsShape)) }).safeParse({ refs: [{ url: 'https://x/y.png', role: 'banana' }] });
     assert.equal(badRole.success, false);
 });
+
+test('create_video resolution normalizes casing and rejects unknown values', () => {
+    const S = z.object(createVideoShape);
+    const base = { model: 'seedance-2.0', prompt: 'a cat' };
+    assert.equal(S.parse({ ...base, resolution: '4K' }).resolution, '4k'); // '4K' used to mis-tier billing to sd
+    assert.equal(S.parse({ ...base, resolution: '1080P' }).resolution, '1080p');
+    assert.equal(S.parse({ ...base }).resolution, undefined); // still optional
+    assert.equal(S.safeParse({ ...base, resolution: '2160p' }).success, false);
+});
