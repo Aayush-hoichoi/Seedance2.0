@@ -31,11 +31,11 @@ export async function POST(request) {
         WHERE m.project_id = ${pid} AND m.user_id = ${user.userId} LIMIT 1`;
     if (!member) return NextResponse.json({ error: 'You are not a member of that project.' }, { status: 403 });
     const cleanNote = typeof note === 'string' ? note.slice(0, 500) : null;
-    const { id, status } = await requestAccess(user.userId, user.email, modelId, cleanNote, pid);
-    // Post to Slack only on a fresh pending request — a no-op re-request over an
-    // already-approved grant returns 'approved' and must not ping anyone. The id
-    // rides the Approve/Deny buttons so the interaction handler knows the target.
-    if (status === 'pending') {
+    const { id, status, fresh } = await requestAccess(user.userId, user.email, modelId, cleanNote, pid);
+    // Post to Slack only on a FRESH pending request — a re-request over one
+    // that's still pending (or over a live grant) must not re-ping the channel.
+    // The id rides the Approve/Deny buttons so the interaction handler knows the target.
+    if (fresh) {
         await notifySlackAccessRequested({ id, email: user.email, modelId, projectName: member.name, note: cleanNote }).catch(() => {});
     }
     return NextResponse.json({ ok: true, status });
