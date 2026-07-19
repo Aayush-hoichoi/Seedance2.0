@@ -7,7 +7,7 @@
 // Plays on EVERY reload with a fresh line each time; click anywhere skips.
 // Animation: motion (framer-motion's successor).
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -33,6 +33,13 @@ export default function WelcomeSplash() {
     const [show, setShow] = useState(true); // overlay is up from first paint
     const [hello, setHello] = useState('');
     const [joke, setJoke] = useState('');
+    // Hovering the text = reading: the auto-hide defers until the cursor leaves.
+    const hovering = useRef(false);
+    const pendingHide = useRef(false);
+    const tryHide = () => {
+        if (hovering.current) { pendingHide.current = true; return; }
+        setShow(false);
+    };
 
     // Greeting as soon as Clerk resolves the user (usually instant from cache).
     useEffect(() => {
@@ -55,7 +62,7 @@ export default function WelcomeSplash() {
                 clearTimeout(kill);
                 if (cancelled) return;
                 setJoke(d?.joke || pick(FALLBACK_JOKES));
-                hideTimer = setTimeout(() => setShow(false), 5500); // enough time to actually read the joke
+                hideTimer = setTimeout(tryHide, 5500); // enough time to actually read the joke
             });
         return () => { cancelled = true; clearTimeout(kill); clearTimeout(hideTimer); ctrl.abort(); };
     }, []);
@@ -72,7 +79,15 @@ export default function WelcomeSplash() {
                     className="fixed inset-0 z-[80] grid cursor-pointer place-items-center bg-app-bg"
                     aria-live="polite"
                 >
-                    <div className="px-6 text-center">
+                    <div
+                        className="px-6 text-center"
+                        onMouseEnter={() => { hovering.current = true; }}
+                        onMouseLeave={() => {
+                            hovering.current = false;
+                            // Deferred while reading — dismiss shortly after the cursor leaves.
+                            if (pendingHide.current) setTimeout(() => { if (!hovering.current) setShow(false); }, 700);
+                        }}
+                    >
                         {hello && (
                             <motion.h1
                                 initial={{ opacity: 0, y: 28, scale: 0.94, filter: 'blur(12px)' }}
