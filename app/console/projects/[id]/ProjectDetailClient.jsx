@@ -158,20 +158,35 @@ function MembersTab({ projectId, members, allUsers, onChange }) {
 
 function ModelsTab({ projectId, grants, catalog, onChange }) {
     const [expiry, setExpiry] = useState({}); // modelId → datetime-local value
+    const [toRevoke, setToRevoke] = useState(null); // modelId pending confirm
+    const [revoking, setRevoking] = useState(false);
 
     async function grant(modelId) {
         const validUntil = expiry[modelId] ? new Date(expiry[modelId]).toISOString() : null;
         const r = await sendJson(`/api/projects/${projectId}/models`, 'POST', { modelId, validUntil });
         r.ok ? (toast.success(`Granted ${modelId}${validUntil ? ' (time-boxed)' : ''}`), onChange()) : toast.error(r.data?.message || 'Failed');
     }
-    async function revoke(modelId) {
-        if (!window.confirm(`Revoke ${modelId} for the whole project? Queued jobs for it are cancelled immediately.`)) return;
-        const r = await sendJson(`/api/projects/${projectId}/models?modelId=${encodeURIComponent(modelId)}`, 'DELETE');
-        r.ok ? (toast.success(`Revoked ${modelId} — queued jobs cancelled`), onChange()) : toast.error(r.data?.message || 'Failed');
+    async function revoke() {
+        if (!toRevoke) return;
+        setRevoking(true);
+        const r = await sendJson(`/api/projects/${projectId}/models?modelId=${encodeURIComponent(toRevoke)}`, 'DELETE');
+        setRevoking(false);
+        if (!r.ok) return toast.error(r.data?.message || 'Failed');
+        toast.success(`Revoked ${toRevoke} — queued jobs cancelled`);
+        setToRevoke(null);
+        onChange();
     }
 
     return (
         <div className="grid gap-3 lg:grid-cols-2">
+            <Modal open={!!toRevoke} onOpenChange={(v) => { if (!v) setToRevoke(null); }}
+                title={`Revoke ${toRevoke} for the whole project?`}
+                footer={<>
+                    <Button variant="outline" onClick={() => setToRevoke(null)}>Cancel</Button>
+                    <Button variant="danger" onClick={revoke} loading={revoking}>Revoke</Button>
+                </>}>
+                <p className="text-sm text-ink-2">Queued jobs for this model are cancelled immediately. Members lose access unless they hold a personal override.</p>
+            </Modal>
             {catalog.map((m) => {
                 const g = grants.find((x) => x.model_id === m.id);
                 return (
@@ -186,7 +201,7 @@ function ModelsTab({ projectId, grants, catalog, onChange }) {
                                 </div>
                             </div>
                             {g ? (
-                                <Button variant="danger" size="xs" onClick={() => revoke(m.id)}>Revoke</Button>
+                                <Button variant="danger" size="xs" onClick={() => setToRevoke(m.id)}>Revoke</Button>
                             ) : m.isDefault ? (
                                 <Badge tone="green">always on</Badge>
                             ) : (

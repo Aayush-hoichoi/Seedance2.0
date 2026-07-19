@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import { useState } from 'react';
-import { Card, StatCard, PageHeader, Badge, ProgressBar, EmptyState, Input } from './ui.jsx';
+import { Card, StatCard, PageHeader, Badge, ProgressBar, EmptyState, DateRangePicker } from './ui.jsx';
 import { useApi, fmtUsd, fmtInt, monthStartIso, dayStartIso, timeAgo } from './lib.js';
 import { buildUserSpendSeries } from './spendSeries.mjs';
 import { useEvents } from '../hooks/useEvents.js';
@@ -68,10 +68,8 @@ export default function DashboardClient() {
     return (
         <div>
             <PageHeader title="Dashboard" subtitle="Org-wide spend, budgets and live governance activity">
-                <label className="text-xs text-ink-3">From</label>
-                <Input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} className="w-auto" />
-                <label className="text-xs text-ink-3">To</label>
-                <Input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className="w-auto" />
+                <DateRangePicker from={from} to={to}
+                    onChange={({ from: f, to: t }) => { if (f) setFrom(f); setTo(t); }} />
             </PageHeader>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                 <StatCard label="Spend today" value={fmtUsd(todaySpend)} />

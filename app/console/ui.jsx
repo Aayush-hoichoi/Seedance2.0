@@ -22,11 +22,13 @@ import { Progress } from '@/components/ui/progress';
 import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
 import {
     useReactTable, getCoreRowModel, getSortedRowModel, getFilteredRowModel,
     getPaginationRowModel, flexRender,
 } from '@tanstack/react-table';
-import { ChevronUp, ChevronDown, ChevronsUpDown, Search, Loader2 } from 'lucide-react';
+import { ChevronUp, ChevronDown, ChevronsUpDown, Search, Loader2, CalendarDays } from 'lucide-react';
 
 export function PageHeader({ title, subtitle, children }) {
     return (
@@ -154,6 +156,43 @@ export function Modal({ open, onOpenChange, title, children, footer }) {
                 {footer ? <DialogFooter className="mt-2 gap-2 sm:gap-2">{footer}</DialogFooter> : null}
             </DialogContent>
         </Dialog>
+    );
+}
+
+// Local-date helpers for the range picker: state stays 'YYYY-MM-DD' strings
+// (what the usage API query builder expects), Dates only live inside the UI.
+const toYMD = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const fromYMD = (s) => {
+    if (!s) return undefined;
+    const [y, m, d] = String(s).split('-').map(Number);
+    return new Date(y, m - 1, d);
+};
+const fmtDay = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+// shadcn date-range picker: outline trigger + two-month range Calendar in a
+// Popover. `to` may be '' (open-ended = up to now).
+export function DateRangePicker({ from, to, onChange, className }) {
+    const range = { from: fromYMD(from), to: fromYMD(to) };
+    return (
+        <Popover>
+            <PopoverTrigger asChild>
+                <Button variant="outline" className={cn('h-8 justify-start gap-2 px-3 text-xs font-normal', className)}>
+                    <CalendarDays size={14} className="text-ink-3" />
+                    {range.from
+                        ? `${fmtDay(range.from)} – ${range.to ? fmtDay(range.to) : 'now'}`
+                        : 'Pick a date range'}
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-auto border-line bg-paper-1 p-0">
+                <Calendar
+                    mode="range"
+                    numberOfMonths={2}
+                    defaultMonth={range.from}
+                    selected={range}
+                    onSelect={(r) => onChange?.({ from: r?.from ? toYMD(r.from) : '', to: r?.to ? toYMD(r.to) : '' })}
+                />
+            </PopoverContent>
+        </Popover>
     );
 }
 
