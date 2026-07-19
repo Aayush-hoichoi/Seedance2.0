@@ -49,6 +49,17 @@ test('empty/absent input → empty chart, no crash', () => {
     assert.deepEqual(buildUserSpendSeries(undefined), { data: [], series: [] });
 });
 
+test('valueKey pivots other metrics (task counts) and ranks by them', () => {
+    const rows = [
+        { key: '2026-07-01', series: 'busy@x.com', cost_usd: 0, tasks: 9 },
+        { key: '2026-07-01', series: 'quiet@x.com', cost_usd: 99, tasks: 1 },
+    ];
+    const { data, series } = buildUserSpendSeries(rows, 1, 'tasks');
+    assert.deepEqual(series, ['busy@x.com', OTHERS]); // ranked by tasks, not cost
+    assert.equal(data[0]['busy@x.com'], 9);
+    assert.equal(data[0][OTHERS], 1);
+});
+
 test('string costs from Postgres are coerced to numbers', () => {
     const { data } = buildUserSpendSeries([row('2026-07-01', 'a@x.com', '1.5')]);
     assert.equal(data[0]['a@x.com'], 1.5);

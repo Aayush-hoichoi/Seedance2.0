@@ -35,6 +35,11 @@ export default function DashboardClient() {
 
     const days = byDay.data?.items?.slice().sort((a, b) => (a.key < b.key ? -1 : 1)) ?? [];
     const userSpend = buildUserSpendSeries(byDayUser.data?.items);
+    // Tasks SENT per day per user: settled + failed (a failed task was still sent).
+    const userTasks = buildUserSpendSeries(
+        (byDayUser.data?.items ?? []).map((r) => ({ ...r, tasks: Number(r.generations || 0) + Number(r.failures || 0) })),
+        8, 'tasks',
+    );
     const monthSpend = days.reduce((s, d) => s + Number(d.cost_usd || 0), 0);
     const todayKey = today.slice(0, 10);
     const todaySpend = Number(days.find((d) => d.key === todayKey)?.cost_usd || 0);
@@ -75,6 +80,15 @@ export default function DashboardClient() {
                 {userSpend.data.length
                     ? <SpendLines data={userSpend.data} series={userSpend.series} />
                     : <div className="grid h-[320px] place-items-center text-xs text-ink-3">No settlements in this period</div>}
+            </Card>
+
+            <Card className="mt-4">
+                <div className="mb-2 text-sm font-medium text-ink-2">
+                    Tasks by day · per user{userTasks.series.includes('Others') ? ' (top 8, rest as Others)' : ''}
+                </div>
+                {userTasks.data.length
+                    ? <SpendLines data={userTasks.data} series={userTasks.series} money={false} height={280} />
+                    : <div className="grid h-[280px] place-items-center text-xs text-ink-3">No tasks in this period</div>}
             </Card>
 
             <div className="mt-4 grid gap-4 lg:grid-cols-3">

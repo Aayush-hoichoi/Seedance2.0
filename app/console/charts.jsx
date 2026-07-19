@@ -38,19 +38,21 @@ export function SpendArea({ data, xKey = 'key', yKey = 'cost_usd', height = 220 
     );
 }
 
-// One spend line per user (wide-format data from buildUserSpendSeries).
-// Legend shows the email's local part; the tooltip keeps the full email.
-export function SpendLines({ data, series, xKey = 'key', height = 320 }) {
+// One line per user (wide-format data from buildUserSpendSeries). money=false
+// renders plain counts (tasks) instead of dollars. Legend shows the email's
+// local part; the tooltip keeps the full email.
+export function SpendLines({ data, series, xKey = 'key', height = 320, money = true }) {
+    const fmt = (v) => (money ? `$${Number(v).toFixed(4)}` : Number(v).toLocaleString('en-US'));
     return (
         <ResponsiveContainer width="100%" height={height}>
             <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
                 <CartesianGrid stroke="#2A2A34" vertical={false} />
                 <XAxis dataKey={xKey} {...AXIS} tickLine={false} axisLine={false} />
-                <YAxis {...AXIS} tickLine={false} axisLine={false} width={48} tickFormatter={(v) => `$${v}`} />
+                <YAxis {...AXIS} tickLine={false} axisLine={false} width={48} tickFormatter={(v) => (money ? `$${v}` : v)} />
                 {/* No shared itemStyle here: each tooltip row keeps its line's
                     stroke color, so users map to lines at a glance. */}
                 <Tooltip contentStyle={TOOLTIP_STYLE.contentStyle} labelStyle={TOOLTIP_STYLE.labelStyle}
-                    formatter={(v, n) => [`$${Number(v).toFixed(4)}`, n]}
+                    formatter={(v, n) => [fmt(v), n]}
                     itemSorter={(item) => -Number(item.value || 0)} />
                 <Legend
                     wrapperStyle={{ fontSize: 11, color: '#B4B2C0' }}

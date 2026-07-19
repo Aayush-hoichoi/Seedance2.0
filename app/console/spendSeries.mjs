@@ -5,10 +5,10 @@
 
 export const OTHERS = 'Others';
 
-export function buildUserSpendSeries(rows, topN = 8) {
+export function buildUserSpendSeries(rows, topN = 8, valueKey = 'cost_usd') {
     const list = Array.isArray(rows) ? rows : [];
     const totals = list.reduce((acc, r) => ({
-        ...acc, [r.series]: (acc[r.series] || 0) + Number(r.cost_usd || 0),
+        ...acc, [r.series]: (acc[r.series] || 0) + Number(r[valueKey] || 0),
     }), {});
     const ranked = Object.entries(totals).sort((a, b) => b[1] - a[1]).map(([k]) => k);
     const top = ranked.slice(0, topN);
@@ -17,7 +17,7 @@ export function buildUserSpendSeries(rows, topN = 8) {
     const byDay = list.reduce((acc, r) => {
         const name = top.includes(r.series) ? r.series : OTHERS;
         const day = acc[r.key] || {};
-        return { ...acc, [r.key]: { ...day, [name]: (day[name] || 0) + Number(r.cost_usd || 0) } };
+        return { ...acc, [r.key]: { ...day, [name]: (day[name] || 0) + Number(r[valueKey] || 0) } };
     }, {});
     const data = Object.keys(byDay).sort().map((day) => ({
         key: day,
