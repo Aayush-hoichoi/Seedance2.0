@@ -26,7 +26,8 @@ import PromptBar from './PromptBar.jsx';
 import { UserButton } from '@clerk/nextjs';
 import MediaHoverPreview from './MediaHoverPreview.jsx';
 import ProjectSelect from './ProjectSelect.jsx';
-import StudioSidebar from './StudioSidebar.jsx';
+import Link from 'next/link';
+import { ArrowLeft, ShieldCheck } from 'lucide-react';
 import AssetsPanel from './AssetsPanel.jsx';
 import CinematicPanel from './CinematicPanel.jsx';
 import { cinematicToPayload, sanitizeSetup, DEFAULT_SETUP } from '../../lib/seedance/cinematic.mjs';
@@ -103,7 +104,6 @@ export default function SeedanceStudio() {
     const [cinematic, setCinematic] = useState(null); // active Cinematic Cameras setup (image mode) or null = off
     const [showCinematic, setShowCinematic] = useState(false); // the cinematic camera modal
     const [selectedId, setSelectedId] = useState(null); // rail selection; null = follow newest
-    const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // studio left rail
     const autoSelectedRef = useRef(false); // one auto-pick per project; reset on project switch
     const [error, setError] = useState(null);
     const [notice, setNotice] = useState(null); // non-blocking info (e.g. GPT-4o refusal → raw-prompt fallback)
@@ -1294,28 +1294,25 @@ export default function SeedanceStudio() {
 
     return (
         <div className="relative min-h-screen w-full bg-app-bg text-white">
-            <StudioSidebar
-                collapsed={sidebarCollapsed}
-                onToggle={() => setSidebarCollapsed((v) => !v)}
-                onHome={() => setSelectedId(null)}
-                activeCount={activeCount}
-                monthSpend={monthSpend}
-                projects={projects}
-                projectId={projectId}
-                selectProject={selectProject}
-                isAdmin={isAdmin}
-                doneCount={doneCount}
-                onOpenAssets={() => setShowAssets(true)}
-            />
-
-            {/* Compact top bar for mobile — the sidebar is desktop-only. */}
-            <div className="fixed inset-x-3 top-3 z-40 flex items-center justify-between gap-2 sm:hidden">
-                <button type="button" onClick={() => setSelectedId(null)} title="Home" className="flex items-center gap-1.5 rounded-md border border-line bg-paper-2 px-2.5 py-1.5 text-xs font-semibold text-ink-2">
-                    <span className="grid h-4 w-4 place-items-center rounded bg-accent font-display text-[10px] font-bold text-accent-ink">L</span>
-                    LoglineAI{activeCount > 0 && <span className="ml-0.5 text-accent-hi">· {activeCount}</span>}
-                </button>
+            {/* Slim top bar (all sizes) — the nav rail lives on /projects now;
+                the studio keeps just the project scope + essentials. */}
+            <div className="fixed inset-x-3 top-3 z-40 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => setSelectedId(null)} title="Home" className="flex items-center gap-1.5 rounded-md border border-line bg-paper-2 px-2.5 py-1.5 text-xs font-semibold text-ink-2">
+                        <span className="grid h-4 w-4 place-items-center rounded bg-accent font-display text-[10px] font-bold text-accent-ink">L</span>
+                        LoglineAI{activeCount > 0 && <span className="ml-0.5 text-accent-hi">· {activeCount}</span>}
+                    </button>
+                    <Link href="/projects" title="Back to projects" className="grid h-7 w-7 place-items-center rounded-md border border-line bg-paper-2 text-ink-3 transition-colors hover:text-ink">
+                        <ArrowLeft size={14} />
+                    </Link>
                     {projects.length > 0 && <ProjectSelect projects={projects} value={projectId} onChange={selectProject} />}
+                </div>
+                <div className="flex items-center gap-2">
+                    {isAdmin && (
+                        <Link href="/console" title="Console" className="grid h-7 w-7 place-items-center rounded-md border border-line bg-paper-2 text-warn/80 transition-colors hover:text-warn">
+                            <ShieldCheck size={14} />
+                        </Link>
+                    )}
                     <button type="button" onClick={() => setShowAssets(true)} title="Assets" className="rounded-md border border-line bg-paper-2 p-1.5 text-ink-2">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>
                     </button>
@@ -1326,7 +1323,7 @@ export default function SeedanceStudio() {
 
             {/* Center stage: hero when empty, else the selected job plays big.
                 Finished generations live in the right-side history rail. */}
-            <div className={`relative z-10 flex min-h-screen flex-col items-center justify-center px-4 pt-16 pb-[24rem] ${selectedJob ? 'sm:pb-24' : 'sm:pb-56'} ${sidebarCollapsed ? 'sm:pl-16' : 'sm:pl-56'} ${visibleJobs.length > 0 ? 'sm:pr-52' : ''}`}>
+            <div className={`relative z-10 flex min-h-screen flex-col items-center justify-center px-4 pt-16 pb-[24rem] ${selectedJob ? 'sm:pb-24' : 'sm:pb-56'} ${visibleJobs.length > 0 ? 'sm:pr-52' : ''}`}>
                 {selectedJob && !viewerJob ? (
                     <BigStage
                         key={selectedJob.id} /* remount on job switch → PromptTabs resets to the default tab */
@@ -1378,7 +1375,6 @@ export default function SeedanceStudio() {
                 onMediaError={setError}
                 onUploadFiles={onUploadFiles}
                 tags={tags}
-                sidebarLeft={sidebarCollapsed ? 'sm:left-14' : 'sm:left-56'}
                 mediaType={mediaType}
                 onChangeMediaType={changeMediaType}
                 imageModels={IMAGE_MODELS}

@@ -1,20 +1,25 @@
 'use client';
 
 /* Hallmark · page: projects (front door) · genre: modern-minimal · theme: refined-dark-studio
- * pre-emit critique: P5 H5 E4 S4 R5 V4 · contrast: pass · defers to /design.md */
+ * pre-emit critique: P5 H5 E5 S4 R5 V5 · contrast: pass · defers to /design.md
+ * v2: nav rail + card grid; create/request and archive live in dialogs. */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { UserButton } from '@clerk/nextjs';
-import { Plus, Users, FolderKanban, ArrowUpRight, Trash2 } from 'lucide-react';
+import { Plus, Users, FolderKanban, ArrowUpRight, Trash2, Search, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+    Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
+import ProjectsSidebar from './ProjectsSidebar.jsx';
 
-// User-facing project list — the studio's front door. Every generation
-// belongs to a project, so spend rolls up per row. Members see only their
-// projects; platform admins/org managers see all and can create + manage
-// (the server enforces the permission regardless of what we render).
+// User-facing project list — the studio's front door. Every generation belongs
+// to a project, so spend rolls up per card. Members see only their projects
+// (and may REQUEST new ones); platform admins/org managers see all and create
+// directly (the server enforces permissions regardless of what we render).
 
 function formatDate(iso) {
     if (!iso) return '—';
@@ -24,7 +29,7 @@ function formatDate(iso) {
 
 function StatusPill({ paused }) {
     return (
-        <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${paused
+        <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${paused
             ? 'border-warn/25 bg-warn/10 text-warn'
             : 'border-ok/25 bg-ok/10 text-ok'}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${paused ? 'bg-warn' : 'bg-ok'}`} />
@@ -33,16 +38,84 @@ function StatusPill({ paused }) {
     );
 }
 
+function Stat({ label, value, mono, accent }) {
+    return (
+        <div className="rounded-lg border border-line bg-paper-1 px-4 py-3.5">
+            <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">{label}</div>
+            <div className={`mt-1 text-lg font-semibold ${mono ? 'font-mono tabular-nums' : 'font-display'} ${accent ? 'text-accent-hi' : 'text-ink'}`}>
+                {value}
+            </div>
+        </div>
+    );
+}
+
+function ProjectCard({ p, canManage, isAdmin, onOpen, onArchive }) {
+    return (
+        <div
+            role="button"
+            tabIndex={0}
+            onClick={onOpen}
+            onKeyDown={(e) => { if (e.key === 'Enter') onOpen(); }}
+            title={`Open the studio in “${p.name}”`}
+            className="group flex cursor-pointer flex-col rounded-xl border border-line bg-paper-1 p-4 transition-all hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+        >
+            <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 font-display text-base font-semibold text-ink transition-colors group-hover:text-accent-hi">
+                        <span className="truncate">{p.name}</span>
+                        <ArrowUpRight size={14} className="shrink-0 text-ink-3 opacity-0 transition-opacity group-hover:opacity-100" />
+                    </div>
+                    <div className="mt-1 flex items-center gap-3 text-xs text-ink-3">
+                        <span className="inline-flex items-center gap-1"><Users size={12} /> {p.member_count ?? 0}</span>
+                        <span className="inline-flex items-center gap-1"><Clock size={12} /> {formatDate(p.created_at)}</span>
+                    </div>
+                </div>
+                <StatusPill paused={p.paused} />
+            </div>
+
+            <div className="mt-4 flex items-end justify-between border-t border-line/60 pt-3">
+                <div>
+                    <div className="text-[10px] uppercase tracking-wider text-ink-3">Spent</div>
+                    <div className="font-mono text-sm font-semibold tabular-nums text-ink">${Number(p.spent_usd ?? 0).toFixed(2)}</div>
+                </div>
+                {canManage && (
+                    <div className="flex items-center gap-2.5 opacity-0 transition-opacity group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
+                        <Link
+                            href={`/console/projects/${p.id}`}
+                            title="Members, model grants, overrides and budgets"
+                            className="text-xs font-semibold text-ink-3 transition-colors hover:text-ink"
+                        >
+                            Manage
+                        </Link>
+                        {isAdmin && p.name !== 'Default' && (
+                            <button
+                                type="button"
+                                onClick={onArchive}
+                                title="Archive this project (hides it and stops new generations; usage history is kept)"
+                                className="text-ink-3 transition-colors hover:text-danger"
+                            >
+                                <Trash2 size={14} />
+                            </button>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
 export default function ProjectsClient() {
     const router = useRouter();
     const [data, setData] = useState(null);
     const [error, setError] = useState(null);
-    const [creating, setCreating] = useState(false);
+    const [notice, setNotice] = useState(null); // "request sent" confirmation for members
+    const [railCollapsed, setRailCollapsed] = useState(false); // left nav rail (desktop)
+    const [createOpen, setCreateOpen] = useState(false);
     const [name, setName] = useState('');
     const [saving, setSaving] = useState(false);
-    const [confirmingId, setConfirmingId] = useState(null); // project pending archive confirmation
-    const [archivingId, setArchivingId] = useState(null);
-    const [notice, setNotice] = useState(null); // "request sent" confirmation for members
+    const [toArchive, setToArchive] = useState(null); // project pending archive confirmation
+    const [archiving, setArchiving] = useState(false);
+    const [query, setQuery] = useState('');
 
     const load = useCallback(() => {
         fetch('/api/projects')
@@ -60,6 +133,10 @@ export default function ProjectsClient() {
     const canManage = !!data?.canManageProjects; // admin or org manager: create + manage any project
     const items = data?.items ?? [];
     const totalSpend = items.reduce((sum, p) => sum + Number(p.spent_usd ?? 0), 0);
+    const shown = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        return q ? items.filter((p) => p.name.toLowerCase().includes(q)) : items;
+    }, [items, query]);
 
     // Managers create directly; members file a request an admin approves
     // (approval creates the project and adds them to it).
@@ -78,7 +155,7 @@ export default function ProjectsClient() {
             const d = await res.json().catch(() => null);
             if (!res.ok) throw new Error(d?.error || d?.message || (canManage ? 'Could not create the project.' : 'Could not send the request.'));
             setName('');
-            setCreating(false);
+            setCreateOpen(false);
             setError(null);
             if (canManage) load();
             else setNotice(d?.fresh === false
@@ -91,208 +168,176 @@ export default function ProjectsClient() {
         }
     }
 
-    // Archive (soft-delete) a project: it drops off the list and can no longer
-    // receive generations, but its jobs/billing history stay intact. Admin-only
-    // and never the Default project — the server enforces both regardless.
-    async function archive(id) {
-        setArchivingId(id);
+    // Archive (soft-delete): drops off the list and stops new generations, but
+    // jobs/billing history stay intact. Admin-only; never the Default project.
+    async function archive() {
+        if (!toArchive) return;
+        setArchiving(true);
         try {
-            const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+            const res = await fetch(`/api/projects/${toArchive.id}`, { method: 'DELETE' });
             const d = await res.json().catch(() => null);
             if (!res.ok) throw new Error(d?.message || 'Could not archive the project.');
-            setConfirmingId(null);
+            setToArchive(null);
             load();
         } catch (e) {
             setError(e.message);
         } finally {
-            setArchivingId(null);
+            setArchiving(false);
         }
     }
 
     return (
         <div className="min-h-screen w-full bg-app-bg text-ink">
-            <div className="mx-auto max-w-5xl px-5 py-10 sm:px-6 sm:py-14">
-                {/* ── Header ── */}
-                <header className="flex flex-wrap items-start justify-between gap-4">
-                    <div className="min-w-0">
-                        <div className="mb-2 inline-flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.16em] text-ink-3">
-                            <span className="h-1.5 w-1.5 rounded-full bg-accent" /> loglineAI Studio
+            <ProjectsSidebar isAdmin={isAdmin} collapsed={railCollapsed} onToggle={() => setRailCollapsed((v) => !v)} />
+            <div className={railCollapsed ? 'sm:pl-14' : 'sm:pl-56'}>
+                <div className="mx-auto max-w-5xl px-5 py-10 sm:px-6 sm:py-12">
+                    {/* ── Header ── */}
+                    <header className="flex flex-wrap items-start justify-between gap-4">
+                        <div className="min-w-0">
+                            <div className="mb-2 inline-flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.16em] text-ink-3">
+                                <span className="h-1.5 w-1.5 rounded-full bg-accent" /> loglineAI Studio
+                            </div>
+                            <h1 className="font-display text-3xl font-semibold leading-none tracking-tight sm:text-4xl">Projects</h1>
+                            <p className="mt-2 max-w-md text-sm text-ink-3">
+                                Spend, members and model access are scoped per project. Open one to work in the studio.
+                            </p>
                         </div>
-                        <h1 className="font-display text-3xl font-semibold leading-none tracking-tight sm:text-4xl">Projects</h1>
-                        <p className="mt-2 max-w-md text-sm text-ink-3">
-                            Spend, members and model access are scoped per project. Open one to work in the studio.
-                        </p>
+                        <div className="flex items-center gap-2.5">
+                            {data && (
+                                <Button
+                                    type="button"
+                                    onClick={() => { setNotice(null); setCreateOpen(true); }}
+                                    title={canManage ? 'Create a project' : 'Ask an admin to create a project for you'}
+                                    className="gap-1.5 font-semibold hover:bg-accent-hi"
+                                >
+                                    <Plus size={15} strokeWidth={2.5} /> {canManage ? 'New Project' : 'Request Project'}
+                                </Button>
+                            )}
+                            <div className="rounded-full ring-1 ring-line sm:hidden">
+                                <UserButton />
+                            </div>
+                        </div>
+                    </header>
+
+                    {/* ── Summary strip (all real numbers) ── */}
+                    {items.length > 0 && (
+                        <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                            <Stat label="Projects" value={String(items.length)} />
+                            <Stat label="Combined spend" value={`$${totalSpend.toFixed(2)}`} mono />
+                            <Stat label="Your role" value={isAdmin ? 'admin' : canManage ? 'manager' : 'member'} accent />
+                        </div>
+                    )}
+
+                    {error && (
+                        <div className="mt-6 rounded-md border border-danger/25 bg-danger/10 px-4 py-3 text-sm text-danger">
+                            {error}
+                        </div>
+                    )}
+
+                    {notice && (
+                        <div className="mt-6 rounded-md border border-ok/25 bg-ok/10 px-4 py-3 text-sm text-ok">
+                            {notice}
+                        </div>
+                    )}
+
+                    {/* ── Search (only once it earns its place) ── */}
+                    {items.length > 6 && (
+                        <div className="relative mt-6 w-72 max-w-full">
+                            <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 z-10 -translate-y-1/2 text-ink-3" />
+                            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find a project…"
+                                className="h-9 bg-paper-1 pl-8" />
+                        </div>
+                    )}
+
+                    {/* ── Grid ── */}
+                    <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                        {!data && !error && [...Array(6)].map((_, i) => (
+                            <div key={i} className="h-36 animate-pulse rounded-xl border border-line bg-paper-1" />
+                        ))}
+                        {shown.map((p) => (
+                            <ProjectCard
+                                key={p.id}
+                                p={p}
+                                canManage={canManage}
+                                isAdmin={isAdmin}
+                                onOpen={() => router.push(`/seedance?project=${p.id}`)}
+                                onArchive={() => { setError(null); setToArchive(p); }}
+                            />
+                        ))}
                     </div>
-                    <div className="flex items-center gap-2.5">
-                        {data && (
-                            <Button
-                                type="button"
-                                onClick={() => { setNotice(null); setCreating((v) => !v); }}
-                                title={canManage ? 'Create a project' : 'Ask an admin to create a project for you'}
-                                className="gap-1.5 font-semibold hover:bg-accent-hi"
-                            >
+
+                    {data && !items.length && (
+                        <div className="mt-6 flex flex-col items-center rounded-xl border border-dashed border-line py-16 text-center">
+                            <FolderKanban size={26} className="text-ink-3" strokeWidth={1.5} />
+                            <p className="mt-3 font-display text-lg text-ink">
+                                {canManage ? 'No projects yet' : 'You’re not in any project yet'}
+                            </p>
+                            <p className="mt-1 max-w-xs text-sm text-ink-3">
+                                {canManage ? 'Create one to start tracking spend and access.' : 'Ask an admin to add you to one, or request your own.'}
+                            </p>
+                            <Button className="mt-4 gap-1.5 font-semibold hover:bg-accent-hi" onClick={() => setCreateOpen(true)}>
                                 <Plus size={15} strokeWidth={2.5} /> {canManage ? 'New Project' : 'Request Project'}
                             </Button>
-                        )}
-                        <div className="rounded-full ring-1 ring-line">
-                            <UserButton />
                         </div>
-                    </div>
-                </header>
+                    )}
 
-                {/* ── Summary strip (all real numbers) ── */}
-                {items.length > 0 && (
-                    <div className="mt-8 grid grid-cols-3 divide-x divide-line overflow-hidden rounded-lg border border-line bg-paper-1">
-                        <Stat label="Projects" value={String(items.length)} />
-                        <Stat label="Combined spend" value={`$${totalSpend.toFixed(2)}`} mono />
-                        <Stat label="Your role" value={isAdmin ? 'admin' : canManage ? 'manager' : 'member'} accent />
-                    </div>
-                )}
+                    {data && items.length > 0 && !shown.length && (
+                        <p className="mt-6 text-center text-sm text-ink-3">No project matches “{query}”.</p>
+                    )}
+                </div>
+            </div>
 
-                {error && (
-                    <div className="mt-6 rounded-md border border-danger/25 bg-danger/10 px-4 py-3 text-sm text-danger">
-                        {error}
-                    </div>
-                )}
-
-                {notice && (
-                    <div className="mt-6 rounded-md border border-ok/25 bg-ok/10 px-4 py-3 text-sm text-ok">
-                        {notice}
-                    </div>
-                )}
-
-                {creating && (
-                    <form
-                        onSubmit={(e) => { e.preventDefault(); create(); }}
-                        className="mt-6 flex flex-wrap items-center gap-2.5 rounded-lg border border-line bg-paper-1 p-3"
-                    >
+            {/* ── Create / request dialog ── */}
+            <Dialog open={createOpen} onOpenChange={(v) => { setCreateOpen(v); if (!v) setName(''); }}>
+                <DialogContent className="w-[min(92vw,440px)] rounded-xl border-line bg-paper-1 p-5">
+                    <DialogHeader>
+                        <DialogTitle className="font-display text-base font-semibold text-ink">
+                            {canManage ? 'Create project' : 'Request a project'}
+                        </DialogTitle>
+                        <DialogDescription className="text-xs text-ink-3">
+                            {canManage
+                                ? 'Members, model access and budgets are managed per project after creation.'
+                                : 'An admin reviews the request; once approved, the project appears here with you in it.'}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <form onSubmit={(e) => { e.preventDefault(); create(); }}>
                         <Input
                             autoFocus
                             value={name}
                             onChange={(e) => setName(e.target.value)}
                             placeholder="Project name — e.g. Marketing Videos"
-                            className="h-9 min-w-0 flex-1 bg-paper-3"
+                            className="h-9 bg-paper-3"
                         />
-                        <Button type="submit" disabled={!name.trim() || saving} className="font-semibold hover:bg-accent-hi">
-                            {canManage ? (saving ? 'Creating…' : 'Create') : (saving ? 'Sending…' : 'Send request')}
-                        </Button>
-                        <Button type="button" variant="outline" onClick={() => { setCreating(false); setName(''); }}>
-                            Cancel
-                        </Button>
+                        <DialogFooter className="mt-4 gap-2 sm:gap-2">
+                            <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+                            <Button type="submit" disabled={!name.trim() || saving} className="font-semibold hover:bg-accent-hi">
+                                {canManage ? (saving ? 'Creating…' : 'Create') : (saving ? 'Sending…' : 'Send request')}
+                            </Button>
+                        </DialogFooter>
                     </form>
-                )}
+                </DialogContent>
+            </Dialog>
 
-                {/* ── List ── */}
-                <div className="mt-6 overflow-x-auto rounded-lg border border-line bg-paper-1">
-                    <table className="w-full min-w-[640px] text-sm">
-                        <thead>
-                            <tr className="border-b border-line text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-3">
-                                <th className="px-4 py-3">Project</th>
-                                <th className="px-4 py-3">Members</th>
-                                <th className="px-4 py-3">Status</th>
-                                <th className="px-4 py-3">Created</th>
-                                <th className="px-4 py-3 text-right">Spent</th>
-                                {canManage && <th className="px-4 py-3" />}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {data && !items.length && (
-                                <tr>
-                                    <td colSpan={canManage ? 6 : 5} className="px-4 py-16 text-center">
-                                        <FolderKanban size={26} className="mx-auto text-ink-3" strokeWidth={1.5} />
-                                        <p className="mt-3 font-display text-lg text-ink">
-                                            {canManage ? 'No projects yet' : 'You’re not in any project yet'}
-                                        </p>
-                                        <p className="mt-1 text-sm text-ink-3">
-                                            {canManage ? 'Create one to start tracking spend and access.' : 'Ask an admin to add you to one, or request a new project above.'}
-                                        </p>
-                                    </td>
-                                </tr>
-                            )}
-                            {!data && !error && (
-                                <tr><td colSpan={canManage ? 6 : 5} className="px-4 py-16 text-center text-sm text-ink-3">Loading projects…</td></tr>
-                            )}
-                            {items.map((p) => (
-                                <tr
-                                    key={p.id}
-                                    onClick={() => router.push(`/seedance?project=${p.id}`)}
-                                    title={`Open the studio in “${p.name}”`}
-                                    className="group cursor-pointer border-b border-line/60 transition-colors last:border-0 hover:bg-paper-3"
-                                >
-                                    <td className="px-4 py-3.5">
-                                        <span className="inline-flex items-center gap-2 font-display font-medium text-ink group-hover:text-accent-hi">
-                                            {p.name}
-                                            <ArrowUpRight size={14} className="text-ink-3 opacity-0 transition-opacity group-hover:opacity-100" />
-                                        </span>
-                                    </td>
-                                    <td className="px-4 py-3.5 text-ink-2">
-                                        <span className="inline-flex items-center gap-1.5"><Users size={13} className="text-ink-3" /> {p.member_count ?? 0}</span>
-                                    </td>
-                                    <td className="px-4 py-3.5"><StatusPill paused={p.paused} /></td>
-                                    <td className="px-4 py-3.5 font-mono text-xs text-ink-3">{formatDate(p.created_at)}</td>
-                                    <td className="px-4 py-3.5 text-right font-mono text-sm tabular-nums text-ink">
-                                        ${Number(p.spent_usd ?? 0).toFixed(2)}
-                                    </td>
-                                    {canManage && (
-                                        <td className="px-4 py-3.5 text-right">
-                                            <div className="inline-flex items-center justify-end gap-3" onClick={(e) => e.stopPropagation()}>
-                                                <Link
-                                                    href={`/console/projects/${p.id}`}
-                                                    title="Members, model grants, overrides and budgets"
-                                                    className="text-xs font-semibold text-ink-3 transition-colors hover:text-ink"
-                                                >
-                                                    Manage
-                                                </Link>
-                                                {isAdmin && p.name !== 'Default' && (
-                                                    confirmingId === p.id ? (
-                                                        <span className="inline-flex items-center gap-2 text-xs">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => archive(p.id)}
-                                                                disabled={archivingId === p.id}
-                                                                className="font-semibold text-danger transition-colors hover:text-danger/80 disabled:opacity-40"
-                                                            >
-                                                                {archivingId === p.id ? 'Archiving…' : 'Archive?'}
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setConfirmingId(null)}
-                                                                className="text-ink-3 transition-colors hover:text-ink"
-                                                            >
-                                                                Cancel
-                                                            </button>
-                                                        </span>
-                                                    ) : (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => { setError(null); setConfirmingId(p.id); }}
-                                                            title="Archive this project (hides it and stops new generations; usage history is kept)"
-                                                            className="text-ink-3 transition-colors hover:text-danger"
-                                                        >
-                                                            <Trash2 size={14} />
-                                                        </button>
-                                                    )
-                                                )}
-                                            </div>
-                                        </td>
-                                    )}
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-function Stat({ label, value, mono, accent }) {
-    return (
-        <div className="px-4 py-3.5">
-            <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">{label}</div>
-            <div className={`mt-1 text-lg font-semibold ${mono ? 'font-mono tabular-nums' : 'font-display'} ${accent ? 'text-accent-hi' : 'text-ink'}`}>
-                {value}
-            </div>
+            {/* ── Archive confirm ── */}
+            <Dialog open={!!toArchive} onOpenChange={(v) => { if (!v) setToArchive(null); }}>
+                <DialogContent className="w-[min(92vw,440px)] rounded-xl border-line bg-paper-1 p-5">
+                    <DialogHeader>
+                        <DialogTitle className="font-display text-base font-semibold text-ink">
+                            Archive “{toArchive?.name}”?
+                        </DialogTitle>
+                        <DialogDescription className="text-xs text-ink-3">
+                            The project is hidden and stops accepting new generations. Jobs, spend and audit history are kept,
+                            and creating a project with the same name later revives it.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className="mt-2 gap-2 sm:gap-2">
+                        <Button variant="outline" onClick={() => setToArchive(null)}>Cancel</Button>
+                        <Button variant="destructive" onClick={archive} disabled={archiving}>
+                            {archiving ? 'Archiving…' : 'Archive project'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
