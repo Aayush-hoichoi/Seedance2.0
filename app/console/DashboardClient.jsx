@@ -2,22 +2,28 @@
 
 import dynamic from 'next/dynamic';
 import { useState } from 'react';
-import { Card, StatCard, PageHeader, Badge, ProgressBar, EmptyState } from './ui.jsx';
+import { Card, StatCard, PageHeader, Badge, ProgressBar, EmptyState, Input } from './ui.jsx';
 import { useApi, fmtUsd, fmtInt, monthStartIso, dayStartIso, timeAgo } from './lib.js';
+import { buildUserSpendSeries } from './spendSeries.mjs';
 import { useEvents } from '../hooks/useEvents.js';
 import { BellRing } from 'lucide-react';
 
-const SpendArea = dynamic(() => import('./charts.jsx').then((m) => m.SpendArea), { ssr: false });
+const SpendLines = dynamic(() => import('./charts.jsx').then((m) => m.SpendLines), { ssr: false });
 const SpendDonut = dynamic(() => import('./charts.jsx').then((m) => m.SpendDonut), { ssr: false });
 const TopBars = dynamic(() => import('./charts.jsx').then((m) => m.TopBars), { ssr: false });
 
 export default function DashboardClient() {
-    const month = monthStartIso();
     const today = dayStartIso();
-    const byDay = useApi(`/api/orgs/usage?group_by=day&from=${month}`);
-    const byModel = useApi(`/api/orgs/usage?group_by=model&from=${month}`);
-    const byUser = useApi(`/api/orgs/usage?group_by=user&from=${month}`);
-    const byProject = useApi(`/api/orgs/usage?group_by=project&from=${month}`);
+    // Date filter (YYYY-MM-DD): defaults to this month; `to` empty = up to now.
+    // The API's `to` is exclusive, so a picked end date sends end-of-day UTC.
+    const [from, setFrom] = useState(monthStartIso().slice(0, 10));
+    const [to, setTo] = useState('');
+    const range = `from=${from}T00:00:00.000Z${to ? `&to=${to}T23:59:59.999Z` : ''}`;
+    const byDay = useApi(`/api/orgs/usage?group_by=day&${range}`);
+    const byDayUser = useApi(`/api/orgs/usage?group_by=day_user&${range}`);
+    const byModel = useApi(`/api/orgs/usage?group_by=model&${range}`);
+    const byUser = useApi(`/api/orgs/usage?group_by=user&${range}`);
+    const byProject = useApi(`/api/orgs/usage?group_by=project&${range}`);
     const quotas = useApi('/api/admin/quotas?withUsage=1');
     const [alerts, setAlerts] = useState([]);
 
@@ -28,6 +34,7 @@ export default function DashboardClient() {
     });
 
     const days = byDay.data?.items?.slice().sort((a, b) => (a.key < b.key ? -1 : 1)) ?? [];
+    const userSpend = buildUserSpendSeries(byDayUser.data?.items);
     const monthSpend = days.reduce((s, d) => s + Number(d.cost_usd || 0), 0);
     const todayKey = today.slice(0, 10);
     const todaySpend = Number(days.find((d) => d.key === todayKey)?.cost_usd || 0);
@@ -48,24 +55,27 @@ export default function DashboardClient() {
 
     return (
         <div>
-            <PageHeader title="Dashboard" subtitle="Org-wide spend, budgets and live governance activity (this month)" />
+            <PageHeader title="Dashboard" subtitle="Org-wide spend, budgets and live governance activity">
+                <label className="text-xs text-ink-3">From</label>
+                <Input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} className="w-auto" />
+                <label className="text-xs text-ink-3">To</label>
+                <Input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className="w-auto" />
+            </PageHeader>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                 <StatCard label="Spend today" value={fmtUsd(todaySpend)} />
-                <StatCard label="Spend this month" value={fmtUsd(monthSpend)} tone="blue" />
+                <StatCard label="Spend in period" value={fmtUsd(monthSpend)} tone="blue" />
                 <StatCard label="Generations" value={fmtInt(generations)} hint={`${fmtInt(failures)} failed`} />
                 <StatCard label="Success rate" value={generations ? `${(((generations - failures) / generations) * 100).toFixed(1)}%` : '—'} tone={failures ? 'amber' : 'green'} />
             </div>
 
-            <div className="mt-4 grid gap-4 lg:grid-cols-3">
-                <Card className="lg:col-span-2">
-                    <div className="mb-2 text-sm font-medium text-ink-2">Spend by day</div>
-                    {days.length ? <SpendArea data={days} /> : <div className="grid h-[220px] place-items-center text-xs text-ink-3">No settlements yet this month</div>}
-                </Card>
-                <Card>
-                    <div className="mb-2 text-sm font-medium text-ink-2">Spend by model</div>
-                    {models.length ? <SpendDonut data={models} /> : <div className="grid h-[220px] place-items-center text-xs text-ink-3">No model spend yet</div>}
-                </Card>
-            </div>
+            <Card className="mt-4">
+                <div className="mb-2 text-sm font-medium text-ink-2">
+                    Spend by day · per user{userSpend.series.includes('Others') ? ' (top 8, rest as Others)' : ''}
+                </div>
+                {userSpend.data.length
+                    ? <SpendLines data={userSpend.data} series={userSpend.series} />
+                    : <div className="grid h-[320px] place-items-center text-xs text-ink-3">No settlements in this period</div>}
+            </Card>
 
             <div className="mt-4 grid gap-4 lg:grid-cols-3">
                 <Card className="lg:col-span-2">
@@ -73,6 +83,10 @@ export default function DashboardClient() {
                     {users.length ? <TopBars data={users} /> : <div className="grid h-[220px] place-items-center text-xs text-ink-3">No usage yet</div>}
                 </Card>
                 <div className="space-y-4">
+                    <Card>
+                        <div className="mb-2 text-sm font-medium text-ink-2">Spend by model</div>
+                        {models.length ? <SpendDonut data={models} /> : <div className="grid h-[220px] place-items-center text-xs text-ink-3">No model spend yet</div>}
+                    </Card>
                     <Card>
                         <div className="mb-3 text-sm font-medium text-ink-2">Budgets</div>
                         {budgetRows.length ? (
