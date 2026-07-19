@@ -243,7 +243,7 @@ export default function ProjectsClient() {
                                                 >
                                                     Manage
                                                 </Link>
-                                                {p.name !== 'Default' && (
+                                                {isAdmin && p.name !== 'Default' && (
                                                     confirmingId === p.id ? (
                                                         <span className="inline-flex items-center gap-2 text-xs">
                                                             <button

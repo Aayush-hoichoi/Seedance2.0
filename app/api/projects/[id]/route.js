@@ -61,17 +61,16 @@ export async function PATCH(request, { params }) {
     return NextResponse.json(fresh);
 }
 
-// Archive (soft-delete) a project. Admins and org managers may archive — the
-// same access that lets them create one (POST /api/projects) — so managers can
-// clean up projects they create. Never hard-deletes: jobs/billing keep their
+// Archive (soft-delete) a project. Platform admins ONLY — managers can create
+// projects but not remove them. Never hard-deletes: jobs/billing keep their
 // project_id, and the row just drops out of every archived_at IS NULL query.
 export async function DELETE(request, { params }) {
     const { id } = await params;
     const auth = await gatewayContext({ projectId: Number(id) });
     if (!auth.ok) return auth.response;
-    const { sql, user, project, isPlatformAdmin, isOrgManager } = auth.ctx;
-    if (!isPlatformAdmin && !isOrgManager) {
-        return apiError('FORBIDDEN', 'Only admins or managers can archive projects.');
+    const { sql, user, project, isPlatformAdmin } = auth.ctx;
+    if (!isPlatformAdmin) {
+        return apiError('FORBIDDEN', 'Only admins can archive projects.');
     }
     if (project.name === 'Default') return apiError('BAD_REQUEST', 'The Default project cannot be archived.');
     await sql`UPDATE projects SET archived_at = now() WHERE id = ${project.id}`;

@@ -24,8 +24,10 @@ export default function ProjectsClient() {
     const [toArchive, setToArchive] = useState(null);
     const [archiving, setArchiving] = useState(false);
     // useColumns memoizes cells on first render — read live values via a ref.
+    // Archive is platform-admin only (the server enforces it too) — managers
+    // can create projects but not remove them.
     const isAdminRef = useRef(false);
-    isAdminRef.current = !!isAdmin;
+    isAdminRef.current = canDecide;
 
     async function archive() {
         if (!toArchive) return;
