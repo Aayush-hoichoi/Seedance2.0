@@ -15,6 +15,7 @@ import {
     Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import ProjectsSidebar from './ProjectsSidebar.jsx';
+import WelcomeSplash from './WelcomeSplash.jsx';
 
 // User-facing project list — the studio's front door. Every generation belongs
 // to a project, so spend rolls up per card. Members see only their projects
@@ -188,6 +189,7 @@ export default function ProjectsClient() {
 
     return (
         <div className="min-h-screen w-full bg-app-bg text-ink">
+            <WelcomeSplash />
             <ProjectsSidebar isAdmin={isAdmin} collapsed={railCollapsed} onToggle={() => setRailCollapsed((v) => !v)} />
             <div className={railCollapsed ? 'sm:pl-14' : 'sm:pl-56'}>
                 <div className="mx-auto max-w-5xl px-5 py-10 sm:px-6 sm:py-12">
