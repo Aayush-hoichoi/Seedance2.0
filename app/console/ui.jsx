@@ -1,18 +1,32 @@
 'use client';
 
-// Console design system — token-driven primitives on Tailwind + Radix.
-// Dark, dense, keyboard-friendly; every page composes from these.
-// Colours reference the locked tokens in /design.md (bg-paper-*, text-ink-*,
-// accent, ok/warn/danger) — never raw zinc/sky.
+// Console design system — a thin façade over the vendored shadcn/ui
+// components (components/ui/*), themed onto the locked tokens in /design.md
+// via the semantic color mapping in tailwind.config.js. Pages keep the same
+// API (Button, Select, Modal, DataTable, …); the primitives underneath are
+// shadcn: Radix + CVA + Tailwind.
 
+import * as React from 'react';
 import { useMemo, useState } from 'react';
-import clsx from 'clsx';
-import * as Dialog from '@radix-ui/react-dialog';
+import { cn } from '@/lib/utils';
+import { Button as UIButton } from '@/components/ui/button';
+import { Input as UIInput } from '@/components/ui/input';
+import {
+    Select as UISelect, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Card as UICard } from '@/components/ui/card';
+import { Badge as UIBadge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
+import { Progress } from '@/components/ui/progress';
+import {
+    Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table';
 import {
     useReactTable, getCoreRowModel, getSortedRowModel, getFilteredRowModel,
     getPaginationRowModel, flexRender,
 } from '@tanstack/react-table';
-import { ChevronUp, ChevronDown, ChevronsUpDown, Search, X, Loader2 } from 'lucide-react';
+import { ChevronUp, ChevronDown, ChevronsUpDown, Search, Loader2 } from 'lucide-react';
 
 export function PageHeader({ title, subtitle, children }) {
     return (
@@ -27,14 +41,14 @@ export function PageHeader({ title, subtitle, children }) {
 }
 
 export function Card({ className, children }) {
-    return <div className={clsx('rounded-lg border border-line bg-paper-2 p-4', className)}>{children}</div>;
+    return <UICard className={cn('rounded-lg border-line bg-paper-2 p-4 shadow-none', className)}>{children}</UICard>;
 }
 
 export function StatCard({ label, value, hint, tone = 'zinc' }) {
     return (
         <Card>
             <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink-3">{label}</div>
-            <div className={clsx('mt-1.5 font-mono text-2xl font-semibold tabular-nums', TONE_TEXT[tone] || 'text-ink')}>{value}</div>
+            <div className={cn('mt-1.5 font-mono text-2xl font-semibold tabular-nums', TONE_TEXT[tone] || 'text-ink')}>{value}</div>
             {hint ? <div className="mt-1 text-xs text-ink-3">{hint}</div> : null}
         </Card>
     );
@@ -55,74 +69,98 @@ const TONE_TEXT = {
 
 export function Badge({ tone = 'zinc', children, className }) {
     return (
-        <span className={clsx('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium', TONE_BG[tone], className)}>
+        <UIBadge variant="outline" className={cn('gap-1 rounded-full text-[11px] font-medium', TONE_BG[tone], className)}>
             {children}
-        </span>
+        </UIBadge>
     );
 }
 
+// House variants mapped onto shadcn's: primary→default, default→secondary,
+// danger→destructive. `loading` shows a spinner and disables, as before.
+const BUTTON_VARIANT = { default: 'secondary', primary: 'default', outline: 'outline', ghost: 'ghost', danger: 'destructive' };
+const BUTTON_SIZE = { xs: 'h-7 px-2 text-xs', sm: 'h-8 px-3 text-xs', md: 'h-9 px-4 text-sm' };
+
 export function Button({ variant = 'default', size = 'sm', className, loading, children, ...props }) {
-    const base = 'inline-flex items-center justify-center gap-1.5 rounded-md font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60';
-    const variants = {
-        default: 'bg-ink text-paper-0 hover:opacity-90',
-        primary: 'bg-accent text-accent-ink hover:bg-accent-hi',
-        outline: 'border border-line text-ink-2 hover:bg-paper-3 hover:text-ink',
-        ghost: 'text-ink-2 hover:bg-paper-3 hover:text-ink',
-        danger: 'bg-danger text-app-bg hover:brightness-110',
-    };
-    const sizes = { xs: 'h-7 px-2 text-xs', sm: 'h-8 px-3 text-xs', md: 'h-9 px-4 text-sm' };
     return (
-        <button className={clsx(base, variants[variant], sizes[size], className)} disabled={loading || props.disabled} {...props}>
+        <UIButton
+            variant={BUTTON_VARIANT[variant] || 'secondary'}
+            size="sm"
+            className={cn('gap-1.5 font-medium shadow-none [&_svg]:size-auto', BUTTON_SIZE[size], className)}
+            disabled={loading || props.disabled}
+            {...props}
+        >
             {loading ? <Loader2 size={14} className="animate-spin" /> : null}
             {children}
-        </button>
+        </UIButton>
     );
 }
 
 export function Input({ className, ...props }) {
-    return (
-        <input
-            className={clsx('h-8 w-full rounded-md border border-line bg-paper-3 px-2.5 text-sm text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none', className)}
-            {...props}
-        />
-    );
+    return <UIInput className={cn('h-8 bg-paper-3 px-2.5 shadow-none', className)} {...props} />;
 }
 
-export function Select({ className, children, ...props }) {
+// Native-select API adapter over the shadcn (Radix) Select so the 13 existing
+// call sites keep their <option> children and onChange(e.target.value) shape.
+// Radix forbids item value "" — bridged through a sentinel both ways.
+const EMPTY_VALUE = '__empty__';
+
+function collectOptions(children, out = []) {
+    for (const child of React.Children.toArray(children)) {
+        if (!React.isValidElement(child)) continue;
+        if (child.type === 'option') {
+            out.push({
+                value: String(child.props.value ?? child.props.children ?? ''),
+                label: child.props.children,
+                disabled: child.props.disabled,
+            });
+        } else if (child.props?.children) {
+            collectOptions(child.props.children, out);
+        }
+    }
+    return out;
+}
+
+export function Select({ className, children, value, onChange, title, disabled }) {
+    const options = collectOptions(children);
+    const current = String(value ?? '');
     return (
-        <select
-            className={clsx('h-8 rounded-md border border-line bg-paper-3 px-2 text-sm text-ink focus:border-accent focus:outline-none', className)}
-            {...props}
+        <UISelect
+            value={current === '' ? EMPTY_VALUE : current}
+            onValueChange={(v) => onChange?.({ target: { value: v === EMPTY_VALUE ? '' : v } })}
+            disabled={disabled}
         >
-            {children}
-        </select>
+            <SelectTrigger title={title} className={cn('h-8 w-auto gap-1.5 bg-paper-3 px-2 text-sm shadow-none', className)}>
+                <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="border-line bg-paper-1">
+                {options.map((o, i) => (
+                    <SelectItem key={`${o.value}-${i}`} value={o.value === '' ? EMPTY_VALUE : o.value} disabled={o.disabled}>
+                        {o.label}
+                    </SelectItem>
+                ))}
+            </SelectContent>
+        </UISelect>
     );
 }
 
 export function Modal({ open, onOpenChange, title, children, footer }) {
     return (
-        <Dialog.Root open={open} onOpenChange={onOpenChange}>
-            <Dialog.Portal>
-                <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=open]:animate-in data-[state=open]:fade-in" />
-                <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(92vw,480px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-line bg-paper-1 p-5 shadow-2">
-                    <div className="mb-4 flex items-center justify-between">
-                        <Dialog.Title className="font-display text-base font-semibold text-ink">{title}</Dialog.Title>
-                        <Dialog.Close asChild>
-                            <button className="rounded-md p-1 text-ink-3 hover:bg-paper-3 hover:text-ink" aria-label="Close"><X size={16} /></button>
-                        </Dialog.Close>
-                    </div>
-                    <div className="space-y-3">{children}</div>
-                    {footer ? <div className="mt-5 flex justify-end gap-2">{footer}</div> : null}
-                </Dialog.Content>
-            </Dialog.Portal>
-        </Dialog.Root>
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="w-[min(92vw,480px)] rounded-xl border-line bg-paper-1 p-5 sm:max-w-[480px]">
+                <DialogHeader>
+                    <DialogTitle className="font-display text-base font-semibold text-ink">{title}</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3">{children}</div>
+                {footer ? <DialogFooter className="mt-2 gap-2 sm:gap-2">{footer}</DialogFooter> : null}
+            </DialogContent>
+        </Dialog>
     );
 }
 
 export function Field({ label, children }) {
     return (
         <label className="block">
-            <div className="mb-1 text-xs font-medium text-ink-2">{label}</div>
+            <Label asChild><span className="mb-1 block text-xs font-medium text-ink-2">{label}</span></Label>
             {children}
         </label>
     );
@@ -142,14 +180,11 @@ export function EmptyState({ icon: Icon, title, hint, children }) {
 export function ProgressBar({ value, max, tone = 'blue' }) {
     const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
     const color = pct >= 100 ? 'bg-danger' : pct >= 80 ? 'bg-warn' : { blue: 'bg-accent', green: 'bg-ok' }[tone] || 'bg-accent';
-    return (
-        <div className="h-2 w-full overflow-hidden rounded-full bg-paper-3">
-            <div className={clsx('h-full rounded-full transition-all', color)} style={{ width: `${pct}%` }} />
-        </div>
-    );
+    return <Progress value={pct} className="bg-paper-3" indicatorClassName={color} />;
 }
 
-// TanStack-powered grid: sorting, quick filter, pagination — used by every list page.
+// TanStack-powered grid rendered with shadcn Table primitives: sorting, quick
+// filter, pagination — used by every list page.
 export function DataTable({ columns, data, searchable = true, pageSize = 12, empty = 'Nothing here yet.' }) {
     const [sorting, setSorting] = useState([]);
     const [globalFilter, setGlobalFilter] = useState('');
@@ -170,21 +205,21 @@ export function DataTable({ columns, data, searchable = true, pageSize = 12, emp
     return (
         <div>
             {searchable ? (
-                <div className="mb-3 relative w-64 max-w-full">
-                    <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-3" />
+                <div className="relative mb-3 w-64 max-w-full">
+                    <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 z-10 -translate-y-1/2 text-ink-3" />
                     <Input className="pl-8" placeholder="Filter…" value={globalFilter} onChange={(e) => setGlobalFilter(e.target.value)} />
                 </div>
             ) : null}
             <div className="overflow-x-auto rounded-lg border border-line">
-                <table className="w-full text-sm">
-                    <thead className="bg-paper-2 text-left text-[11px] uppercase tracking-[0.1em] text-ink-3">
+                <Table className="text-sm">
+                    <TableHeader className="bg-paper-2 text-[11px] uppercase tracking-[0.1em] text-ink-3">
                         {table.getHeaderGroups().map((hg) => (
-                            <tr key={hg.id}>
+                            <TableRow key={hg.id} className="border-line hover:bg-transparent">
                                 {hg.headers.map((h) => (
-                                    <th key={h.id} className="whitespace-nowrap px-3 py-2.5 font-semibold">
+                                    <TableHead key={h.id} className="h-auto whitespace-nowrap px-3 py-2.5 font-semibold text-ink-3">
                                         {h.isPlaceholder ? null : (
                                             <button
-                                                className={clsx('inline-flex items-center gap-1', h.column.getCanSort() && 'hover:text-ink')}
+                                                className={cn('inline-flex items-center gap-1', h.column.getCanSort() && 'hover:text-ink')}
                                                 onClick={h.column.getToggleSortingHandler()}
                                                 disabled={!h.column.getCanSort()}
                                             >
@@ -194,25 +229,27 @@ export function DataTable({ columns, data, searchable = true, pageSize = 12, emp
                                                 ) : null}
                                             </button>
                                         )}
-                                    </th>
+                                    </TableHead>
                                 ))}
-                            </tr>
+                            </TableRow>
                         ))}
-                    </thead>
-                    <tbody className="divide-y divide-line">
+                    </TableHeader>
+                    <TableBody className="divide-y divide-line">
                         {rows.length ? rows.map((row) => (
-                            <tr key={row.id} className="transition-colors hover:bg-paper-2">
+                            <TableRow key={row.id} className="border-line transition-colors hover:bg-paper-2">
                                 {row.getVisibleCells().map((cell) => (
-                                    <td key={cell.id} className="whitespace-nowrap px-3 py-2.5 text-ink-2">
+                                    <TableCell key={cell.id} className="whitespace-nowrap px-3 py-2.5 text-ink-2">
                                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                                    </td>
+                                    </TableCell>
                                 ))}
-                            </tr>
+                            </TableRow>
                         )) : (
-                            <tr><td colSpan={columns.length} className="px-3 py-10 text-center text-xs text-ink-3">{empty}</td></tr>
+                            <TableRow>
+                                <TableCell colSpan={columns.length} className="px-3 py-10 text-center text-xs text-ink-3">{empty}</TableCell>
+                            </TableRow>
                         )}
-                    </tbody>
-                </table>
+                    </TableBody>
+                </Table>
             </div>
             {pageCount > 1 ? (
                 <div className="mt-3 flex items-center justify-end gap-2 text-xs text-ink-3">

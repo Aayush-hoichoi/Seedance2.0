@@ -8,6 +8,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { UserButton } from '@clerk/nextjs';
 import { Plus, Users, FolderKanban, ArrowUpRight, Trash2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 // User-facing project list — the studio's front door. Every generation
 // belongs to a project, so spend rolls up per row. Members see only their
@@ -123,14 +125,14 @@ export default function ProjectsClient() {
                     </div>
                     <div className="flex items-center gap-2.5">
                         {data && (
-                            <button
+                            <Button
                                 type="button"
                                 onClick={() => { setNotice(null); setCreating((v) => !v); }}
                                 title={canManage ? 'Create a project' : 'Ask an admin to create a project for you'}
-                                className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent-hi"
+                                className="gap-1.5 font-semibold hover:bg-accent-hi"
                             >
                                 <Plus size={15} strokeWidth={2.5} /> {canManage ? 'New Project' : 'Request Project'}
-                            </button>
+                            </Button>
                         )}
                         <div className="rounded-full ring-1 ring-line">
                             <UserButton />
@@ -164,21 +166,19 @@ export default function ProjectsClient() {
                         onSubmit={(e) => { e.preventDefault(); create(); }}
                         className="mt-6 flex flex-wrap items-center gap-2.5 rounded-lg border border-line bg-paper-1 p-3"
                     >
-                        <input
+                        <Input
                             autoFocus
                             value={name}
                             onChange={(e) => setName(e.target.value)}
                             placeholder="Project name — e.g. Marketing Videos"
-                            className="min-w-0 flex-1 rounded-md border border-line bg-paper-3 px-3 py-2 text-sm text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none"
+                            className="h-9 min-w-0 flex-1 bg-paper-3"
                         />
-                        <button type="submit" disabled={!name.trim() || saving}
-                            className="rounded-md bg-accent px-3.5 py-2 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent-hi disabled:opacity-40">
+                        <Button type="submit" disabled={!name.trim() || saving} className="font-semibold hover:bg-accent-hi">
                             {canManage ? (saving ? 'Creating…' : 'Create') : (saving ? 'Sending…' : 'Send request')}
-                        </button>
-                        <button type="button" onClick={() => { setCreating(false); setName(''); }}
-                            className="rounded-md border border-line px-3 py-2 text-sm font-medium text-ink-2 transition-colors hover:border-line-strong hover:text-ink">
+                        </Button>
+                        <Button type="button" variant="outline" onClick={() => { setCreating(false); setName(''); }}>
                             Cancel
-                        </button>
+                        </Button>
                     </form>
                 )}
 

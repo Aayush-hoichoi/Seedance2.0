@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import toast from 'react-hot-toast';
-import { PageHeader, Card, Badge, Button, DataTable, EmptyState } from '../ui.jsx';
+import { PageHeader, Card, Badge, Button, DataTable, EmptyState, Select, Input, Modal } from '../ui.jsx';
 import { useApi, sendJson, fmtDate } from '../lib.js';
 import { supportedResolutionsFor } from '../../../lib/seedance/constants.js';
 import { Users, Shield, ShieldCheck, ShieldOff, UserX } from 'lucide-react';
@@ -36,19 +36,16 @@ function PendingRequest({ r, onApprove, onDeny }) {
             </span>
             <div className="flex flex-wrap items-center gap-1.5">
                 {tiers.length ? (
-                    <select value={quality} onChange={(e) => setQuality(e.target.value)} title="Quality to grant (includes all lower tiers)"
-                        className="rounded border border-line bg-paper-3 px-2 py-1 text-xs text-ink">
+                    <Select value={quality} onChange={(e) => setQuality(e.target.value)} title="Quality to grant (includes all lower tiers)"
+                        className="h-7 px-2 text-xs">
                         {tiers.map((t) => <option key={t} value={t}>{t}</option>)}
-                    </select>
+                    </Select>
                 ) : null}
                 {[7, 30, 90].map((d) => (
-                    <button key={d} type="button" onClick={() => preset(d)}
-                        className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-3 transition-colors hover:border-accent hover:text-accent-hi">
-                        {d}d
-                    </button>
+                    <Button key={d} variant="outline" size="xs" onClick={() => preset(d)}>{d}d</Button>
                 ))}
-                <input type="datetime-local" value={until} onChange={(e) => setUntil(e.target.value)}
-                    className="rounded border border-line bg-paper-3 px-2 py-1 text-xs text-ink" />
+                <Input type="datetime-local" value={until} onChange={(e) => setUntil(e.target.value)}
+                    className="h-7 w-auto px-2 text-xs" />
                 <Button variant="primary" size="xs" disabled={!until} title={until ? 'Approve until this time' : 'Pick an expiry first'}
                     onClick={() => onApprove(r.id, new Date(until).toISOString(), quality || null)}>Approve</Button>
                 <Button variant="outline" size="xs" title={upgrade ? 'Decline the upgrade — existing access stays' : undefined}
@@ -62,15 +59,22 @@ function PendingRequest({ r, onApprove, onDeny }) {
 export default function UsersClient() {
     const users = useApi('/api/admin/users');
     const requests = useApi('/api/admin/requests');
+    const [toRemove, setToRemove] = useState(null); // user pending delete confirmation
+    const [removing, setRemoving] = useState(false);
 
     async function setRole(id, role) {
         const r = await sendJson(`/api/admin/users/${id}`, 'PATCH', { role });
         r.ok ? (toast.success(`Role set to ${role || 'member'}`), users.mutate()) : toast.error(r.data?.error || r.data?.message || 'Failed');
     }
-    async function removeUser(id) {
-        if (!window.confirm('Remove this user from the platform? Their Clerk account is deleted.')) return;
-        const r = await sendJson(`/api/admin/users/${id}`, 'DELETE');
-        r.ok ? (toast.success('User removed'), users.mutate()) : toast.error(r.data?.error || r.data?.message || 'Failed');
+    async function removeUser() {
+        if (!toRemove) return;
+        setRemoving(true);
+        const r = await sendJson(`/api/admin/users/${toRemove.id}`, 'DELETE');
+        setRemoving(false);
+        if (!r.ok) return toast.error(r.data?.error || r.data?.message || 'Failed');
+        toast.success('User removed');
+        setToRemove(null);
+        users.mutate();
     }
     async function decide(id, actionName, validUntil, maxResolution = null) {
         const body = actionName === 'approve' ? { validUntil, maxResolution } : undefined;
@@ -108,7 +112,7 @@ export default function UsersClient() {
                         {(u.role === 'admin' || u.role === 'manager') && (
                             <Button variant="ghost" size="xs" title="Make member" onClick={() => setRole(u.id, null)}><ShieldOff size={13} className="text-warn" /></Button>
                         )}
-                        <Button variant="ghost" size="xs" title="Remove from platform" onClick={() => removeUser(u.id)}><UserX size={13} className="text-danger" /></Button>
+                        <Button variant="ghost" size="xs" title="Remove from platform" onClick={() => setToRemove(u)}><UserX size={13} className="text-danger" /></Button>
                     </div>
                 );
             },
@@ -159,6 +163,17 @@ export default function UsersClient() {
             {users.error
                 ? <EmptyState icon={Users} title="Admin only" hint={users.error.message} />
                 : <DataTable columns={columns} data={users.data?.users ?? []} />}
+
+            <Modal open={!!toRemove} onOpenChange={(v) => { if (!v) setToRemove(null); }}
+                title={`Remove ${toRemove?.email || toRemove?.name || 'this user'}?`}
+                footer={<>
+                    <Button variant="outline" onClick={() => setToRemove(null)}>Cancel</Button>
+                    <Button variant="danger" onClick={removeUser} loading={removing}>Remove user</Button>
+                </>}>
+                <p className="text-sm text-ink-2">
+                    Their Clerk account is deleted and access grants are voided. Usage history is kept for accounting.
+                </p>
+            </Modal>
         </div>
     );
 }

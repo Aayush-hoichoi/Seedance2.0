@@ -21,8 +21,10 @@ module.exports = {
             opacity: Object.fromEntries(Array.from({ length: 101 }, (_, i) => [i, (i / 100).toString()])),
             colors: {
                 // primary = the violet accent (remapped from the old cyan).
-                primary: { DEFAULT: ch('accent'), hover: ch('accent-hi'), ink: ch('accent-ink') },
-                accent: { DEFAULT: ch('accent'), hi: ch('accent-hi'), ink: ch('accent-ink') },
+                // `foreground` keys are the shadcn/ui semantic names, mapped onto
+                // the SAME house tokens so vendored components inherit the theme.
+                primary: { DEFAULT: ch('accent'), hover: ch('accent-hi'), ink: ch('accent-ink'), foreground: ch('accent-ink') },
+                accent: { DEFAULT: ch('accent'), hi: ch('accent-hi'), ink: ch('accent-ink'), foreground: ch('accent-ink') },
                 // grounds
                 'app-bg': ch('paper-0'),
                 'panel-bg': ch('paper-1'),
@@ -31,8 +33,17 @@ module.exports = {
                 line: { DEFAULT: ch('line'), strong: ch('line-strong') },
                 // text
                 ink: { DEFAULT: ch('ink'), 2: ch('ink-2'), 3: ch('ink-3') },
-                secondary: ch('ink-2'),
-                muted: ch('ink-3'),
+                // shadcn/ui semantic tokens → house palette (no second theme).
+                background: ch('paper-0'),
+                foreground: ch('ink'),
+                border: ch('line'),
+                input: ch('line'),
+                ring: ch('accent'),
+                card: { DEFAULT: ch('paper-2'), foreground: ch('ink') },
+                popover: { DEFAULT: ch('paper-1'), foreground: ch('ink') },
+                secondary: { DEFAULT: ch('paper-3'), foreground: ch('ink') },
+                muted: { DEFAULT: ch('paper-3'), foreground: ch('ink-3') },
+                destructive: { DEFAULT: ch('danger'), foreground: ch('paper-0') },
                 // semantics
                 ok: ch('ok'),
                 warn: ch('warn'),
@@ -59,5 +70,5 @@ module.exports = {
             }
         },
     },
-    plugins: [],
+    plugins: [require('tailwindcss-animate')],
 }
