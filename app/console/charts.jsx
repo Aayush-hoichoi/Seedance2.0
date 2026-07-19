@@ -47,7 +47,10 @@ export function SpendLines({ data, series, xKey = 'key', height = 320 }) {
                 <CartesianGrid stroke="#2A2A34" vertical={false} />
                 <XAxis dataKey={xKey} {...AXIS} tickLine={false} axisLine={false} />
                 <YAxis {...AXIS} tickLine={false} axisLine={false} width={48} tickFormatter={(v) => `$${v}`} />
-                <Tooltip {...TOOLTIP_STYLE} formatter={(v, n) => [`$${Number(v).toFixed(4)}`, n]}
+                {/* No shared itemStyle here: each tooltip row keeps its line's
+                    stroke color, so users map to lines at a glance. */}
+                <Tooltip contentStyle={TOOLTIP_STYLE.contentStyle} labelStyle={TOOLTIP_STYLE.labelStyle}
+                    formatter={(v, n) => [`$${Number(v).toFixed(4)}`, n]}
                     itemSorter={(item) => -Number(item.value || 0)} />
                 <Legend
                     wrapperStyle={{ fontSize: 11, color: '#B4B2C0' }}
