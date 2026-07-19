@@ -30,11 +30,11 @@ export default function LikedClient() {
             <header className="fixed top-0 inset-x-0 z-30 flex items-center justify-between px-4 sm:px-6 py-3.5 bg-app-bg/80 backdrop-blur-md border-b border-white/[0.06]">
                 <div className="flex items-center gap-3 min-w-0">
                     <Link
-                        href="/seedance"
+                        href="/projects"
                         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-white/10 bg-white/[0.04] text-white/70 hover:text-white hover:border-white/25 hover:bg-white/[0.08] transition-colors text-xs font-semibold shrink-0"
                     >
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
-                        Studio
+                        Projects
                     </Link>
                     <div className="min-w-0">
                         <h1 className="text-sm font-extrabold tracking-tight truncate flex items-center gap-1.5">
