@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
     slackMessage, slackConfigured, notifySlackAccessRequested, notifySlackAccessDecided,
     buildAccessRequestedMessage, buildAccessDecidedMessage, buildAccessListMessage,
+    buildProjectRequestedMessage, buildProjectDecidedMessage,
 } from '../lib/notify/slack.mjs';
 
 function clearUrls() {
@@ -107,6 +108,34 @@ test('buildAccessRequestedMessage: plain card keeps the plain deny action', () =
     assert.equal(els.find((e) => e.action_id === 'access_deny').value, '7');
     assert.equal(els.some((e) => e.action_id === 'access_deny_upgrade'), false);
     delete process.env.SLACK_SIGNING_SECRET;
+});
+
+test('buildProjectRequestedMessage: approve/deny carry the request id behind confirms', () => {
+    process.env.SLACK_SIGNING_SECRET = 'shhh';
+    clearUrls();
+    const m = buildProjectRequestedMessage({ id: 9, email: 'u@x.com', name: 'Marketing Videos', note: 'Q3 push' });
+    assert.match(m.blocks[0].text.text, /project request/i);
+    assert.ok(m.blocks[1].fields.some((f) => f.text.includes('Marketing Videos')));
+    const els = m.blocks.find((b) => b.block_id === 'project_decision').elements;
+    const approve = els.find((e) => e.action_id === 'project_approve');
+    assert.equal(approve.value, '9');
+    assert.ok(approve.confirm, 'approve is behind a confirm dialog');
+    assert.equal(els.find((e) => e.action_id === 'project_deny').value, '9');
+    // No model-access actions leak onto project cards.
+    assert.equal(els.some((e) => String(e.action_id).startsWith('access_')), false);
+    delete process.env.SLACK_SIGNING_SECRET;
+});
+
+test('buildProjectRequestedMessage: no interactive controls without a signing secret', () => {
+    delete process.env.SLACK_SIGNING_SECRET;
+    clearUrls();
+    const m = buildProjectRequestedMessage({ id: 9, email: 'u@x.com', name: 'P' });
+    assert.equal(m.blocks.some((b) => b.block_id === 'project_decision'), false);
+});
+
+test('buildProjectDecidedMessage headers reflect the outcome', () => {
+    assert.match(buildProjectDecidedMessage({ email: 'u@x.com', name: 'P', status: 'approved' }).blocks[0].text.text, /created/i);
+    assert.match(buildProjectDecidedMessage({ email: 'u@x.com', name: 'P', status: 'denied' }).blocks[0].text.text, /declined/i);
 });
 
 test('buildAccessListMessage: empty grants → ephemeral note, no revoke buttons', () => {

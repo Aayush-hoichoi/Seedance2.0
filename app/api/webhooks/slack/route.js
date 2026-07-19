@@ -14,6 +14,7 @@
 
 import { NextResponse } from 'next/server';
 import { setRequestStatus, denyUpgrade, listActiveGrants } from '../../../../lib/access/db.js';
+import { approveProjectRequest, denyProjectRequest } from '../../../../lib/access/projectRequests.mjs';
 import { syncGatewayOverride } from '../../../../lib/access/gatewaySync.mjs';
 import { nextStatus } from '../../../../lib/access/requestStatus.mjs';
 import { verifySlackSignature } from '../../../../lib/slack/verify.mjs';
@@ -98,7 +99,9 @@ export async function POST(request) {
     const isDeny = act?.action_id === 'access_deny';
     const isDenyUpgrade = act?.action_id === 'access_deny_upgrade';
     const isRevoke = act?.action_id === 'access_revoke';
-    if (!act || (!isApprove && !isDeny && !isDenyUpgrade && !isRevoke)) {
+    const isProjectApprove = act?.action_id === 'project_approve';
+    const isProjectDeny = act?.action_id === 'project_deny';
+    if (!act || (!isApprove && !isDeny && !isDenyUpgrade && !isRevoke && !isProjectApprove && !isProjectDeny)) {
         return NextResponse.json({ ok: true }); // not one of our buttons — ack and ignore
     }
     const responseUrl = payload.response_url;
@@ -120,6 +123,36 @@ export async function POST(request) {
     }
     const approve = isApprove;
     const byUser = `${payload.user?.username || payload.user?.name || clicker} (Slack)`;
+
+    // Project-creation requests: approve creates the project + adds the
+    // requester (idempotent, raced-click safe — projectRequests.mjs); deny
+    // closes the ask. Both replace the card with the outcome.
+    if (isProjectApprove || isProjectDeny) {
+        const row = isProjectApprove
+            ? await approveProjectRequest(requestId, { actorId: `slack:${clicker}`, actorEmail: byUser })
+            : await denyProjectRequest(requestId, byUser);
+        if (!row) {
+            await respond(responseUrl, note('That project request was already handled.'));
+            return NextResponse.json({ ok: true });
+        }
+        const created = isProjectApprove;
+        await respond(responseUrl, {
+            replace_original: true,
+            text: created
+                ? `📁 Project created: ${row.name} — ${row.user_email} added`
+                : `🚫 Project request declined: ${row.name} for ${row.user_email}`,
+            blocks: [
+                { type: 'header', text: { type: 'plain_text', text: created ? '📁 Project created' : '🚫 Project request declined', emoji: true } },
+                { type: 'section', fields: [
+                    { type: 'mrkdwn', text: `*Project:*\n${esc(row.name)}` },
+                    { type: 'mrkdwn', text: `*Requested by:*\n${esc(row.user_email)}` },
+                    { type: 'mrkdwn', text: `*${created ? 'Created' : 'Declined'} by:*\n${esc(byUser)}` },
+                    ...(created ? [{ type: 'mrkdwn', text: `*Members:*\n${esc(row.user_email)} added` }] : []),
+                ] },
+            ],
+        });
+        return NextResponse.json({ ok: true });
+    }
 
     // Declining an upgrade clears ONLY the parked tier ask — the live grant,
     // its expiry and the gateway override all stay untouched (no sync needed).

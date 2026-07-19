@@ -40,6 +40,7 @@ export default function ProjectsClient() {
     const [saving, setSaving] = useState(false);
     const [confirmingId, setConfirmingId] = useState(null); // project pending archive confirmation
     const [archivingId, setArchivingId] = useState(null);
+    const [notice, setNotice] = useState(null); // "request sent" confirmation for members
 
     const load = useCallback(() => {
         fetch('/api/projects')
@@ -58,21 +59,29 @@ export default function ProjectsClient() {
     const items = data?.items ?? [];
     const totalSpend = items.reduce((sum, p) => sum + Number(p.spent_usd ?? 0), 0);
 
+    // Managers create directly; members file a request an admin approves
+    // (approval creates the project and adds them to it).
     async function create() {
         const trimmed = name.trim();
         if (!trimmed || saving) return;
         setSaving(true);
+        setNotice(null);
         try {
-            const res = await fetch('/api/projects', {
+            const url = canManage ? '/api/projects' : '/api/access/request-project';
+            const res = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: trimmed }),
             });
             const d = await res.json().catch(() => null);
-            if (!res.ok) throw new Error(d?.message || 'Could not create the project.');
+            if (!res.ok) throw new Error(d?.error || d?.message || (canManage ? 'Could not create the project.' : 'Could not send the request.'));
             setName('');
             setCreating(false);
-            load();
+            setError(null);
+            if (canManage) load();
+            else setNotice(d?.fresh === false
+                ? `You already requested “${trimmed}” — waiting for an admin to approve it.`
+                : `Request sent — an admin will review “${trimmed}” and you’ll find it here once approved.`);
         } catch (e) {
             setError(e.message);
         } finally {
@@ -113,13 +122,14 @@ export default function ProjectsClient() {
                         </p>
                     </div>
                     <div className="flex items-center gap-2.5">
-                        {canManage && (
+                        {data && (
                             <button
                                 type="button"
-                                onClick={() => setCreating((v) => !v)}
+                                onClick={() => { setNotice(null); setCreating((v) => !v); }}
+                                title={canManage ? 'Create a project' : 'Ask an admin to create a project for you'}
                                 className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent-hi"
                             >
-                                <Plus size={15} strokeWidth={2.5} /> New Project
+                                <Plus size={15} strokeWidth={2.5} /> {canManage ? 'New Project' : 'Request Project'}
                             </button>
                         )}
                         <div className="rounded-full ring-1 ring-line">
@@ -143,6 +153,12 @@ export default function ProjectsClient() {
                     </div>
                 )}
 
+                {notice && (
+                    <div className="mt-6 rounded-md border border-ok/25 bg-ok/10 px-4 py-3 text-sm text-ok">
+                        {notice}
+                    </div>
+                )}
+
                 {creating && (
                     <form
                         onSubmit={(e) => { e.preventDefault(); create(); }}
@@ -157,7 +173,7 @@ export default function ProjectsClient() {
                         />
                         <button type="submit" disabled={!name.trim() || saving}
                             className="rounded-md bg-accent px-3.5 py-2 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent-hi disabled:opacity-40">
-                            {saving ? 'Creating…' : 'Create'}
+                            {canManage ? (saving ? 'Creating…' : 'Create') : (saving ? 'Sending…' : 'Send request')}
                         </button>
                         <button type="button" onClick={() => { setCreating(false); setName(''); }}
                             className="rounded-md border border-line px-3 py-2 text-sm font-medium text-ink-2 transition-colors hover:border-line-strong hover:text-ink">
@@ -188,7 +204,7 @@ export default function ProjectsClient() {
                                             {canManage ? 'No projects yet' : 'You’re not in any project yet'}
                                         </p>
                                         <p className="mt-1 text-sm text-ink-3">
-                                            {canManage ? 'Create one to start tracking spend and access.' : 'Ask an admin to add you to a project.'}
+                                            {canManage ? 'Create one to start tracking spend and access.' : 'Ask an admin to add you to one, or request a new project above.'}
                                         </p>
                                     </td>
                                 </tr>

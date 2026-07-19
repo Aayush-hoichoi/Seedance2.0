@@ -13,6 +13,22 @@ export default function ProjectsClient() {
     const [name, setName] = useState('');
     const [saving, setSaving] = useState(false);
     const isAdmin = data?.canManageProjects ?? (data?.role === 'admin');
+    // Pending "create me a project" asks — platform-admin only (the API 403s
+    // managers, so don't even fetch for them; null key skips SWR).
+    const canDecide = data?.role === 'admin';
+    const { data: reqData, mutate: mutateReqs } = useApi(canDecide ? '/api/admin/project-requests' : null);
+    const pendingReqs = reqData?.requests ?? [];
+    const [decidingId, setDecidingId] = useState(null);
+
+    async function decideRequest(id, action) {
+        setDecidingId(id);
+        const r = await sendJson(`/api/admin/project-requests/${id}/${action}`, 'POST');
+        setDecidingId(null);
+        if (!r.ok) return toast.error(r.data?.error || 'Could not decide the request');
+        toast.success(action === 'approve' ? 'Project created — requester added' : 'Request declined');
+        mutateReqs();
+        if (action === 'approve') mutate(); // the new project appears in the list
+    }
 
     async function create() {
         setSaving(true);
@@ -70,6 +86,31 @@ export default function ProjectsClient() {
             <PageHeader title="Projects" subtitle="Model access, members and budgets are managed per project">
                 {isAdmin ? <Button variant="primary" onClick={() => setOpen(true)}><Plus size={14} /> New project</Button> : null}
             </PageHeader>
+            {pendingReqs.length > 0 && (
+                <div className="mb-4 overflow-hidden rounded-lg border border-amber-500/25 bg-amber-500/5">
+                    <div className="border-b border-amber-500/20 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-500">
+                        Project requests — {pendingReqs.length} pending
+                    </div>
+                    {pendingReqs.map((r) => (
+                        <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-line/60 px-4 py-2.5 last:border-0">
+                            <div className="min-w-0 text-sm">
+                                <span className="font-medium text-ink">{r.user_email || r.user_id}</span>
+                                <span className="text-ink-3"> wants project </span>
+                                <span className="font-medium text-ink">“{r.name}”</span>
+                                {r.note ? <span className="text-ink-3"> — {r.note}</span> : null}
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <Button variant="primary" loading={decidingId === r.id} onClick={() => decideRequest(r.id, 'approve')}>
+                                    Create &amp; add
+                                </Button>
+                                <Button variant="outline" disabled={decidingId === r.id} onClick={() => decideRequest(r.id, 'deny')}>
+                                    Deny
+                                </Button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
             {error ? (
                 <EmptyState title="Couldn’t load projects" hint={error.message} />
             ) : (
