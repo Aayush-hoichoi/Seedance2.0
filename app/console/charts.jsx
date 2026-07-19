@@ -5,7 +5,7 @@
 
 import {
     ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
-    PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, Legend,
+    PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, Legend, ScatterChart, Scatter,
 } from 'recharts';
 
 const PALETTE = ['#8B7CF6', '#A599F8'];
@@ -63,6 +63,40 @@ export function SpendLines({ data, series, xKey = 'key', height = 320, money = t
                         stroke={s === 'Others' ? LINE_PALETTE[LINE_PALETTE.length - 1] : LINE_PALETTE[i % (LINE_PALETTE.length - 1)]} />
                 ))}
             </LineChart>
+        </ResponsiveContainer>
+    );
+}
+
+function ScatterTip({ active, payload }) {
+    if (!active || !payload?.length) return null;
+    const d = payload[0]?.payload;
+    if (!d) return null;
+    return (
+        <div style={{ background: '#1A1A21', border: '1px solid #2A2A34', borderRadius: 8, fontSize: 12, padding: '8px 10px', color: '#F4F3F7' }}>
+            <div style={{ color: '#B4B2C0', marginBottom: 4 }}>{d.key}</div>
+            <div>tasks: {Number(d.tasks).toLocaleString('en-US')}</div>
+            <div>spend: ${Number(d.cost_usd).toFixed(4)}</div>
+            <div>$/task: {d.tasks ? `$${(d.cost_usd / d.tasks).toFixed(4)}` : '—'}</div>
+        </div>
+    );
+}
+
+// Performance view: each dot is a user — x tasks sent, y spend. Dots high and
+// left of the pack cost more per task; the tooltip spells out $/task.
+export function TaskCostScatter({ data, height = 280 }) {
+    return (
+        <ResponsiveContainer width="100%" height={height}>
+            <ScatterChart margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                <CartesianGrid stroke="#2A2A34" />
+                <XAxis type="number" dataKey="tasks" name="tasks" {...AXIS} tickLine={false} axisLine={false}
+                    label={{ value: 'tasks sent', position: 'insideBottomRight', offset: -2, fill: '#7C7A88', fontSize: 11 }} />
+                <YAxis type="number" dataKey="cost_usd" name="spend" {...AXIS} tickLine={false} axisLine={false} width={48}
+                    tickFormatter={(v) => `$${v}`} />
+                <Tooltip content={<ScatterTip />} cursor={{ stroke: '#2A2A34' }} />
+                <Scatter data={data}>
+                    {data.map((_, i) => <Cell key={i} fill={LINE_PALETTE[i % (LINE_PALETTE.length - 1)]} />)}
+                </Scatter>
+            </ScatterChart>
         </ResponsiveContainer>
     );
 }
