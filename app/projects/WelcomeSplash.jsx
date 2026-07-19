@@ -55,7 +55,7 @@ export default function WelcomeSplash() {
                 clearTimeout(kill);
                 if (cancelled) return;
                 setJoke(d?.joke || pick(FALLBACK_JOKES));
-                hideTimer = setTimeout(() => setShow(false), 3400);
+                hideTimer = setTimeout(() => setShow(false), 5500); // enough time to actually read the joke
             });
         return () => { cancelled = true; clearTimeout(kill); clearTimeout(hideTimer); ctrl.abort(); };
     }, []);
