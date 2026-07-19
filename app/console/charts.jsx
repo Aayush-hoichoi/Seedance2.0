@@ -47,7 +47,8 @@ export function SpendLines({ data, series, xKey = 'key', height = 320 }) {
                 <CartesianGrid stroke="#2A2A34" vertical={false} />
                 <XAxis dataKey={xKey} {...AXIS} tickLine={false} axisLine={false} />
                 <YAxis {...AXIS} tickLine={false} axisLine={false} width={48} tickFormatter={(v) => `$${v}`} />
-                <Tooltip {...TOOLTIP_STYLE} formatter={(v, n) => [`$${Number(v).toFixed(4)}`, n]} />
+                <Tooltip {...TOOLTIP_STYLE} formatter={(v, n) => [`$${Number(v).toFixed(4)}`, n]}
+                    itemSorter={(item) => -Number(item.value || 0)} />
                 <Legend
                     wrapperStyle={{ fontSize: 11, color: '#B4B2C0' }}
                     formatter={(v) => <span style={{ color: '#B4B2C0' }}>{String(v).split('@')[0]}</span>}
