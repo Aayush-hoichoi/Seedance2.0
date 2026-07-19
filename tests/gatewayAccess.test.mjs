@@ -25,20 +25,27 @@ test('deny by default when no rule matches', () => {
 });
 
 test('org-default model is allowed with no grants', () => {
-    assert.deepEqual(decide({ modelId: 'seedance-2.0-mini' }), { allowed: true, rule: 'org_default' });
+    assert.deepEqual(decide({ modelId: 'seedance-2.0-mini' }), { allowed: true, rule: 'org_default', maxResolution: null });
 });
 
 test('project grant allows a non-default model', () => {
     assert.deepEqual(
         decide({ grants: [{ model_id: 'seedance-2.0' }] }),
-        { allowed: true, rule: 'project_grant' },
+        { allowed: true, rule: 'project_grant', maxResolution: null },
     );
 });
 
 test('user ALLOW override wins without a project grant', () => {
     assert.deepEqual(
         decide({ overrides: [{ model_id: 'seedance-2.0', effect: 'allow' }] }),
-        { allowed: true, rule: 'allow_override' },
+        { allowed: true, rule: 'allow_override', maxResolution: null },
+    );
+});
+
+test('allow override carries its quality cap; other rules never cap', () => {
+    assert.deepEqual(
+        decide({ overrides: [{ model_id: 'seedance-2.0', effect: 'allow', max_resolution: '1080p' }] }),
+        { allowed: true, rule: 'allow_override', maxResolution: '1080p' },
     );
 });
 
@@ -74,6 +81,13 @@ test('expired grant falls through to deny', () => {
     );
 });
 
+test('windowed allow override caps only while active', () => {
+    assert.equal(
+        decide({ overrides: [{ model_id: 'seedance-2.0', effect: 'allow', max_resolution: '720p', valid_until: RECENT }] }).allowed,
+        false,
+    );
+});
+
 test('future-dated grant is not active yet', () => {
     assert.equal(decide({ grants: [{ model_id: 'seedance-2.0', valid_from: FUTURE }] }).allowed, false);
 });
@@ -92,7 +106,7 @@ test('revoked rows are inert', () => {
             overrides: [{ model_id: 'seedance-2.0', effect: 'deny', revoked_at: RECENT }],
             grants: [{ model_id: 'seedance-2.0' }],
         }),
-        { allowed: true, rule: 'project_grant' },
+        { allowed: true, rule: 'project_grant', maxResolution: null },
     );
 });
 

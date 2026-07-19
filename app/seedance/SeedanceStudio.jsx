@@ -6,7 +6,7 @@
 // in-flight tasks are resumed after a reload by re-polling their ModelArk id.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MODELS, MODES, RATIOS, RESOLUTIONS, DEFAULT_OPTIONS, IMAGE_MODELS, IMAGE_DEFAULT_MODEL_ID, IMAGE_RATIOS, IMAGE_RESOLUTIONS, IMAGE_STUDIO_ID, IMAGE_STUDIO_MODEL_ID, modeAllowedForModel } from '../../lib/seedance/constants.js';
+import { MODELS, MODES, RATIOS, RESOLUTIONS, DEFAULT_OPTIONS, IMAGE_MODELS, IMAGE_DEFAULT_MODEL_ID, IMAGE_RATIOS, IMAGE_RESOLUTIONS, IMAGE_STUDIO_ID, IMAGE_STUDIO_MODEL_ID, modeAllowedForModel, resolutionWithinTier } from '../../lib/seedance/constants.js';
 import { sanitizeOptions } from '../../lib/seedance/options.mjs';
 import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js';
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
@@ -117,6 +117,12 @@ export default function SeedanceStudio() {
     // null = still loading; then string[]. Gated models the user lacks are locked
     // in the picker with a "request access" action.
     const [allowedModelIds, setAllowedModelIds] = useState(null);
+    // Per-model quality cap from the grant ('4k', '2K', …); absent/null = the
+    // model's full range. Keys are studio model ids (video tags + image aliases).
+    const [tierCaps, setTierCaps] = useState({});
+    // Raw access requests (from /api/access/me) — feeds the "requested" label
+    // on locked tiers when a quality upgrade is already parked with the admin.
+    const [accessRequests, setAccessRequests] = useState([]);
     const [isAdmin, setIsAdmin] = useState(false); // shows the /admin shortcut (server still enforces)
     const [monthSpend, setMonthSpend] = useState(null); // this month's spend (USD) for the badge
     // Gateway projects: model access + budgets are scoped per project. The
@@ -131,7 +137,7 @@ export default function SeedanceStudio() {
         let alive = true;
         fetch('/api/access/me')
             .then((r) => (r.ok ? r.json() : null))
-            .then((d) => { if (alive && d) { setAllowedModelIds(d.allowedModelIds); setIsAdmin(!!d.isAdmin); if (typeof d.monthSpendUsd === 'number') setMonthSpend(d.monthSpendUsd); } })
+            .then((d) => { if (alive && d) { setAllowedModelIds(d.allowedModelIds); setIsAdmin(!!d.isAdmin); if (typeof d.monthSpendUsd === 'number') setMonthSpend(d.monthSpendUsd); if (Array.isArray(d.requests)) setAccessRequests(d.requests); } })
             .catch(() => {});
         fetch('/api/projects')
             .then((r) => (r.ok ? r.json() : null))
@@ -172,6 +178,15 @@ export default function SeedanceStudio() {
                 const videoIds = MODELS.filter((m) => allowedKinds.has(m.kind)).map((m) => m.id);
                 const imageIds = allowed.filter((m) => m.category === 'image').map((m) => m.id);
                 setAllowedModelIds([...videoIds, ...imageIds]);
+                // Quality caps ride the same payload; bridge video via kind
+                // (same mapping as above), image keys are the item id already.
+                const caps = {};
+                for (const m of allowed) {
+                    if (m.maxResolution == null) continue;
+                    if (m.category === 'image') caps[m.id] = m.maxResolution;
+                    else MODELS.filter((x) => x.kind === m.kind).forEach((x) => { caps[x.id] = m.maxResolution; });
+                }
+                setTierCaps(caps);
             })
             .catch(() => {});
         return () => { alive = false; };
@@ -254,12 +269,49 @@ export default function SeedanceStudio() {
     const mode = useMemo(() => MODES.find((m) => m.id === modeId), [modeId]);
     const tags = useMemo(() => buildTags(mode, mediaByRole), [mode, mediaByRole]);
     const selectedModel = useMemo(() => MODELS.find((m) => m.id === options.model), [options.model]);
+    // Capability-only list: tiers above the user's granted cap stay VISIBLE in
+    // the picker (locked, with an upgrade-request affordance in PromptBar) —
+    // the clamp below keeps them from ever being the active selection.
     const resolutions = useMemo(
         () => RESOLUTIONS.filter((r) =>
             (r !== '1080p' || selectedModel?.supports1080p)
             && (r !== '4k' || selectedModel?.supports4k)),
         [selectedModel],
     );
+
+    // Quality upgrades already parked with the admin for THIS project — the
+    // locked tier shows "requested" instead of re-offering the modal's ask.
+    const pendingTiers = useMemo(() => {
+        const m = {};
+        for (const r of accessRequests) {
+            if (r.project_id !== projectId) continue;
+            if (r.status === 'approved' && r.pending_max_resolution) m[r.model_id] = r.pending_max_resolution;
+        }
+        return m;
+    }, [accessRequests, projectId]);
+
+    // A cap (or model switch) can strand a persisted resolution above the
+    // granted tier — clamp both media types to the highest tier still offered.
+    useEffect(() => {
+        setOptions((o) => {
+            const next = { ...o };
+            const vm = MODELS.find((x) => x.id === o.model);
+            if (vm) {
+                const ok = (r) => (r !== '1080p' || vm.supports1080p) && (r !== '4k' || vm.supports4k)
+                    && resolutionWithinTier(r, tierCaps[vm.id] ?? null, RESOLUTIONS);
+                if (!ok(next.resolution)) next.resolution = [...RESOLUTIONS].reverse().find(ok) || '720p';
+            }
+            const im = IMAGE_MODELS.find((x) => x.id === o.model);
+            if (im?.resolutions) {
+                // Must be a tier the model still OFFERS and within the grant cap —
+                // a persisted 4K selection can't linger on a model that dropped it.
+                const okI = (r) => im.resolutions.some((t) => t.toLowerCase() === String(r).toLowerCase())
+                    && resolutionWithinTier(r, tierCaps[im.id] ?? null, im.resolutions);
+                if (!okI(next.imageResolution)) next.imageResolution = [...im.resolutions].reverse().find(okI) || im.resolutions[0];
+            }
+            return next.resolution === o.resolution && next.imageResolution === o.imageResolution ? o : next;
+        });
+    }, [tierCaps, options.model]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const setOpt = (k, v) => setOptions((o) => {
         const next = { ...o, [k]: v };
@@ -1313,6 +1365,8 @@ export default function SeedanceStudio() {
                 allowedModelIds={allowedModelIds}
                 projectId={projectId}
                 resolutions={resolutions}
+                tierCaps={tierCaps}
+                pendingTiers={pendingTiers}
                 selectedModel={selectedModel}
                 error={error}
                 notice={notice}

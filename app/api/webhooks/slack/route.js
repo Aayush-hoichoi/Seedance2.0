@@ -13,7 +13,7 @@
 //   SLACK_APPROVE_DAYS    fallback grant window if no expiry date is picked (default 2)
 
 import { NextResponse } from 'next/server';
-import { setRequestStatus, listActiveGrants } from '../../../../lib/access/db.js';
+import { setRequestStatus, denyUpgrade, listActiveGrants } from '../../../../lib/access/db.js';
 import { syncGatewayOverride } from '../../../../lib/access/gatewaySync.mjs';
 import { nextStatus } from '../../../../lib/access/requestStatus.mjs';
 import { verifySlackSignature } from '../../../../lib/slack/verify.mjs';
@@ -46,12 +46,23 @@ function pickedDate(payload) {
     return null;
 }
 
-function outcomeMessage({ approved, email, model, byUser, expiresAt }) {
+// The quality select's pick, same mechanism. null (select untouched and Slack
+// sent no state for it) falls back to the tier the user requested — which is
+// exactly what the select was initialized to, so both paths agree.
+function pickedQuality(payload) {
+    for (const block of Object.values(payload?.state?.values || {})) {
+        if (block?.grant_quality?.selected_option?.value) return block.grant_quality.selected_option.value;
+    }
+    return null;
+}
+
+function outcomeMessage({ approved, email, model, byUser, expiresAt, maxResolution }) {
     const fields = [
         { type: 'mrkdwn', text: `*User:*\n${esc(email)}` },
         { type: 'mrkdwn', text: `*Model:*\n${esc(model)}` },
         { type: 'mrkdwn', text: `*${approved ? 'Approved' : 'Denied'} by:*\n${esc(byUser)}` },
     ];
+    if (approved && maxResolution) fields.push({ type: 'mrkdwn', text: `*Quality:*\nup to ${esc(maxResolution)}` });
     if (approved) fields.push({ type: 'mrkdwn', text: `*Access until:*\n${expiresAt ? new Date(expiresAt).toUTCString() : 'no expiry'}` });
     return {
         replace_original: true,
@@ -78,13 +89,16 @@ export async function POST(request) {
     catch { return NextResponse.json({ error: 'bad payload' }, { status: 400 }); }
 
     // access_approve grants until the picked expiry date; access_deny declines a
-    // pending request; access_revoke (from the /all-access list) pulls a live
-    // grant. The datepicker's own change events (expiry_date) are ignored.
+    // pending request; access_deny_upgrade declines a parked tier upgrade
+    // WITHOUT touching the live grant; access_revoke (from the /all-access
+    // list) pulls a live grant. The datepicker's/select's own change events
+    // (expiry_date, grant_quality) are ignored.
     const act = payload?.actions?.[0];
     const isApprove = !!act?.action_id?.startsWith('access_approve');
     const isDeny = act?.action_id === 'access_deny';
+    const isDenyUpgrade = act?.action_id === 'access_deny_upgrade';
     const isRevoke = act?.action_id === 'access_revoke';
-    if (!act || (!isApprove && !isDeny && !isRevoke)) {
+    if (!act || (!isApprove && !isDeny && !isDenyUpgrade && !isRevoke)) {
         return NextResponse.json({ ok: true }); // not one of our buttons — ack and ignore
     }
     const responseUrl = payload.response_url;
@@ -107,6 +121,30 @@ export async function POST(request) {
     const approve = isApprove;
     const byUser = `${payload.user?.username || payload.user?.name || clicker} (Slack)`;
 
+    // Declining an upgrade clears ONLY the parked tier ask — the live grant,
+    // its expiry and the gateway override all stay untouched (no sync needed).
+    if (isDenyUpgrade) {
+        const row = await denyUpgrade(requestId, byUser);
+        if (!row) {
+            await respond(responseUrl, note('That upgrade was already handled.'));
+            return NextResponse.json({ ok: true });
+        }
+        await respond(responseUrl, {
+            replace_original: true,
+            text: `🚫 Upgrade declined: ${row.user_email} keeps up to ${row.max_resolution || 'full'} on ${modelLabel(row.model_id)}`,
+            blocks: [
+                { type: 'header', text: { type: 'plain_text', text: '🚫 Quality upgrade declined', emoji: true } },
+                { type: 'section', fields: [
+                    { type: 'mrkdwn', text: `*User:*\n${esc(row.user_email)}` },
+                    { type: 'mrkdwn', text: `*Model:*\n${esc(modelLabel(row.model_id))}` },
+                    { type: 'mrkdwn', text: `*Declined by:*\n${esc(byUser)}` },
+                    { type: 'mrkdwn', text: `*Existing access:*\nunchanged (up to ${esc(row.max_resolution || 'full range')})` },
+                ] },
+            ],
+        });
+        return NextResponse.json({ ok: true });
+    }
+
     // Grant window = the picked expiry date (end of day, UTC); if untouched, fall
     // back to SLACK_APPROVE_DAYS (default 2).
     let validUntil = null;
@@ -122,7 +160,11 @@ export async function POST(request) {
         validUntil = new Date(at).toISOString();
     }
 
-    const row = await setRequestStatus(requestId, nextStatus(approve ? 'approve' : 'revoke'), byUser, validUntil);
+    // The granted quality: the select's pick (options come from our own card,
+    // so they're already valid tiers for the model); null keeps the requested tier.
+    const quality = approve ? pickedQuality(payload) : null;
+
+    const row = await setRequestStatus(requestId, nextStatus(approve ? 'approve' : 'revoke'), byUser, validUntil, quality);
     if (!row) {
         await respond(responseUrl, note('Request not found — it may already have been handled.'));
         return NextResponse.json({ ok: true });
@@ -146,7 +188,8 @@ export async function POST(request) {
     }
 
     await respond(responseUrl, outcomeMessage({
-        approved: approve, email: row.user_email, model: modelLabel(row.model_id), byUser, expiresAt: row.expires_at,
+        approved: approve, email: row.user_email, model: modelLabel(row.model_id), byUser,
+        expiresAt: row.expires_at, maxResolution: row.max_resolution,
     }));
     return NextResponse.json({ ok: true });
 }

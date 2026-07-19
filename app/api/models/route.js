@@ -27,6 +27,7 @@ export async function GET(request) {
         return {
             id: m.id, displayName: m.display_name, category: m.category, kind: m.kind,
             caps: m.caps, isDefault: m.is_default, allowed: decision.allowed, rule: decision.rule,
+            maxResolution: decision.maxResolution ?? null,
         };
     });
     return NextResponse.json({ items });

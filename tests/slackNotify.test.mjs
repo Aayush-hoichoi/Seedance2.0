@@ -81,6 +81,34 @@ test('buildAccessRequestedMessage: datepicker + single approve + deny when signi
     delete process.env.SLACK_SIGNING_SECRET;
 });
 
+test('buildAccessRequestedMessage: upgrade card shows current → wanted and uses the upgrade deny action', () => {
+    process.env.SLACK_SIGNING_SECRET = 'shhh';
+    clearUrls();
+    const m = buildAccessRequestedMessage({
+        id: 42, email: 'u@x.com', modelId: 'nano-banana-pro', projectName: 'P',
+        maxResolution: '4K', upgradeFrom: '2K',
+    });
+    assert.match(m.blocks[0].text.text, /upgrade/i);
+    assert.ok(m.blocks[1].fields.some((f) => f.text.includes('2K → 4K')), 'quality field shows current → wanted');
+    const els = m.blocks.find((b) => b.block_id === 'access_decision').elements;
+    assert.equal(els.find((e) => e.action_id === 'access_deny_upgrade').value, '42');
+    assert.equal(els.some((e) => e.action_id === 'access_deny'), false, 'plain deny absent on upgrade cards');
+    // The quality select is preset to the WANTED tier.
+    const select = m.blocks.find((b) => b.block_id === 'access_expiry').elements.find((e) => e.type === 'static_select');
+    assert.equal(select.initial_option.value, '4K');
+    delete process.env.SLACK_SIGNING_SECRET;
+});
+
+test('buildAccessRequestedMessage: plain card keeps the plain deny action', () => {
+    process.env.SLACK_SIGNING_SECRET = 'shhh';
+    clearUrls();
+    const m = buildAccessRequestedMessage({ id: 7, email: 'u@x.com', modelId: 'nano-banana-pro', projectName: 'P', maxResolution: '2K' });
+    const els = m.blocks.find((b) => b.block_id === 'access_decision').elements;
+    assert.equal(els.find((e) => e.action_id === 'access_deny').value, '7');
+    assert.equal(els.some((e) => e.action_id === 'access_deny_upgrade'), false);
+    delete process.env.SLACK_SIGNING_SECRET;
+});
+
 test('buildAccessListMessage: empty grants → ephemeral note, no revoke buttons', () => {
     const m = buildAccessListMessage([]);
     assert.equal(m.response_type, 'ephemeral');

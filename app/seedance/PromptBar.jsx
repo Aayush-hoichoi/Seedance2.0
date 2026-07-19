@@ -6,13 +6,14 @@
 
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { Lock } from 'lucide-react';
-import { MODES, RATIOS, IMAGE_RATIOS, IMAGE_STUDIO_ID, modeAllowedForModel } from '../../lib/seedance/constants.js';
+import { MODES, RATIOS, RESOLUTIONS, IMAGE_RATIOS, IMAGE_STUDIO_ID, modeAllowedForModel, resolutionWithinTier } from '../../lib/seedance/constants.js';
 import { estimateCost } from '../../lib/seedance/pricing.mjs';
 import { imageCost } from '../../lib/gateway/imagePricing.mjs';
 import { summarize as summarizeCinematic } from '../../lib/seedance/cinematic.mjs';
 import { filterTags, tagLabelFor, tagToken, TOKEN_RE } from '../../lib/seedance/tags.js';
 import { friendlyError } from '../../lib/seedance/friendlyError.js';
 import MediaHoverPreview from './MediaHoverPreview.jsx';
+import AccessRequestModal from './AccessRequestModal.jsx';
 
 // Render the prompt with @Image1 / @Video2 / @Audio3 tokens as cyan chips.
 // Rendered in a backdrop behind a transparent-text textarea, so the chip
@@ -360,7 +361,7 @@ const BATCH_OPTIONS = [1, 2 /* , 4 — capped at ×2 for now; uncomment to bring
 
 export default function PromptBar({
     mode, onChangeMode, prompt, onPromptChange, options, setOpt,
-    mediaByRole, setMediaByRole, models, allowedModelIds, projectId, resolutions, selectedModel,
+    mediaByRole, setMediaByRole, models, allowedModelIds, projectId, resolutions, selectedModel, tierCaps = {}, pendingTiers = {},
     error, notice, setNotice, onGenerate, enhancing = false, batch = 1, setBatch,
     onMediaError, onUploadFiles, tags, sidebarLeft = '',
     mediaType = 'video', onChangeMediaType, imageModels = [],
@@ -384,7 +385,7 @@ export default function PromptBar({
         return !!m?.gated && allowedModelIds && !allowedModelIds.includes(id);
     };
     // Locked models show just their name + a lock glyph (no "(request access)"
-    // text); the confirm dialog on click carries the request affordance.
+    // text); the access-request modal on click carries the request affordance.
     const lockName = (id, fallback) => {
         const name = imageModels.find((m) => m.id === id)?.name || fallback;
         return imgLocked(id) ? withLock(name) : name;
@@ -400,24 +401,48 @@ export default function PromptBar({
     // Fire an access request for a locked model (shared by the video + image
     // pickers). The request is scoped to the current project — approval grants
     // the model there. Without a project we can't scope it, so guide the user.
-    // A confirm step names the model so a stray click can't fire a request.
+    // Opening a modal (not window.confirm) so the user also picks the quality
+    // tier they need and can leave a note; a stray click still can't fire one.
+    const [accessRequest, setAccessRequest] = useState(null); // { modelId, name, tier?, currentCap? } while the modal is open
+    // In-session echo of upgrade asks (modelId → tier) layered over the
+    // server-known pendingTiers, so the "requested" state shows immediately.
+    const [localPendingTiers, setLocalPendingTiers] = useState({});
+    const pendingTierFor = (id) => localPendingTiers[id] ?? pendingTiers[id] ?? null;
     const requestModelAccess = (modelId) => {
         if (!projectId) { setNotice?.('Pick a project first — access is granted per project.'); return; }
         const name = [...models, ...imageModels].find((m) => m.id === modelId)?.name || modelId;
-        if (typeof window !== 'undefined' && !window.confirm(`Request access to “${name}” for this project? An admin will review it.`)) return;
-        fetch('/api/access/request', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ modelId, projectId }),
-        })
-            .then(async (r) => {
-                const d = await r.json().catch(() => null);
-                if (!r.ok) { setNotice?.(d?.error || 'Could not send the access request — try again.'); return; }
-                setNotice?.(d?.status === 'approved'
-                    ? 'You already have access — reload the page to unlock this model.'
-                    : 'Access requested — pending admin approval.');
-            })
-            .catch(() => setNotice?.('Could not send the access request — check your connection.'));
+        setAccessRequest({ modelId, name });
     };
+    // A locked TIER on a model the user already has (grant capped below it):
+    // same modal in upgrade mode, preselected at the clicked tier. A tier
+    // already parked with the admin short-circuits to a notice.
+    const requestTierUpgrade = (modelId, tier) => {
+        if (!projectId) { setNotice?.('Pick a project first — access is granted per project.'); return; }
+        const already = pendingTierFor(modelId);
+        if (already) { setNotice?.(`Already requested — ${already} is waiting for admin approval.`); return; }
+        const name = [...models, ...imageModels].find((m) => m.id === modelId)?.name || modelId;
+        setAccessRequest({ modelId, name, tier, currentCap: tierCaps[modelId] ?? null });
+    };
+    const sendAccessRequest = ({ maxResolution, note }) => fetch('/api/access/request', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modelId: accessRequest.modelId, projectId, maxResolution, note }),
+    })
+        .then(async (r) => {
+            const d = await r.json().catch(() => null);
+            if (!r.ok) { setNotice?.(d?.error || 'Could not send the access request — try again.'); return; }
+            if (d?.status === 'upgrade_pending') {
+                setLocalPendingTiers((m) => ({ ...m, [accessRequest.modelId]: maxResolution }));
+                setNotice?.('Quality upgrade requested — pending admin approval.');
+            } else if (d?.status === 'covered') {
+                setNotice?.('Your current access already covers that quality.');
+            } else if (d?.status === 'approved') {
+                setNotice?.('You already have access — reload the page to unlock this model.');
+            } else {
+                setNotice?.('Access requested — pending admin approval.');
+            }
+        })
+        .catch(() => setNotice?.('Could not send the access request — check your connection.'))
+        .finally(() => setAccessRequest(null));
     const [openKey, setOpenKey] = useState(null);
     const [mention, setMention] = useState(null); // { start, query } while typing "@…"
     const [mentionIdx, setMentionIdx] = useState(0); // keyboard-highlighted menu row
@@ -663,7 +688,19 @@ export default function PromptBar({
                             <PillSelect
                                 id="ires" openKey={openKey} setOpenKey={setOpenKey}
                                 badge={<ResIcon />} display={options.imageResolution} label="Resolution" value={options.imageResolution}
-                                options={selectedImageModel.resolutions.map((r) => ({ value: r, label: r }))} onSelect={(v) => setOpt('imageResolution', v)}
+                                options={selectedImageModel.resolutions.map((r) => {
+                                    // Above the granted cap: locked, and picking it asks for an upgrade.
+                                    const locked = !resolutionWithinTier(r, tierCaps[selectedImageModel.id] ?? null, selectedImageModel.resolutions);
+                                    if (!locked) return { value: r, label: r };
+                                    const requested = String(pendingTierFor(selectedImageModel.id) || '').toLowerCase() === r.toLowerCase();
+                                    return { value: r, label: withLock(requested ? `${r} · requested` : r) };
+                                })}
+                                onSelect={(v) => {
+                                    if (!resolutionWithinTier(v, tierCaps[selectedImageModel.id] ?? null, selectedImageModel.resolutions)) {
+                                        requestTierUpgrade(selectedImageModel.id, v); return;
+                                    }
+                                    setOpt('imageResolution', v);
+                                }}
                             />
                         )}
                         <span className="hidden sm:inline text-[11px] text-white/35">Batch queue · the image lands in your history</span>
@@ -711,7 +748,19 @@ export default function PromptBar({
                         />
                         <PillSelect
                             id="res" openKey={openKey} setOpenKey={setOpenKey}                            badge={<ResIcon />} display={options.resolution} label="Resolution" value={options.resolution}
-                            options={resolutions.map((r) => ({ value: r, label: r }))} onSelect={(v) => setOpt('resolution', v)}
+                            options={resolutions.map((r) => {
+                                // Above the granted cap: locked, and picking it asks for an upgrade.
+                                const locked = !resolutionWithinTier(r, tierCaps[options.model] ?? null, RESOLUTIONS);
+                                if (!locked) return { value: r, label: r };
+                                const requested = String(pendingTierFor(options.model) || '').toLowerCase() === r.toLowerCase();
+                                return { value: r, label: withLock(requested ? `${r} · requested` : r) };
+                            })}
+                            onSelect={(v) => {
+                                if (!resolutionWithinTier(v, tierCaps[options.model] ?? null, RESOLUTIONS)) {
+                                    requestTierUpgrade(options.model, v); return;
+                                }
+                                setOpt('resolution', v);
+                            }}
                         />
                         <DurationControl openKey={openKey} setOpenKey={setOpenKey} duration={options.duration} setDuration={(v) => setOpt('duration', v)} />
                         <SeedControl openKey={openKey} setOpenKey={setOpenKey} seed={options.seed} setSeed={(v) => setOpt('seed', v)} />
@@ -764,6 +813,17 @@ export default function PromptBar({
                 </div>
             </div>
             </div>
+            {accessRequest && (
+                <AccessRequestModal
+                    modelId={accessRequest.modelId}
+                    modelName={accessRequest.name}
+                    currentCap={accessRequest.currentCap ?? null}
+                    defaultResolution={accessRequest.tier
+                        ?? (imageModels.some((m) => m.id === accessRequest.modelId) ? options.imageResolution : options.resolution)}
+                    onConfirm={sendAccessRequest}
+                    onClose={() => setAccessRequest(null)}
+                />
+            )}
         </div>
     );
 }

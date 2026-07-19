@@ -36,3 +36,56 @@ test('reRequestDecision: an expired grant re-opens as a fresh request', () => {
 test('reRequestDecision: a revoked/denied request may be asked again', () => {
     assert.equal(reRequestDecision({ status: 'revoked' }, NOW), 'fresh');
 });
+
+// --- tier-aware verdicts (wantedTier + ladder) -------------------------------
+
+const LADDER = ['480p', '720p', '1080p', '4k'];
+
+test('tier: wanted at/below the live cap is covered — no new request', () => {
+    assert.equal(reRequestDecision({ status: 'approved', max_resolution: '1080p' }, NOW, '720p', LADDER), 'covered');
+    assert.equal(reRequestDecision({ status: 'approved', max_resolution: '1080p' }, NOW, '1080p', LADDER), 'covered');
+});
+
+test('tier: wanted above the live cap is an upgrade', () => {
+    assert.equal(reRequestDecision({ status: 'approved', max_resolution: '1080p' }, NOW, '4k', LADDER), 'upgrade');
+});
+
+test('tier: an uncapped grant covers everything', () => {
+    assert.equal(reRequestDecision({ status: 'approved', max_resolution: null }, NOW, '4k', LADDER), 'covered');
+});
+
+test('tier: duplicate upgrade ask (same tier already parked) is pending, no re-ping', () => {
+    assert.equal(
+        reRequestDecision({ status: 'approved', max_resolution: '720p', pending_max_resolution: '4k' }, NOW, '4k', LADDER),
+        'pending',
+    );
+});
+
+test('tier: a different tier over a parked upgrade re-parks (last ask wins)', () => {
+    assert.equal(
+        reRequestDecision({ status: 'approved', max_resolution: '720p', pending_max_resolution: '4k' }, NOW, '1080p', LADDER),
+        'upgrade',
+    );
+});
+
+test('tier: expired grant re-opens fresh even when asked with a tier', () => {
+    assert.equal(
+        reRequestDecision({ status: 'approved', max_resolution: '720p', expires_at: '2026-07-16T00:00:00Z' }, NOW, '4k', LADDER),
+        'fresh',
+    );
+});
+
+test('tier: still-pending ask at a DIFFERENT tier bumps (re-ping); same tier stays a duplicate', () => {
+    assert.equal(reRequestDecision({ status: 'pending', max_resolution: '1080p' }, NOW, '4k', LADDER), 'pending_bump');
+    assert.equal(reRequestDecision({ status: 'pending', max_resolution: '4k' }, NOW, '4k', LADDER), 'pending');
+    assert.equal(reRequestDecision({ status: 'pending', max_resolution: '4k' }, NOW, null, LADDER), 'pending');
+});
+
+test('tier: case-insensitive comparison across token styles', () => {
+    assert.equal(reRequestDecision({ status: 'approved', max_resolution: '2K' }, NOW, '2k', ['1K', '2K', '4K']), 'covered');
+    assert.equal(reRequestDecision({ status: 'approved', max_resolution: '2k' }, NOW, '4K', ['1K', '2K', '4K']), 'upgrade');
+});
+
+test('tier: without a ladder the legacy approved verdict holds', () => {
+    assert.equal(reRequestDecision({ status: 'approved', max_resolution: '720p' }, NOW, '4k', null), 'approved');
+});

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { PageHeader, Card, Badge, Button, DataTable, EmptyState } from '../ui.jsx';
 import { useApi, sendJson, fmtDate } from '../lib.js';
+import { supportedResolutionsFor } from '../../../lib/seedance/constants.js';
 import { Users, Shield, ShieldCheck, ShieldOff, UserX } from 'lucide-react';
 
 // A Date → the value a <input type="datetime-local"> expects (local wall-clock).
@@ -13,17 +14,33 @@ function toLocalInput(d) {
 }
 
 // One pending request: an expiry is required before Approve enables. Presets
-// set the datetime; a custom time can be typed. Deny needs no time.
+// set the datetime; a custom time can be typed. Deny needs no time. The
+// quality select defaults to what the user asked for — the admin may grant
+// lower (they want 4k, admin decides 2K/1080p is enough). An upgrade row
+// (live grant + parked higher-tier ask) shows current → wanted; denying it
+// clears only the ask, the existing grant survives.
 function PendingRequest({ r, onApprove, onDeny }) {
+    const upgrade = r.status === 'approved' && !!r.pending_max_resolution;
     const [until, setUntil] = useState('');
+    const tiers = supportedResolutionsFor(r.model_id) ?? [];
+    const [quality, setQuality] = useState(r.pending_max_resolution || r.max_resolution || tiers[tiers.length - 1] || '');
     const preset = (days) => setUntil(toLocalInput(new Date(Date.now() + days * 86400000)));
     return (
         <li className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line px-3 py-2 text-sm">
             <span className="text-ink-2">
                 {r.user_email} → <code className="font-mono text-xs text-ink-2">{r.model_id}</code>
+                {upgrade
+                    ? <span className="text-ink-3"> upgrade: <span className="text-ink">{r.max_resolution || 'full'}</span> → <span className="text-ink">{r.pending_max_resolution}</span></span>
+                    : (r.max_resolution ? <span className="text-ink-3"> wants <span className="text-ink">{r.max_resolution}</span></span> : null)}
                 {' '}<span className="text-ink-3">on</span> <span className="text-ink">{r.project_name || (r.project_id ? `project #${r.project_id}` : 'any project')}</span>
             </span>
             <div className="flex flex-wrap items-center gap-1.5">
+                {tiers.length ? (
+                    <select value={quality} onChange={(e) => setQuality(e.target.value)} title="Quality to grant (includes all lower tiers)"
+                        className="rounded border border-line bg-paper-3 px-2 py-1 text-xs text-ink">
+                        {tiers.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                ) : null}
                 {[7, 30, 90].map((d) => (
                     <button key={d} type="button" onClick={() => preset(d)}
                         className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-3 transition-colors hover:border-accent hover:text-accent-hi">
@@ -33,8 +50,9 @@ function PendingRequest({ r, onApprove, onDeny }) {
                 <input type="datetime-local" value={until} onChange={(e) => setUntil(e.target.value)}
                     className="rounded border border-line bg-paper-3 px-2 py-1 text-xs text-ink" />
                 <Button variant="primary" size="xs" disabled={!until} title={until ? 'Approve until this time' : 'Pick an expiry first'}
-                    onClick={() => onApprove(r.id, new Date(until).toISOString())}>Approve</Button>
-                <Button variant="outline" size="xs" onClick={() => onDeny(r.id)}>Deny</Button>
+                    onClick={() => onApprove(r.id, new Date(until).toISOString(), quality || null)}>Approve</Button>
+                <Button variant="outline" size="xs" title={upgrade ? 'Decline the upgrade — existing access stays' : undefined}
+                    onClick={() => onDeny(r.id, upgrade)}>Deny</Button>
             </div>
         </li>
     );
@@ -54,10 +72,11 @@ export default function UsersClient() {
         const r = await sendJson(`/api/admin/users/${id}`, 'DELETE');
         r.ok ? (toast.success('User removed'), users.mutate()) : toast.error(r.data?.error || r.data?.message || 'Failed');
     }
-    async function decide(id, actionName, validUntil) {
-        const body = actionName === 'approve' ? { validUntil } : undefined;
+    async function decide(id, actionName, validUntil, maxResolution = null) {
+        const body = actionName === 'approve' ? { validUntil, maxResolution } : undefined;
         const r = await sendJson(`/api/admin/requests/${id}/${actionName}`, 'POST', body);
-        r.ok ? (toast.success(`Request ${actionName}d`), requests.mutate()) : toast.error(r.data?.error || r.data?.message || 'Failed');
+        const done = actionName === 'deny_upgrade' ? 'Upgrade declined — existing access unchanged' : `Request ${actionName}d`;
+        r.ok ? (toast.success(done), requests.mutate()) : toast.error(r.data?.error || r.data?.message || 'Failed');
     }
 
     const me = users.data?.me;
@@ -97,13 +116,16 @@ export default function UsersClient() {
     ];
 
     const all = requests.data?.requests ?? [];
-    const pending = all.filter((r) => r.status === 'pending');
+    // Upgrade asks (live grant + parked higher tier) queue alongside plain
+    // pending requests — including on an expired grant, which approve revives.
+    const pending = all.filter((r) => r.status === 'pending' || (r.status === 'approved' && r.pending_max_resolution));
     const now = Date.now();
     const granted = all.filter((r) => r.status === 'approved' && (!r.expires_at || new Date(r.expires_at).getTime() > now));
 
     const grantColumns = [
         { accessorKey: 'user_email', header: 'User', cell: ({ getValue, row }) => <span className="text-ink">{getValue() || row.original.user_id}</span> },
         { accessorKey: 'model_id', header: 'Model', cell: ({ getValue }) => <code className="rounded bg-paper-3 px-1.5 py-0.5 font-mono text-xs text-ink-2">{getValue()}</code> },
+        { accessorKey: 'max_resolution', header: 'Quality', cell: ({ getValue }) => (getValue() ? <Badge>{`up to ${getValue()}`}</Badge> : <span className="text-ink-3">any</span>) },
         { accessorKey: 'project_name', header: 'Project', cell: ({ getValue, row }) => <span className="text-ink-2">{getValue() || (row.original.project_id ? `#${row.original.project_id}` : 'any')}</span> },
         { accessorKey: 'expires_at', header: 'Expires', cell: ({ getValue }) => (getValue() ? <span className="font-mono text-ink-2">{fmtDate(getValue())}</span> : <span className="text-ink-3">never</span>) },
         { accessorKey: 'decided_by', header: 'Granted by', cell: ({ getValue }) => <span className="text-ink-3">{getValue() || '—'}</span> },
@@ -120,8 +142,8 @@ export default function UsersClient() {
                     <ul className="space-y-2">
                         {pending.map((r) => (
                             <PendingRequest key={r.id} r={r}
-                                onApprove={(id, until) => decide(id, 'approve', until)}
-                                onDeny={(id) => decide(id, 'revoke')} />
+                                onApprove={(id, until, quality) => decide(id, 'approve', until, quality)}
+                                onDeny={(id, upgrade) => decide(id, upgrade ? 'deny_upgrade' : 'revoke')} />
                         ))}
                     </ul>
                 </Card>
