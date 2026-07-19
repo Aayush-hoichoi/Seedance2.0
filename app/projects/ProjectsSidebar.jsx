@@ -7,7 +7,7 @@
 import Link from 'next/link';
 import { UserButton } from '@clerk/nextjs';
 import {
-    FolderKanban, Clapperboard, Users, Heart, ShieldCheck,
+    FolderKanban, Users, Heart, ShieldCheck,
     PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import ThemePicker from '../seedance/ThemePicker.jsx';
@@ -41,7 +41,6 @@ export default function ProjectsSidebar({ isAdmin, collapsed, onToggle }) {
 
             <nav className="flex-1 space-y-0.5 overflow-y-auto px-2">
                 <Item icon={FolderKanban} label="Projects" href="/projects" active collapsed={collapsed} />
-                <Item icon={Clapperboard} label="Studio" href="/seedance" collapsed={collapsed} />
                 <Item icon={Users} label="Gallery" href="/gallery" collapsed={collapsed} />
                 <Item icon={Heart} label="Liked" href="/liked" collapsed={collapsed} />
                 {isAdmin && <Item icon={ShieldCheck} label="Console" href="/console" tone="warn" collapsed={collapsed} />}

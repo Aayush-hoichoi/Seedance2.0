@@ -1,6 +1,6 @@
 'use client';
 
-// Liked — only the generations marked with a heart, across every creator.
+// Liked — only YOUR generations marked with a heart (server-scoped to the caller).
 // Same cards/lightbox as the gallery; each card carries its maker's chip.
 
 import { useEffect, useState } from 'react';
@@ -44,7 +44,7 @@ export default function LikedClient() {
                             Liked
                             {items?.length > 0 && <span className="text-white/35 font-semibold">· {items.length}</span>}
                         </h1>
-                        <p className="text-[10px] text-white/35 truncate">The generations everyone loved</p>
+                        <p className="text-[10px] text-white/35 truncate">The generations you loved</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-2.5">

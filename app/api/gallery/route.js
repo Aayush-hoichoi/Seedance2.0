@@ -29,7 +29,7 @@ export async function GET(request) {
             return NextResponse.json({ items: rows.map(toItem) });
         }
         if (params.get('liked')) {
-            const rows = await listLikedGenerations();
+            const rows = await listLikedGenerations(user.userId);
             const items = rows.map((r) => ({
                 ...toItem(r),
                 creator: r.user_id ? { id: r.user_id, name: r.creator_name, email: r.creator_email } : null,
