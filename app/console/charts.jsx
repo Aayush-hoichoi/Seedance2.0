@@ -5,7 +5,7 @@
 
 import {
     ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
-    PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, Legend, ScatterChart, Scatter,
+    PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, Legend,
 } from 'recharts';
 
 const PALETTE = ['#8B7CF6', '#A599F8'];
@@ -67,36 +67,23 @@ export function SpendLines({ data, series, xKey = 'key', height = 320, money = t
     );
 }
 
-function ScatterTip({ active, payload }) {
-    if (!active || !payload?.length) return null;
-    const d = payload[0]?.payload;
-    if (!d) return null;
-    return (
-        <div style={{ background: '#1A1A21', border: '1px solid #2A2A34', borderRadius: 8, fontSize: 12, padding: '8px 10px', color: '#F4F3F7' }}>
-            <div style={{ color: '#B4B2C0', marginBottom: 4 }}>{d.key}</div>
-            <div>tasks: {Number(d.tasks).toLocaleString('en-US')}</div>
-            <div>spend: ${Number(d.cost_usd).toFixed(4)}</div>
-            <div>$/task: {d.tasks ? `$${(d.cost_usd / d.tasks).toFixed(4)}` : '—'}</div>
-        </div>
-    );
-}
-
-// Performance view: each dot is a user — x tasks sent, y spend. Dots high and
-// left of the pack cost more per task; the tooltip spells out $/task.
-export function TaskCostScatter({ data, height = 280 }) {
+// Performance over time: spend (left axis, $, violet) vs tasks sent (right
+// axis, count, teal), one point per day. When the lines diverge, the day's
+// $/task shifted — spend climbing while tasks stay flat means pricier tasks.
+export function TaskCostLines({ data, height = 280 }) {
     return (
         <ResponsiveContainer width="100%" height={height}>
-            <ScatterChart margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-                <CartesianGrid stroke="#2A2A34" />
-                <XAxis type="number" dataKey="tasks" name="tasks" {...AXIS} tickLine={false} axisLine={false}
-                    label={{ value: 'tasks sent', position: 'insideBottomRight', offset: -2, fill: '#7C7A88', fontSize: 11 }} />
-                <YAxis type="number" dataKey="cost_usd" name="spend" {...AXIS} tickLine={false} axisLine={false} width={48}
-                    tickFormatter={(v) => `$${v}`} />
-                <Tooltip content={<ScatterTip />} cursor={{ stroke: '#2A2A34' }} />
-                <Scatter data={data}>
-                    {data.map((_, i) => <Cell key={i} fill={LINE_PALETTE[i % (LINE_PALETTE.length - 1)]} />)}
-                </Scatter>
-            </ScatterChart>
+            <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                <CartesianGrid stroke="#2A2A34" vertical={false} />
+                <XAxis dataKey="key" {...AXIS} tickLine={false} axisLine={false} />
+                <YAxis yAxisId="usd" {...AXIS} tickLine={false} axisLine={false} width={48} tickFormatter={(v) => `$${v}`} />
+                <YAxis yAxisId="tasks" orientation="right" {...AXIS} tickLine={false} axisLine={false} width={40} />
+                <Tooltip contentStyle={TOOLTIP_STYLE.contentStyle} labelStyle={TOOLTIP_STYLE.labelStyle}
+                    formatter={(v, n) => (n === 'spend' ? [`$${Number(v).toFixed(4)}`, n] : [Number(v).toLocaleString('en-US'), n])} />
+                <Legend wrapperStyle={{ fontSize: 11 }} formatter={(v) => <span style={{ color: '#B4B2C0' }}>{v}</span>} />
+                <Line yAxisId="usd" type="monotone" dataKey="cost_usd" name="spend" stroke="#8B7CF6" strokeWidth={2} dot={false} />
+                <Line yAxisId="tasks" type="monotone" dataKey="tasks" name="tasks" stroke="#5EEAD4" strokeWidth={2} dot={false} />
+            </LineChart>
         </ResponsiveContainer>
     );
 }

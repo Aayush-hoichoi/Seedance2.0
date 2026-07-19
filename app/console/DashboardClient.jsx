@@ -9,7 +9,7 @@ import { useEvents } from '../hooks/useEvents.js';
 import { BellRing } from 'lucide-react';
 
 const SpendLines = dynamic(() => import('./charts.jsx').then((m) => m.SpendLines), { ssr: false });
-const TaskCostScatter = dynamic(() => import('./charts.jsx').then((m) => m.TaskCostScatter), { ssr: false });
+const TaskCostLines = dynamic(() => import('./charts.jsx').then((m) => m.TaskCostLines), { ssr: false });
 const SpendDonut = dynamic(() => import('./charts.jsx').then((m) => m.SpendDonut), { ssr: false });
 const TopBars = dynamic(() => import('./charts.jsx').then((m) => m.TopBars), { ssr: false });
 
@@ -48,10 +48,12 @@ export default function DashboardClient() {
     const failures = days.reduce((s, d) => s + Number(d.failures || 0), 0);
     const models = (byModel.data?.items ?? []).filter((m) => Number(m.cost_usd) > 0);
     const users = (byUser.data?.items ?? []).slice(0, 8);
-    // Task-vs-cost performance: one dot per user over the whole period.
-    const perf = (byUser.data?.items ?? [])
-        .map((u) => ({ key: u.key, tasks: Number(u.generations || 0) + Number(u.failures || 0), cost_usd: Number(u.cost_usd || 0) }))
-        .filter((u) => u.tasks > 0 || u.cost_usd > 0);
+    // Task-vs-cost performance per day: spend line vs tasks-sent line.
+    const perf = days.map((d) => ({
+        key: d.key,
+        tasks: Number(d.generations || 0) + Number(d.failures || 0),
+        cost_usd: Number(d.cost_usd || 0),
+    }));
     const projects = byProject.data?.items ?? [];
     const budgetRows = (quotas.data?.items ?? []).slice(0, 6);
 
@@ -98,10 +100,10 @@ export default function DashboardClient() {
 
             <Card className="mt-4">
                 <div className="mb-2 text-sm font-medium text-ink-2">
-                    Task vs cost · per user <span className="text-xs font-normal text-ink-3">— each dot is a user; higher-left = pricier per task</span>
+                    Task vs cost · per day <span className="text-xs font-normal text-ink-3">— spend on the left axis, tasks sent on the right; diverging lines = pricier tasks</span>
                 </div>
                 {perf.length
-                    ? <TaskCostScatter data={perf} />
+                    ? <TaskCostLines data={perf} />
                     : <div className="grid h-[280px] place-items-center text-xs text-ink-3">No usage in this period</div>}
             </Card>
 
