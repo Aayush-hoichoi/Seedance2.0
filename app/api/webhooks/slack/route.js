@@ -16,7 +16,7 @@ import { NextResponse } from 'next/server';
 import { setRequestStatus, denyUpgrade, listActiveGrants } from '../../../../lib/access/db.js';
 import { approveProjectRequest, denyProjectRequest } from '../../../../lib/access/projectRequests.mjs';
 import { syncGatewayOverride } from '../../../../lib/access/gatewaySync.mjs';
-import { nextStatus } from '../../../../lib/access/requestStatus.mjs';
+import { nextStatus, resolveDeny } from '../../../../lib/access/requestStatus.mjs';
 import { verifySlackSignature } from '../../../../lib/slack/verify.mjs';
 import { buildAccessListMessage } from '../../../../lib/notify/slack.mjs';
 import { MODELS, IMAGE_MODELS } from '../../../../lib/seedance/constants.js';
@@ -156,26 +156,38 @@ export async function POST(request) {
 
     // Declining an upgrade clears ONLY the parked tier ask — the live grant,
     // its expiry and the gateway override all stay untouched (no sync needed).
-    if (isDenyUpgrade) {
-        const row = await denyUpgrade(requestId, byUser);
-        if (!row) {
+    //
+    // A plain Deny runs the same check FIRST: the card froze its action_id when
+    // it was posted, but the row moves on, and a stale "new request" card (or
+    // one posted before deny-upgrade shipped) still says access_deny while the
+    // row is now a live grant with a parked upgrade. Denying there means
+    // "decline the higher quality", never "pull their access". The UPDATE is
+    // conditional, so a genuine pending request misses it and falls through to
+    // the full revoke below.
+    if (isDenyUpgrade || isDeny) {
+        const upgradeRow = await denyUpgrade(requestId, byUser);
+        const outcome = resolveDeny(upgradeRow, { fromUpgradeCard: isDenyUpgrade });
+        if (outcome === 'already_handled') {
             await respond(responseUrl, note('That upgrade was already handled.'));
             return NextResponse.json({ ok: true });
         }
-        await respond(responseUrl, {
-            replace_original: true,
-            text: `🚫 Upgrade declined: ${row.user_email} keeps up to ${row.max_resolution || 'full'} on ${modelLabel(row.model_id)}`,
-            blocks: [
-                { type: 'header', text: { type: 'plain_text', text: '🚫 Quality upgrade declined', emoji: true } },
-                { type: 'section', fields: [
-                    { type: 'mrkdwn', text: `*User:*\n${esc(row.user_email)}` },
-                    { type: 'mrkdwn', text: `*Model:*\n${esc(modelLabel(row.model_id))}` },
-                    { type: 'mrkdwn', text: `*Declined by:*\n${esc(byUser)}` },
-                    { type: 'mrkdwn', text: `*Existing access:*\nunchanged (up to ${esc(row.max_resolution || 'full range')})` },
-                ] },
-            ],
-        });
-        return NextResponse.json({ ok: true });
+        if (outcome === 'upgrade_declined') {
+            const row = upgradeRow;
+            await respond(responseUrl, {
+                replace_original: true,
+                text: `🚫 Upgrade declined: ${row.user_email} keeps up to ${row.max_resolution || 'full'} on ${modelLabel(row.model_id)}`,
+                blocks: [
+                    { type: 'header', text: { type: 'plain_text', text: '🚫 Quality upgrade declined', emoji: true } },
+                    { type: 'section', fields: [
+                        { type: 'mrkdwn', text: `*User:*\n${esc(row.user_email)}` },
+                        { type: 'mrkdwn', text: `*Model:*\n${esc(modelLabel(row.model_id))}` },
+                        { type: 'mrkdwn', text: `*Declined by:*\n${esc(byUser)}` },
+                        { type: 'mrkdwn', text: `*Existing access:*\nunchanged (up to ${esc(row.max_resolution || 'full range')})` },
+                    ] },
+                ],
+            });
+            return NextResponse.json({ ok: true });
+        }
     }
 
     // Grant window = the picked expiry date (end of day, UTC); if untouched, fall

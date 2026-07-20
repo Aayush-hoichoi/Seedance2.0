@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nextStatus, reRequestDecision } from '../lib/access/requestStatus.mjs';
+import { nextStatus, reRequestDecision, resolveDeny } from '../lib/access/requestStatus.mjs';
 
 test('maps each action to its status', () => {
     assert.equal(nextStatus('request'), 'pending');
@@ -10,6 +10,24 @@ test('maps each action to its status', () => {
 
 test('throws on an unknown action', () => {
     assert.throws(() => nextStatus('delete'), /Unknown action/);
+});
+
+// The bug this guards: a stale Slack card still carries a plain access_deny
+// after its row became a live grant with a parked upgrade. Denying there must
+// decline the upgrade, never revoke the whole grant.
+test('a plain Deny on a row with a parked upgrade declines only the upgrade', () => {
+    const upgradeRow = { id: 7, status: 'approved', max_resolution: '1080p' };
+    assert.equal(resolveDeny(upgradeRow, { fromUpgradeCard: false }), 'upgrade_declined');
+    assert.equal(resolveDeny(upgradeRow, { fromUpgradeCard: true }), 'upgrade_declined');
+});
+
+test('a plain Deny on a genuine pending request still revokes', () => {
+    assert.equal(resolveDeny(null, { fromUpgradeCard: false }), 'revoke');
+    assert.equal(resolveDeny(null), 'revoke');
+});
+
+test('an upgrade card whose upgrade is already decided reports it, never revokes', () => {
+    assert.equal(resolveDeny(null, { fromUpgradeCard: true }), 'already_handled');
 });
 
 const NOW = new Date('2026-07-17T12:00:00Z');
