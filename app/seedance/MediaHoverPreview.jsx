@@ -12,7 +12,7 @@
 
 import { useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { downloadAssets } from '../../lib/seedance/downloadAssets.js';
+import { downloadAsset } from '../../lib/seedance/downloadAssets.js';
 
 const PREVIEW_W = 224; // matches the old w-56 card width
 const GAP = 10; // px between the thumbnail and the card
@@ -74,27 +74,18 @@ export default function MediaHoverPreview({ anchor, src, isVideo, tag, name, onM
                     )}
                     {isVideo && dur && <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 bg-black/80 text-white rounded text-[10px] font-bold leading-none tabular-nums">{dur}</span>}
                     {src && (
-                        <a
-                            href={src}
-                            download={name || ''}
-                            target="_blank"
-                            rel="noreferrer"
+                        <button
+                            type="button"
                             title="Download"
+                            aria-label="Download"
                             onClick={(e) => {
                                 e.stopPropagation();
-                                // Videos sit behind cross-origin BytePlus links, so a plain
-                                // <a download> just opens them — route through the server
-                                // download proxy for a real file save, falling back to
-                                // opening the asset in a new tab if the proxy can't reach it.
-                                if (isVideo) {
-                                    e.preventDefault();
-                                    downloadAssets([{ url: src, name: name || tag || 'video' }]).catch(() => window.open(src, '_blank', 'noopener'));
-                                }
+                                downloadAsset(src, name || tag || (isVideo ? 'video' : 'image'));
                             }}
                             className="absolute top-1.5 right-1.5 p-1.5 rounded-full bg-black/60 border border-white/10 text-white/80 hover:text-primary hover:bg-black/80 transition-colors backdrop-blur-sm"
                         >
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
-                        </a>
+                        </button>
                     )}
                 </div>
                 {(tag || name) && (

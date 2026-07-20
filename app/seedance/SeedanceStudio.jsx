@@ -22,6 +22,7 @@ import { fitImageToLimits } from '../../lib/seedance/downscaleImage.js';
 import { loadJobs, saveJobs, newJob, loadPrompts, savePrompt, removePrompt } from '../../lib/seedance/jobs.js';
 import { archiveKeyForTask } from '../../lib/seedance/archiveKey.mjs';
 import { resolveFreshVideoUrl } from '../../lib/seedance/videoUrl.js';
+import { downloadAsset } from '../../lib/seedance/downloadAssets.js';
 import PromptBar from './PromptBar.jsx';
 import { UserButton } from '@clerk/nextjs';
 import MediaHoverPreview from './MediaHoverPreview.jsx';
@@ -1494,9 +1495,9 @@ function BigStage({ job, onCancel, onFullscreen, onReuse, onRefresh }) {
                                 <button type="button" onClick={onFullscreen} title="Fullscreen" className="p-2 rounded-full bg-black/60 border border-white/10 text-white/80 hover:text-white hover:bg-black/80 transition-colors backdrop-blur-sm">
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 3H5a2 2 0 00-2 2v3M16 3h3a2 2 0 012 2v3M16 21h3a2 2 0 002-2v-3M8 21H5a2 2 0 01-2-2v-3" /></svg>
                                 </button>
-                                <a href={job.videoUrl} download title="Download" className="p-2 rounded-full bg-black/60 border border-white/10 text-white/80 hover:text-primary hover:bg-black/80 transition-colors backdrop-blur-sm">
+                                <button type="button" onClick={() => downloadAsset(job.videoUrl, job.taskId || 'video')} title="Download" aria-label="Download" className="p-2 rounded-full bg-black/60 border border-white/10 text-white/80 hover:text-primary hover:bg-black/80 transition-colors backdrop-blur-sm">
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
-                                </a>
+                                </button>
                             </div>
                         </div>
                         {!hasPrompt && <p className="mt-3 text-center text-xs text-white/35 truncate px-6" title={job.meta}>{job.meta}</p>}
@@ -2007,14 +2008,14 @@ function AssetViewer({ job, onClose, onReuse, onToggleLike, onRefresh, onPrev, o
                         Reuse this setup
                     </button>
                     <div className="flex items-center gap-2">
-                        <a
-                            href={job.videoUrl || job.imageUrl}
-                            download
+                        <button
+                            type="button"
+                            onClick={() => downloadAsset(job.videoUrl || job.imageUrl, job.taskId || 'generation')}
                             className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-line px-3 py-2.5 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink"
                         >
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
                             Download
-                        </a>
+                        </button>
                         {onToggleLike && (
                             <button
                                 type="button"
