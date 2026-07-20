@@ -4,8 +4,9 @@ import { useState } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
 import dynamic from 'next/dynamic';
 import toast from 'react-hot-toast';
-import { PageHeader, Card, Badge, Button, Modal, Field, Input, Select, DataTable, ProgressBar, EmptyState } from '../../ui.jsx';
+import { PageHeader, Card, Badge, Button, Modal, Field, Select, DataTable, ProgressBar, EmptyState, DateTimePicker } from '../../ui.jsx';
 import { useApi, sendJson, fmtUsd, fmtInt, fmtDate, monthStartIso } from '../../lib.js';
+import { supportedResolutionsFor } from '../../../../lib/seedance/constants.js';
 import { PauseCircle, PlayCircle, Plus, ShieldBan, ShieldCheck, Trash2 } from 'lucide-react';
 
 const SpendDonut = dynamic(() => import('../../charts.jsx').then((m) => m.SpendDonut), { ssr: false });
@@ -207,8 +208,8 @@ function ModelsTab({ projectId, grants, catalog, onChange }) {
                             ) : (
                                 <div className="flex items-end gap-1.5">
                                     <Field label="Optional expiry">
-                                        <Input type="datetime-local" className="w-44" value={expiry[m.id] || ''}
-                                            onChange={(e) => setExpiry({ ...expiry, [m.id]: e.target.value })} />
+                                        <DateTimePicker className="w-44" value={expiry[m.id] || ''}
+                                            onChange={(v) => setExpiry({ ...expiry, [m.id]: v })} />
                                     </Field>
                                     <Button variant="primary" size="xs" onClick={() => grant(m.id)}>Grant</Button>
                                 </div>
@@ -222,11 +223,22 @@ function ModelsTab({ projectId, grants, catalog, onChange }) {
 }
 
 function OverridesTab({ projectId, overrides, members, catalog, onChange }) {
-    const [form, setForm] = useState({ userId: '', modelId: '', effect: 'deny', validUntil: '' });
+    const [form, setForm] = useState({ userId: '', modelId: '', effect: 'deny', maxResolution: '', validUntil: '' });
+    // Quality caps an ALLOW only — a deny grants nothing to cap. Tiers come from
+    // the picked model; switching model drops a cap it no longer supports.
+    const tiers = supportedResolutionsFor(form.modelId) ?? [];
+    const capDisabled = form.effect !== 'allow' || !tiers.length;
+
+    function pickModel(modelId) {
+        const next = supportedResolutionsFor(modelId) ?? [];
+        setForm({ ...form, modelId, maxResolution: next.includes(form.maxResolution) ? form.maxResolution : '' });
+    }
 
     async function add() {
         const r = await sendJson(`/api/projects/${projectId}/overrides`, 'POST', {
-            ...form, validUntil: form.validUntil ? new Date(form.validUntil).toISOString() : null,
+            ...form,
+            maxResolution: capDisabled ? null : (form.maxResolution || null),
+            validUntil: form.validUntil ? new Date(form.validUntil).toISOString() : null,
         });
         r.ok ? (toast.success(`Override saved (${form.effect})`), onChange()) : toast.error(r.data?.message || 'Failed');
     }
@@ -244,13 +256,19 @@ function OverridesTab({ projectId, overrides, members, catalog, onChange }) {
                 ? <Badge tone="red"><ShieldBan size={11} /> deny</Badge>
                 : <Badge tone="green"><ShieldCheck size={11} /> allow</Badge>,
         },
+        {
+            accessorKey: 'max_resolution', header: 'Quality',
+            cell: ({ getValue, row }) => row.original.effect !== 'allow'
+                ? <span className="text-ink-3">—</span>
+                : <span className="font-mono text-xs text-ink-2">{getValue() || 'full'}</span>,
+        },
         { accessorKey: 'valid_until', header: 'Expires', cell: ({ getValue }) => <span className="font-mono text-ink-3">{getValue() ? fmtDate(getValue()) : 'never'}</span> },
         { id: 'actions', header: '', enableSorting: false, cell: ({ row }) => <Button variant="ghost" size="xs" onClick={() => remove(row.original)}><Trash2 size={13} className="text-danger" /></Button> },
     ];
     return (
         <div>
             <Card className="mb-4">
-                <div className="grid items-end gap-2 sm:grid-cols-5">
+                <div className="grid items-end gap-2 sm:grid-cols-3 lg:grid-cols-6">
                     <Field label="User">
                         <Select className="w-full" value={form.userId} onChange={(e) => setForm({ ...form, userId: e.target.value })}>
                             <option value="">Select…</option>
@@ -258,7 +276,7 @@ function OverridesTab({ projectId, overrides, members, catalog, onChange }) {
                         </Select>
                     </Field>
                     <Field label="Model">
-                        <Select className="w-full" value={form.modelId} onChange={(e) => setForm({ ...form, modelId: e.target.value })}>
+                        <Select className="w-full" value={form.modelId} onChange={(e) => pickModel(e.target.value)}>
                             <option value="">Select…</option>
                             {catalog.map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}
                         </Select>
@@ -269,8 +287,16 @@ function OverridesTab({ projectId, overrides, members, catalog, onChange }) {
                             <option value="allow">allow (early access)</option>
                         </Select>
                     </Field>
+                    <Field label="Quality">
+                        <Select className="w-full" value={form.maxResolution} disabled={capDisabled}
+                            title={capDisabled ? 'Quality applies to allow overrides only' : 'Highest tier this user may request (lower tiers included)'}
+                            onChange={(e) => setForm({ ...form, maxResolution: e.target.value })}>
+                            <option value="">full (no cap)</option>
+                            {tiers.map((t) => <option key={t} value={t}>{t}</option>)}
+                        </Select>
+                    </Field>
                     <Field label="Expires (optional)">
-                        <Input type="datetime-local" value={form.validUntil} onChange={(e) => setForm({ ...form, validUntil: e.target.value })} />
+                        <DateTimePicker value={form.validUntil} onChange={(v) => setForm({ ...form, validUntil: v })} />
                     </Field>
                     <Button variant="primary" onClick={add} disabled={!form.userId || !form.modelId}>Save override</Button>
                 </div>
