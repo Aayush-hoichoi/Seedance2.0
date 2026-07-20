@@ -44,6 +44,7 @@ test('an empty or junk pool yields nothing instead of throwing', () => {
 
 test('the shipped pools are big and free of duplicates', () => {
     assert.ok(JOKES.length >= 60, `expected a deep joke pool, got ${JOKES.length}`);
+    assert.ok(HELLOS.length >= 40, `expected a deep greeting pool, got ${HELLOS.length}`);
     assert.equal(new Set(JOKES).size, JOKES.length, 'duplicate joke in the pool');
     assert.equal(new Set(HELLOS).size, HELLOS.length, 'duplicate greeting in the pool');
     assert.ok(HELLOS.every((h) => h.includes('{name}')), 'every greeting must take a name');
