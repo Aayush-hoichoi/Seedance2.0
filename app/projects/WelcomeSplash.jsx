@@ -2,31 +2,21 @@
 
 // Landing splash for the projects hub — splash FIRST, page after: a solid
 // overlay covers the page from first paint, shows a funny greeting with the
-// user's name plus a dad joke from icanhazdadjoke.com (free, no key, CORS-
-// open; local fallbacks when slow/down), then dissolves to reveal the page.
-// Plays on EVERY reload with a fresh line each time; click anywhere skips.
-// Animation: motion (framer-motion's successor).
+// user's name plus a joke, then dissolves to reveal the page. Plays on EVERY
+// reload; click anywhere skips. Animation: motion (framer-motion's successor).
+//
+// Nothing repeats until its pool is used up: greeting and joke both come from
+// lib/splash/jokes.mjs, which tracks what's already been shown in
+// localStorage. A joke fetched from icanhazdadjoke.com (free, no key, CORS-
+// open) counts against that same history, so the remote source can't hand back
+// one we've told — when it does, or when it's slow/down, the local pool wins.
 
 import { useEffect, useRef, useState } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { motion, AnimatePresence } from 'motion/react';
+import { HELLOS, JOKES, nextFrom, acceptRemote } from '../../lib/splash/jokes.mjs';
 
-const HELLOS = [
-    'Look who’s back — {name}!',
-    'Ah, {name}. The render farm missed you.',
-    '{name} has entered the studio 🎬',
-    'Rolling out the red carpet for {name}…',
-    'Quiet on set — {name} is here.',
-    'Action! {name} is on the clock.',
-];
-
-const FALLBACK_JOKES = [
-    'Why don’t film crews play hide and seek? Good luck hiding from the director’s cut.',
-    'I told my video to be more positive. Now it only renders in HDR.',
-    'The AI asked for a day off — said it was feeling a bit overexposed.',
-];
-
-const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const JOKE_HISTORY = 'jokes';
 
 export default function WelcomeSplash() {
     const { user, isLoaded } = useUser();
@@ -46,7 +36,7 @@ export default function WelcomeSplash() {
         if (!isLoaded) return;
         const name = user?.firstName || user?.username
             || user?.primaryEmailAddress?.emailAddress?.split('@')[0] || 'there';
-        setHello(pick(HELLOS).replace('{name}', name));
+        setHello((nextFrom(HELLOS, 'hellos') || 'Welcome back, {name}!').replace('{name}', name));
     }, [isLoaded, user]);
 
     // Punchline (≤1.2s), then hold and dissolve to reveal the page.
@@ -61,7 +51,8 @@ export default function WelcomeSplash() {
             .then((d) => {
                 clearTimeout(kill);
                 if (cancelled) return;
-                setJoke(d?.joke || pick(FALLBACK_JOKES));
+                // A remote joke we've already told is dropped for a local one.
+                setJoke(acceptRemote(d?.joke, JOKE_HISTORY) || nextFrom(JOKES, JOKE_HISTORY));
                 hideTimer = setTimeout(tryHide, 5500); // enough time to actually read the joke
             });
         return () => { cancelled = true; clearTimeout(kill); clearTimeout(hideTimer); ctrl.abort(); };
