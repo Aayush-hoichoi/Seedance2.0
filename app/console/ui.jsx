@@ -196,6 +196,45 @@ export function DateRangePicker({ from, to, onChange, className }) {
     );
 }
 
+// Expiry picker: shadcn Calendar + a time field in a Popover. `value`/`onChange`
+// speak the exact 'YYYY-MM-DDTHH:mm' local wall-clock string that
+// <input type="datetime-local"> used to, so call sites are a drop-in swap.
+// Picking a day with no time yet defaults to 23:59 — these are expiries, and
+// "expires on the 30th" means end of that day, not midnight at its start.
+const DEFAULT_TIME = '23:59';
+
+export function DateTimePicker({ value, onChange, placeholder = 'No expiry', className, disabled }) {
+    const [open, setOpen] = useState(false);
+    const [ymd, time] = String(value || '').split('T');
+    const day = fromYMD(ymd);
+    const emit = (nextYmd, nextTime) => onChange?.(nextYmd ? `${nextYmd}T${nextTime || DEFAULT_TIME}` : '');
+    return (
+        <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+                <Button variant="outline" disabled={disabled}
+                    className={cn('h-8 w-full justify-start gap-2 px-2.5 text-xs font-normal', !day && 'text-ink-3', className)}>
+                    <CalendarDays size={14} className="shrink-0 text-ink-3" />
+                    {day ? `${fmtDay(day)}, ${time || DEFAULT_TIME}` : placeholder}
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-auto border-line bg-paper-1 p-0">
+                <Calendar
+                    mode="single"
+                    defaultMonth={day}
+                    selected={day}
+                    onSelect={(d) => emit(d ? toYMD(d) : '', time)}
+                />
+                <div className="flex items-center gap-2 border-t border-line p-2">
+                    <Input type="time" value={time || ''} disabled={!day}
+                        onChange={(e) => emit(ymd, e.target.value)}
+                        className="h-8 flex-1 text-xs" />
+                    <Button variant="ghost" size="xs" onClick={() => { onChange?.(''); setOpen(false); }}>Clear</Button>
+                </div>
+            </PopoverContent>
+        </Popover>
+    );
+}
+
 export function Field({ label, children }) {
     return (
         <label className="block">

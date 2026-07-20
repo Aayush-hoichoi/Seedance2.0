@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import toast from 'react-hot-toast';
-import { PageHeader, Card, Badge, Button, DataTable, EmptyState, Select, Input, Modal } from '../ui.jsx';
+import { PageHeader, Card, Badge, Button, DataTable, EmptyState, Select, Modal, DateTimePicker } from '../ui.jsx';
 import { useApi, sendJson, fmtDate } from '../lib.js';
 import { supportedResolutionsFor } from '../../../lib/seedance/constants.js';
 import { Users, Shield, ShieldCheck, ShieldOff, UserX } from 'lucide-react';
@@ -44,8 +44,8 @@ function PendingRequest({ r, onApprove, onDeny }) {
                 {[7, 30, 90].map((d) => (
                     <Button key={d} variant="outline" size="xs" onClick={() => preset(d)}>{d}d</Button>
                 ))}
-                <Input type="datetime-local" value={until} onChange={(e) => setUntil(e.target.value)}
-                    className="h-7 w-auto px-2 text-xs" />
+                <DateTimePicker value={until} onChange={setUntil} placeholder="Pick an expiry"
+                    className="h-7 w-auto px-2" />
                 <Button variant="primary" size="xs" disabled={!until} title={until ? 'Approve until this time' : 'Pick an expiry first'}
                     onClick={() => onApprove(r.id, new Date(until).toISOString(), quality || null)}>Approve</Button>
                 <Button variant="outline" size="xs" title={upgrade ? 'Decline the upgrade — existing access stays' : undefined}
