@@ -1572,7 +1572,7 @@ function PromptTabs({ job, onReuse }) {
     const hasBoth = !!userPrompt && !!generated && userPrompt !== generated;
     const tabs = hasBoth
         ? [
-            { id: 'generated', label: 'GPT-4o prompt', text: generated },
+            { id: 'generated', label: 'Enhanced prompt', text: generated },
             { id: 'user', label: 'Your prompt', text: userPrompt },
         ]
         : [{ id: 'generated', label: 'Prompt', text: generated || userPrompt }];

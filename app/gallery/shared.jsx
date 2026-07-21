@@ -305,7 +305,7 @@ export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext }) {
                         )}
                         {hasBoth && (
                             <div>
-                                <p className="text-[9px] font-bold uppercase tracking-wider text-white/30 pb-1">GPT-4o brief · sent to the model</p>
+                                <p className="text-[9px] font-bold uppercase tracking-wider text-white/30 pb-1">Enhanced brief · sent to the model</p>
                                 <p className="text-xs leading-relaxed text-white/50 whitespace-pre-wrap break-words">{item.prompt}</p>
                             </div>
                         )}

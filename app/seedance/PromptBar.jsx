@@ -671,7 +671,7 @@ export default function PromptBar({
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); onOpenCinematic?.(); }}
                                 className={`${PILL} ${cinematic ? PILL_ON : PILL_IDLE}`}
-                                title="Cinematic camera, lens, focal length and aperture — GPT-4o structures your prompt around them"
+                                title="Cinematic camera, lens, focal length and aperture — the enhancer structures your prompt around them"
                             >
                                 <span className={cinematic ? 'text-primary' : 'text-white/65'}><FilmIcon /></span>
                                 <span className={`text-xs font-semibold transition-colors ${cinematic ? 'text-primary' : 'text-white/90 group-hover:text-primary'}`}>

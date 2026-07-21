@@ -3,14 +3,14 @@ import { STYLES } from '../../../../lib/openai/styleBriefs.js';
 import { isRefusal } from '../../../../lib/openai/refusal.mjs';
 
 // Restructures a raw user prompt into the strict production brief a style
-// requires, via GPT-4o. POST { style, prompt, assets: [{label, kind, name}] }
+// requires, via the enhancer model. POST { style, prompt, assets: [{label, kind, name}] }
 // → { prompt }. The OpenAI key never leaves the server.
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
-const MODEL = process.env.OPENAI_ENHANCE_MODEL?.trim() || 'gpt-4o';
+const MODEL = process.env.OPENAI_ENHANCE_MODEL?.trim() || 'gpt-5.6-luna';
 
 function bad(message, status = 400) {
     return NextResponse.json({ error: message }, { status });
@@ -44,7 +44,7 @@ export async function POST(request) {
     const style = STYLES[body.style];
     if (!style) return bad(`Unknown style "${body.style}". Expected one of: ${Object.keys(STYLES).join(', ')}.`);
 
-    // No app-side length cap — the only ceiling is GPT-4o's own context window,
+    // No app-side length cap — the only ceiling is the enhancer model's own context window,
     // and OpenAI returns a clear error if a prompt ever exceeds it.
     const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
     if (!prompt) return bad('Prompt is empty — describe what should change in the video.');
@@ -85,8 +85,14 @@ export async function POST(request) {
             },
             body: JSON.stringify({
                 model: MODEL,
-                temperature: 0.3,
-                max_tokens: 16384, // gpt-4o's output ceiling — never truncate the brief
+                // gpt-5.x rejects `max_tokens` and any temperature but the
+                // default; `max_completion_tokens` also works on gpt-4o, so
+                // this shape is valid for whatever OPENAI_ENHANCE_MODEL names.
+                // The cap covers reasoning + brief — never truncate the brief.
+                max_completion_tokens: 16384,
+                // Restructuring, not deep reasoning — keeps the call ~3s.
+                // gpt-4o and older reject the argument outright.
+                ...(MODEL.startsWith('gpt-5') ? { reasoning_effort: 'low' } : {}),
                 messages: [
                     { role: 'system', content: style.system },
                     { role: 'user', content: userMessage },
@@ -107,12 +113,12 @@ export async function POST(request) {
     const finishReason = data?.choices?.[0]?.finish_reason;
     const enhanced = data?.choices?.[0]?.message?.content?.trim();
 
-    // GPT-4o declined this content (its moderation, not ours). Don't forward the
+    // The enhancer declined this content (its moderation, not ours). Don't forward the
     // refusal sentence as if it were a brief — signal it so the caller can fall
     // back to the user's own prompt.
     if (isRefusal({ text: enhanced, finishReason })) {
         return NextResponse.json(
-            { refused: true, error: 'GPT-4o declined to restructure this prompt — generating from your prompt as-is.' },
+            { refused: true, error: 'The prompt enhancer declined to restructure this prompt — generating from your prompt as-is.' },
             { status: 422 },
         );
     }
