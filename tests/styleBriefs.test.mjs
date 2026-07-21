@@ -29,6 +29,15 @@ test('requested actions outrank the locks, and every lock exempts them', () => {
     }
 });
 
+test('the camera move is described and transferred, never only forbidden', () => {
+    assert.match(motion, /THE CAMERA MOVE MUST BE DESCRIBED, NOT JUST FORBIDDEN/);
+    assert.match(motion, /reproduce its move beat for beat/);
+    // A bare "Do not add camera movement." leaves the model with nothing to
+    // reproduce and reads as "hold the camera still".
+    assert.doesNotMatch(motion, /\n- Do not add camera movement\.\n/);
+    assert.match(motion, /Do not flatten, dampen, stabilise, smooth, slow, shorten, or drop any camera movement that IS in the source video/);
+});
+
 test('green screen shares the same rules', () => {
     assert.match(STYLES.green_screen.system, /REQUESTED ACTIONS OUTRANK THE LOCKS/);
     assert.match(STYLES.green_screen.system, /ASSET ROLES COME FROM THE USER/);
