@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveMediaRefs, resolveVideoRefs, createWithQuotaRecovery, uploadGroupName, newlyRegisteredAssetIds } from '../lib/seedance/assetsClient.js';
+import { resolveMediaRefs, resolveVideoRefs, createWithQuotaRecovery, uploadGroupName } from '../lib/seedance/assetsClient.js';
 
 // Per-project hard partition: each project routes assets into its own group,
 // keyed by project id so a rename can't merge two projects' libraries.
@@ -53,15 +53,44 @@ test('does not mutate the input items', async () => {
     assert.equal(item.url, 'https://tos.example/i.png');
 });
 
-test('newlyRegisteredAssetIds picks every raw image/video swapped in — never library picks', async () => {
-    const items = [
-        { kind: 'video', url: 'https://tos.example/v.mp4' },                 // raw upload → registered this submit
-        { kind: 'video', url: 'asset://already', assetId: 'already' },       // library pick → passes through untouched
-        { kind: 'image', url: 'https://tos.example/i.png' },                 // raw image → now registered too
-    ];
-    const out = await resolveMediaRefs(items, countingRegister());
-    assert.deepEqual(newlyRegisteredAssetIds(items, out), ['asset-video-1', 'asset-image-2']);
-    assert.deepEqual(newlyRegisteredAssetIds(items, items), []); // nothing resolved → nothing to delete
+// CreateAsset quota is the studio's scarcest resource (a handful per minute,
+// account-wide — 429 QuotaWriteQPMExceeded on any burst). A ref registered in
+// an earlier submit must be reused via a cheap GetAsset read, never re-created.
+test('a ref registered in an earlier submit is reused, not re-registered', async () => {
+    let creates = 0;
+    const register = async ({ kind }) => { creates++; return { url: `asset://reuse-${kind}`, assetId: `reuse-${kind}` }; };
+    const verified = [];
+    const verify = async (id) => { verified.push(id); return { id, status: 'Active' }; };
+    await resolveMediaRefs([{ kind: 'image', url: 'https://tos.example/reuse-me.png?sig=1' }], register, verify);
+    // Second submit, same file, different presign query → cache hit, read-only.
+    const out = await resolveMediaRefs([{ kind: 'image', url: 'https://tos.example/reuse-me.png?sig=2' }], register, verify);
+    assert.equal(creates, 1);
+    assert.deepEqual(verified, ['reuse-image']);
+    assert.equal(out[0].url, 'asset://reuse-image');
+    assert.equal(out[0].assetId, 'reuse-image');
+});
+
+test('a cached ref whose asset was swept re-registers instead of failing', async () => {
+    let creates = 0;
+    const register = async () => { creates++; return { url: `asset://swept-${creates}`, assetId: `swept-${creates}` }; };
+    const items = [{ kind: 'image', url: 'https://tos.example/swept.png' }];
+    await resolveMediaRefs(items, register, async () => { throw new Error('must not verify a fresh registration'); });
+    // The 1h sweep (or another user) deleted the asset since → verify says gone.
+    const out = await resolveMediaRefs(items, register, async () => { throw new Error('not found'); });
+    assert.equal(creates, 2);
+    assert.equal(out[0].url, 'asset://swept-2');
+});
+
+test('a failed registration is not cached — the next submit tries again', async () => {
+    let attempt = 0;
+    const items = [{ kind: 'image', url: 'https://tos.example/flaky.png' }];
+    await assert.rejects(
+        () => resolveMediaRefs(items, async () => { attempt++; throw new Error('rate limit'); }),
+        /rate limit/,
+    );
+    const out = await resolveMediaRefs(items, async () => { attempt++; return { url: 'asset://flaky-ok', assetId: 'flaky-ok' }; });
+    assert.equal(attempt, 2);
+    assert.equal(out[0].url, 'asset://flaky-ok');
 });
 
 test('propagates registration failures', async () => {
