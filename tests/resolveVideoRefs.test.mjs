@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveVideoRefs, resolveSensitiveRefs, createWithQuotaRecovery, uploadGroupName, newlyRegisteredAssetIds } from '../lib/seedance/assetsClient.js';
+import { resolveMediaRefs, resolveVideoRefs, resolveSensitiveRefs, createWithQuotaRecovery, uploadGroupName, newlyRegisteredAssetIds } from '../lib/seedance/assetsClient.js';
 
 // Per-project hard partition: each project routes assets into its own group,
 // keyed by project id so a rename can't merge two projects' libraries.
@@ -14,46 +14,60 @@ test('uploadGroupName gives each project its own id-keyed group, legacy fallback
 });
 
 const fakeRegister = async ({ url }) => ({ url: 'asset://asset-test-1', assetId: 'asset-test-1', from: url });
+// Distinct id per call — for asserting which items were newly registered.
+const countingRegister = () => {
+    let n = 0;
+    return async ({ url, kind }) => { const id = `asset-${kind}-${++n}`; return { url: `asset://${id}`, assetId: id, from: url }; };
+};
 
-test('swaps raw video URLs for asset:// refs', async () => {
-    const items = [{ kind: 'video', url: 'https://tos.example/v.mp4', role: 'reference_video', tosKey: 'uploads/v.mp4' }];
-    const out = await resolveVideoRefs(items, fakeRegister);
-    assert.equal(out[0].url, 'asset://asset-test-1');
-    assert.equal(out[0].assetId, 'asset-test-1');
+test('swaps raw image AND video URLs for asset:// refs (real-person scan needs both verified)', async () => {
+    const items = [
+        { kind: 'video', url: 'https://tos.example/v.mp4', role: 'reference_video', tosKey: 'uploads/v.mp4' },
+        { kind: 'image', url: 'https://tos.example/i.png', role: 'reference_image', tosKey: 'uploads/i.png' },
+    ];
+    const out = await resolveMediaRefs(items, countingRegister());
+    assert.equal(out[0].url, 'asset://asset-video-1');
+    assert.equal(out[1].url, 'asset://asset-image-2');
     assert.equal(out[0].tosKey, 'uploads/v.mp4'); // tosKey preserved for Reuse/thumbnails
+    assert.equal(out[1].role, 'reference_image'); // role preserved
 });
 
-test('leaves images, audio and existing asset:// videos untouched', async () => {
+test('resolveVideoRefs is a back-compat alias of resolveMediaRefs', () => {
+    assert.equal(resolveVideoRefs, resolveMediaRefs);
+});
+
+test('leaves audio, data: images and existing asset:// refs untouched', async () => {
     const items = [
-        { kind: 'image', url: 'https://tos.example/i.png' },
-        { kind: 'audio', url: 'https://tos.example/a.mp3' },
-        { kind: 'video', url: 'asset://asset-already' },
+        { kind: 'audio', url: 'https://tos.example/a.mp3' },       // audio is never real-person-scanned
+        { kind: 'image', url: 'data:image/png;base64,xx' },        // inline image can't be registered by URL
+        { kind: 'video', url: 'asset://asset-already' },           // already resolved
+        { kind: 'image', url: 'asset://img-already' },             // already resolved
     ];
-    const out = await resolveVideoRefs(items, async () => { throw new Error('must not be called'); });
+    const out = await resolveMediaRefs(items, async () => { throw new Error('must not be called'); });
     assert.deepEqual(out, items);
 });
 
 test('does not mutate the input items', async () => {
-    const item = { kind: 'video', url: 'https://tos.example/v.mp4' };
-    await resolveVideoRefs([item], fakeRegister);
-    assert.equal(item.url, 'https://tos.example/v.mp4');
+    const item = { kind: 'image', url: 'https://tos.example/i.png' };
+    await resolveMediaRefs([item], fakeRegister);
+    assert.equal(item.url, 'https://tos.example/i.png');
 });
 
-test('newlyRegisteredAssetIds picks only items resolveVideoRefs swapped in — never library picks', async () => {
+test('newlyRegisteredAssetIds picks every raw image/video swapped in — never library picks', async () => {
     const items = [
         { kind: 'video', url: 'https://tos.example/v.mp4' },                 // raw upload → registered this submit
         { kind: 'video', url: 'asset://already', assetId: 'already' },       // library pick → passes through untouched
-        { kind: 'image', url: 'https://tos.example/i.png' },                 // images never register
+        { kind: 'image', url: 'https://tos.example/i.png' },                 // raw image → now registered too
     ];
-    const out = await resolveVideoRefs(items, fakeRegister);
-    assert.deepEqual(newlyRegisteredAssetIds(items, out), ['asset-test-1']);
+    const out = await resolveMediaRefs(items, countingRegister());
+    assert.deepEqual(newlyRegisteredAssetIds(items, out), ['asset-video-1', 'asset-image-2']);
     assert.deepEqual(newlyRegisteredAssetIds(items, items), []); // nothing resolved → nothing to delete
 });
 
 test('propagates registration failures', async () => {
     const items = [{ kind: 'video', url: 'https://tos.example/v.mp4' }];
     await assert.rejects(
-        () => resolveVideoRefs(items, async () => { throw new Error('quota'); }),
+        () => resolveMediaRefs(items, async () => { throw new Error('quota'); }),
         /quota/,
     );
 });

@@ -11,7 +11,7 @@ import { sanitizeOptions } from '../../lib/seedance/options.mjs';
 import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js';
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
 import { buildTags, modeSupportsTags, normalizePromptForApi, restorePromptTokens, validatePromptReferences } from '../../lib/seedance/tags.js';
-import { getAsset, resolveVideoRefs, resolveSensitiveRefs, cleanupOldAssets, registerAssetFromUrl, registerAssetCached, deleteAsset, newlyRegisteredAssetIds } from '../../lib/seedance/assetsClient.js';
+import { getAsset, resolveMediaRefs, resolveSensitiveRefs, cleanupOldAssets, registerAssetFromUrl, registerAssetCached, deleteAsset, newlyRegisteredAssetIds } from '../../lib/seedance/assetsClient.js';
 import { useEvents } from '../hooks/useEvents.js';
 import { enhancePrompt } from '../../lib/seedance/enhance.js';
 import { friendlyError } from '../../lib/seedance/friendlyError.js';
@@ -83,6 +83,27 @@ const RATE_LIMIT_RE = /rate.?limit|quota|too many|429|concurren|throttl/i;
 // ModelArk's input scan rejecting raw-URL refs that show a (possibly) real
 // person — recoverable by re-referencing the media through the Asset Library.
 const SENSITIVE_RE = /may contain real person/i;
+
+// A reused ref (history or Community Gallery "Reuse") can carry an `asset://`
+// id that per-batch cleanup has since deleted — sending it to ModelArk yields
+// "The specified asset ... is not found". If the ref still has its TOS source
+// key, re-presign the original file so the submit pre-flight registers a FRESH,
+// live asset. asset:// refs WITHOUT a tosKey are live library picks (never
+// auto-deleted) and pass through untouched. Returns a NEW array.
+async function rehydrateStaleAssetRefs(items) {
+    return Promise.all(items.map(async (m) => {
+        if (typeof m?.url !== 'string' || !m.url.startsWith('asset://') || !m.tosKey) return m;
+        try {
+            const res = await fetch(`/api/byteplus/archive?key=${encodeURIComponent(m.tosKey)}`);
+            const d = res.ok ? await res.json() : null;
+            if (!d?.url) return m; // can't re-source → keep asset:// (it may still be alive)
+            const { assetId, ...rest } = m; // drop the stale id; pre-flight re-registers
+            return { ...rest, url: d.url };
+        } catch {
+            return m;
+        }
+    }));
+}
 // A done job whose only link is the ~24h ModelArk task URL is refreshed
 // proactively once it's ~20h old — players skip a stale URL entirely instead
 // of paying for the slow network failure first. URL age = last refresh, else
@@ -1017,17 +1038,22 @@ export default function SeedanceStudio() {
             }
         }
 
-        // Source videos must go through the Asset Library: ModelArk's input
-        // scan rejects real-person footage referenced by raw URL, but the same
-        // file passes as a verified asset:// ref (10–30s verification).
-        let resolvedItems = mediaItems;
-        if (mediaItems.some((m) => m.kind === 'video' && !String(m.url).startsWith('asset://'))) {
+        // A reused ref may point at an asset:// that per-batch cleanup already
+        // deleted; re-source it from its TOS key first so the verification below
+        // registers a live asset instead of shipping a dead id to ModelArk.
+        let resolvedItems = await rehydrateStaleAssetRefs(mediaItems);
+
+        // Source media (images AND videos) must go through the Asset Library:
+        // ModelArk's input scan rejects real-person footage/portraits referenced
+        // by raw URL, but the same file passes as a verified asset:// ref
+        // (~10–30s verification each). Audio and asset:// refs pass through.
+        if (resolvedItems.some((m) => (m.kind === 'image' || m.kind === 'video') && /^https?:/i.test(String(m.url)))) {
             setEnhancing(true);
-            setNotice('Verifying source video (takes ~30s)…');
+            setNotice('Verifying reference media (takes ~30s)…');
             try {
-                resolvedItems = await resolveVideoRefs(mediaItems, (a) => registerAssetFromUrl({ ...a, project: activeProject }));
+                resolvedItems = await resolveMediaRefs(resolvedItems, (a) => registerAssetFromUrl({ ...a, project: activeProject }));
             } catch (e) {
-                setError(`Source video verification failed — ${e.message}`);
+                setError(`Reference verification failed — ${e.message}`);
                 return;
             } finally {
                 setEnhancing(false);
@@ -1125,6 +1151,7 @@ export default function SeedanceStudio() {
                 name: r.name || '',
                 isImage: r.kind === 'image',
                 assetId: r.assetId || null,
+                tosKey: r.tosKey || null, // lets a stale asset:// be re-sourced at submit
                 fromLibrary: true,
             });
         }
