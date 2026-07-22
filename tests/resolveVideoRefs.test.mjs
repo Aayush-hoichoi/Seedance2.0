@@ -53,9 +53,9 @@ test('does not mutate the input items', async () => {
     assert.equal(item.url, 'https://tos.example/i.png');
 });
 
-// CreateAsset quota is the studio's scarcest resource (a handful per minute,
-// account-wide — 429 QuotaWriteQPMExceeded on any burst). A ref registered in
-// an earlier submit must be reused via a cheap GetAsset read, never re-created.
+// CreateAsset shares a 120 QPM zero-burst account-wide write quota (429
+// QuotaWriteQPMExceeded on any parallel burst). A ref registered in an
+// earlier submit must be reused via a cheap GetAsset read, never re-created.
 test('a ref registered in an earlier submit is reused, not re-registered', async () => {
     let creates = 0;
     const register = async ({ kind }) => { creates++; return { url: `asset://reuse-${kind}`, assetId: `reuse-${kind}` }; };

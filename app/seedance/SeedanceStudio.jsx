@@ -403,7 +403,7 @@ export default function SeedanceStudio() {
     };
 
     // Assets registered for a submit are intentionally NOT deleted when the
-    // batch finishes: CreateAsset quota is a handful per minute account-wide
+    // batch finishes: asset writes share a 120 QPM zero-burst account quota
     // (QuotaWriteQPMExceeded), so resolveMediaRefs reuses them across submits —
     // iterating on the same refs costs zero creates. The 1h age sweep
     // (cleanupOldAssets above) is the single cleanup path.
