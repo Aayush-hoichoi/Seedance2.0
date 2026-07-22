@@ -29,7 +29,7 @@ test('summarize renders a human chip', () => {
     assert.equal(summarize(null), null);
 });
 
-test('cinematicToPayload labels each field for GPT-4o', () => {
+test('cinematicToPayload labels each field for the enhancer', () => {
     const s = presetToSetup(CINEMATIC_PRESETS[0]);
     assert.deepEqual(cinematicToPayload(s), {
         camera: 'Classic 16mm Film (film)',

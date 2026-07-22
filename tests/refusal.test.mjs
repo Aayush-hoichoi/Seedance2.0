@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { looksLikeRefusal, isRefusal } from '../lib/openai/refusal.mjs';
 
-test('detects the common GPT-4o refusal phrasings', () => {
+test('detects the common enhancer refusal phrasings', () => {
     assert.equal(looksLikeRefusal("I'm sorry, I can't assist with that request."), true);
     assert.equal(looksLikeRefusal('I am sorry, but I cannot help with this.'), true);
     assert.equal(looksLikeRefusal("I'm unable to assist with that."), true);

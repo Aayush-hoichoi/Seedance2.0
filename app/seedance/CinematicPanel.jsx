@@ -2,7 +2,7 @@
 
 // Cinematic Cameras — centered modal for image mode. Pick a camera body, lens,
 // focal length and aperture (via presets or the manual tiles); on Apply the
-// active setup is lifted to the studio, where GPT-4o (style 'cinematic_camera')
+// active setup is lifted to the studio, where the enhancer (style 'cinematic_camera')
 // weaves it into the image prompt. All / Recommended / Saved tabs filter the
 // preset list; custom setups persist per-device (lib/seedance/cameraPresets.js).
 

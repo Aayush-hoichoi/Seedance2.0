@@ -11,7 +11,7 @@ import { sanitizeOptions } from '../../lib/seedance/options.mjs';
 import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js';
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
 import { buildTags, modeSupportsTags, normalizePromptForApi, restorePromptTokens, validatePromptReferences } from '../../lib/seedance/tags.js';
-import { getAsset, resolveMediaRefs, resolveSensitiveRefs, cleanupOldAssets, registerAssetFromUrl, registerAssetCached, deleteAsset, newlyRegisteredAssetIds } from '../../lib/seedance/assetsClient.js';
+import { getAsset, resolveMediaRefs, cleanupOldAssets, registerAssetFromUrl, deleteAsset, newlyRegisteredAssetIds } from '../../lib/seedance/assetsClient.js';
 import { useEvents } from '../hooks/useEvents.js';
 import { enhancePrompt } from '../../lib/seedance/enhance.js';
 import { friendlyError } from '../../lib/seedance/friendlyError.js';
@@ -80,10 +80,6 @@ async function downscaleForInline(file, maxDim = 1024) {
 }
 // Quota / rate-limit shaped errors → auto-retry instead of failing the card.
 const RATE_LIMIT_RE = /rate.?limit|quota|too many|429|concurren|throttl/i;
-// ModelArk's input scan rejecting raw-URL refs that show a (possibly) real
-// person — recoverable by re-referencing the media through the Asset Library.
-const SENSITIVE_RE = /may contain real person/i;
-
 // A reused ref (history or Community Gallery "Reuse") can carry an `asset://`
 // id that per-batch cleanup has since deleted — sending it to ModelArk yields
 // "The specified asset ... is not found". If the ref still has its TOS source
@@ -128,8 +124,8 @@ export default function SeedanceStudio() {
     const [selectedId, setSelectedId] = useState(null); // rail selection; null = follow newest
     const autoSelectedRef = useRef(false); // one auto-pick per project; reset on project switch
     const [error, setError] = useState(null);
-    const [notice, setNotice] = useState(null); // non-blocking info (e.g. GPT-4o refusal → raw-prompt fallback)
-    const [enhancing, setEnhancing] = useState(false); // GPT-4o prompt restructuring in flight
+    const [notice, setNotice] = useState(null); // non-blocking info (e.g. the enhancer refusal → raw-prompt fallback)
+    const [enhancing, setEnhancing] = useState(false); // the enhancer prompt restructuring in flight
     const [fullscreen, setFullscreen] = useState(null);
     const [showAssets, setShowAssets] = useState(false); // "All assets" overlay
     const controllersRef = useRef({}); // jobId -> AbortController (not persisted)
@@ -765,7 +761,7 @@ export default function SeedanceStudio() {
     // Create one job: submit the task, then watch it. Never blocks other jobs.
     // Quota/rate-limit rejections auto-retry with backoff instead of failing.
     // `promptMeta` (styled modes) carries the user's raw prompt + style for the
-    // Neon prompt-pair store, powering the GPT-4o/user comparison tabs.
+    // Neon prompt-pair store, powering the enhancer/user comparison tabs.
     // `creation` snapshots the mode + reference assets at click time, so the
     // history panel can show what was attached and Reuse can restore it.
     const launchJob = async (payload, promptText, promptMeta = null, creation = {}, cleanupToken = null) => {
@@ -783,7 +779,9 @@ export default function SeedanceStudio() {
         setSelectedId(job.id); // a fresh generation takes the big stage
         const MAX_ATTEMPTS = 6;
         const RETRY_DELAY_MS = 15000;
-        let resolvedSensitive = false;
+        // Real-person media no longer needs a reactive re-reference here: every
+        // http image/video is verified as a library asset in the submit
+        // pre-flight (resolveMediaRefs), so nothing raw reaches ModelArk's scan.
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
                 const taskId = await createTask(payload, creation.modeId ?? modeId, projectId);
@@ -800,20 +798,6 @@ export default function SeedanceStudio() {
                 watchJob(job.id, taskId, cleanupToken);
                 return;
             } catch (e) {
-                // Real-person refs rejected via raw URL pass as verified
-                // library assets — re-reference once and retry immediately.
-                if (SENSITIVE_RE.test(e.message) && !resolvedSensitive) {
-                    resolvedSensitive = true;
-                    patchJob(job.id, { status: 'waiting' });
-                    try {
-                        payload = await resolveSensitiveRefs(payload, (a) => registerAssetCached({ ...a, project: activeProject }));
-                        continue;
-                    } catch (e2) {
-                        patchJob(job.id, { status: 'error', error: `Reference verification failed — ${e2.message}` });
-                        releaseTmpAssets(cleanupToken);
-                        return;
-                    }
-                }
                 if (RATE_LIMIT_RE.test(e.message) && attempt < MAX_ATTEMPTS) {
                     patchJob(job.id, { status: 'waiting' });
                     await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
@@ -953,7 +937,7 @@ export default function SeedanceStudio() {
         if (projects.length && !projectId) { setError('Still loading your project — try again in a moment.'); return; }
 
         // Image mode: straight to the gateway batch queue. When a Cinematic
-        // Cameras setup is active, GPT-4o restructures the prompt around the
+        // Cameras setup is active, the enhancer restructures the prompt around the
         // camera settings first (one enhance for the whole batch).
         if (mediaType === 'image') {
             const raw = prompt.trim();
@@ -1009,9 +993,9 @@ export default function SeedanceStudio() {
             return;
         }
 
-        // Styled modes (Motion Capture / Green Screen): GPT-4o restructures the
+        // Styled modes (Motion Capture / Green Screen): the enhancer restructures the
         // raw prompt into the full production brief before Seedance sees it. If
-        // GPT-4o REFUSES the content, fall back to the user's own prompt and
+        // the enhancer REFUSES the content, fall back to the user's own prompt and
         // send that straight to Seedance — never the refusal text.
         let promptMeta = mode.enhanceStyle ? { userPrompt: apiPrompt, style: mode.enhanceStyle } : null;
         if (mode.enhanceStyle) {
@@ -1102,7 +1086,7 @@ export default function SeedanceStudio() {
     // "Reuse" on a history card: load that generation's reference assets AND
     // its prompt back into the prompt bar — restoring the mode it was made in,
     // so every ref lands in its original slot (clamped to the mode's per-slot
-    // max). The raw user prompt wins over the GPT-4o brief: in styled modes the
+    // max). The raw user prompt wins over the enhancer brief: in styled modes the
     // brief is regenerated on the next Generate anyway.
     const onReuseRefs = (job, refs) => {
         // Reusing an image (Nano Banana) job: flip the toggle to Image mode and
@@ -1587,7 +1571,7 @@ function BigStage({ job, onCancel, onFullscreen, onReuse, onRefresh }) {
 }
 
 // Side panel to the RIGHT of a played video: the prompt actually sent to the
-// model. In styled modes (Motion Capture / Green Screen) it's the GPT-4o brief,
+// model. In styled modes (Motion Capture / Green Screen) it's the enhancer brief,
 // with a "Your prompt" tab for comparison; otherwise a single "Prompt" view.
 // Below the prompt: the reference assets attached to this generation, with a
 // Reuse button that loads them back into the prompt bar.
