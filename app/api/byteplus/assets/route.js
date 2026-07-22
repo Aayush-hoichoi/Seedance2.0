@@ -65,7 +65,15 @@ export async function POST(request) {
         const upstream = await fetch(assetUrl(action), { method: 'POST', headers, body: bodyStr });
         const text = await upstream.text();
         try {
-            return NextResponse.json(JSON.parse(text), { status: upstream.status });
+            const json = JSON.parse(text);
+            // Capture the raw reason a source asset failed verification: BytePlus
+            // is inconsistent about which field carries it and often leaves Error
+            // empty, so log the whole Result server-side to triage/learn (the
+            // client only ever sees the mapped, friendly message).
+            if (action === 'GetAsset' && json?.Result?.Status === 'Failed') {
+                console.error('[byteplus] asset verification failed', JSON.stringify(json.Result));
+            }
+            return NextResponse.json(json, { status: upstream.status });
         } catch {
             return NextResponse.json(
                 { error: text.slice(0, 500) || upstream.statusText },

@@ -34,13 +34,21 @@ test('pollAssetActive surfaces the provider reason for a Failed asset', async ()
     });
 });
 
-test('a Failed asset with no Error still gets the generic explanation', async () => {
+test('a Failed asset with no Error gives an honest no-reason explanation (not "format/size")', async () => {
     const { pollAssetActive } = await import('../lib/byteplus/assetsServer.js');
     await withFetch({ Result: { Id: 'asset-2', Status: 'Failed' } }, async () => {
         await assert.rejects(
             () => pollAssetActive('asset-2', { intervalMs: 1 }),
-            /format\/size\/content rules/i,
+            /didn.t pass verification|no reason/i,
         );
+    });
+});
+
+test('getAsset reads the reason from a non-Error field when Error is empty', async () => {
+    const { getAsset } = await import('../lib/byteplus/assetsServer.js');
+    await withFetch({ Result: { Id: 'a3', Status: 'Failed', FailReason: 'InputVideoSensitiveContentDetected' } }, async () => {
+        const a = await getAsset('a3');
+        assert.equal(a.error, 'InputVideoSensitiveContentDetected'); // not lost as null
     });
 });
 
@@ -50,4 +58,20 @@ test('the moderation rejection reads as a source-video problem, not a prompt one
     assert.doesNotMatch(shown, /Request ID/i);
     // Must not send the user editing the prompt — the prompt is not the cause.
     assert.doesNotMatch(shown, /adjust the prompt/i);
+});
+
+test('friendlyError maps the common provider errors to actionable copy', () => {
+    // output-audio moderation → guide to turning Audio off, NOT a prompt edit
+    const audio = friendlyError('The request failed because the output audio may contain sensitive information. Request id: 021');
+    assert.match(audio, /Audio off/i);
+    assert.doesNotMatch(audio, /swap the media/i); // the run succeeded; don't blame the input
+    assert.doesNotMatch(audio, /Request id/i);     // provider id stripped
+    // output-video copyright
+    assert.match(friendlyError('The request failed because the output video may be related to copyright restrictions.'), /copyright/i);
+    // a reference image flagged as a real person
+    assert.match(friendlyError('The request failed because the input image may contain real person.'), /reference image/i);
+    // an expired asset:// reference
+    assert.match(friendlyError('content[1].image_url.url is not valid: The specified asset asset-x is not found.'), /expired|re-attach|Reuse/i);
+    // the no-reason verification fallback
+    assert.match(friendlyError('The source media didn’t pass verification and the provider returned no reason (usually a moderation flag on the content).'), /moderation flag/i);
 });
