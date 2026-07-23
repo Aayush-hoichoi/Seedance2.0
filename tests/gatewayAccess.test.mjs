@@ -140,3 +140,15 @@ test('hasPermission matches role rows only', () => {
     assert.equal(hasPermission('member', 'usage.view', ROLE_PERMS), false);
     assert.equal(hasPermission(null, 'usage.view', ROLE_PERMS), false);
 });
+
+// The studio front door: a plain member with no project memberships waits on
+// /projects until an admin adds them — admins/managers always pass (they see
+// every project and can create one).
+test('canEnterStudio: members need at least one project, admins/managers always enter', async () => {
+    const { canEnterStudio } = await import('../lib/gateway/access.mjs');
+    assert.equal(canEnterStudio('member', 0), false);
+    assert.equal(canEnterStudio('member', 1), true);
+    assert.equal(canEnterStudio(null, 0), false);      // unknown role = member
+    assert.equal(canEnterStudio('admin', 0), true);
+    assert.equal(canEnterStudio('manager', 0), true);
+});
