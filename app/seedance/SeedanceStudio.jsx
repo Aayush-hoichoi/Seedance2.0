@@ -6,7 +6,7 @@
 // in-flight tasks are resumed after a reload by re-polling their ModelArk id.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MODELS, MODES, RATIOS, RESOLUTIONS, DEFAULT_OPTIONS, IMAGE_MODELS, IMAGE_DEFAULT_MODEL_ID, IMAGE_RATIOS, IMAGE_RESOLUTIONS, IMAGE_STUDIO_ID, IMAGE_STUDIO_MODEL_ID, modeAllowedForModel, resolutionWithinTier } from '../../lib/seedance/constants.js';
+import { MODELS, MODES, RATIOS, RESOLUTIONS, DEFAULT_OPTIONS, IMAGE_MODELS, IMAGE_DEFAULT_MODEL_ID, IMAGE_RATIOS, IMAGE_RESOLUTIONS, IMAGE_STUDIO_ID, IMAGE_STUDIO_MODEL_ID, modeAllowedForModel, resolutionWithinTier, imageRefMax } from '../../lib/seedance/constants.js';
 import { sanitizeOptions } from '../../lib/seedance/options.mjs';
 import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js';
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
@@ -806,12 +806,13 @@ export default function SeedanceStudio() {
     // so they can go inline as {inlineData} parts. NOT persisted to the job /
     // localStorage (base64 would blow the quota) — send-time only.
     const onUploadImageRefs = async (files) => {
+        const cap = imageRefMax(options.model); // Nano Banana Pro takes 14, Flash 3
         const picked = Array.from(files || []).filter((f) => f.type?.startsWith('image/'));
         for (const file of picked) {
-            if (imageRefs.length >= 3) break;
+            if (imageRefs.length >= cap) break;
             try {
                 const ref = await downscaleForInline(file);
-                setImageRefs((prev) => (prev.length >= 3 ? prev : [...prev, { name: file.name, ...ref }]));
+                setImageRefs((prev) => (prev.length >= cap ? prev : [...prev, { name: file.name, ...ref }]));
             } catch { /* unreadable image — skip */ }
         }
     };

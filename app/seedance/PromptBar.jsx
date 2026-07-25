@@ -6,7 +6,7 @@
 
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { Lock } from 'lucide-react';
-import { MODES, RATIOS, RESOLUTIONS, IMAGE_RATIOS, IMAGE_STUDIO_ID, modeAllowedForModel, resolutionWithinTier } from '../../lib/seedance/constants.js';
+import { MODES, RATIOS, RESOLUTIONS, IMAGE_RATIOS, IMAGE_STUDIO_ID, modeAllowedForModel, resolutionWithinTier, imageRefMax } from '../../lib/seedance/constants.js';
 import { estimateCost } from '../../lib/seedance/pricing.mjs';
 import { imageCost } from '../../lib/gateway/imagePricing.mjs';
 import { summarize as summarizeCinematic } from '../../lib/seedance/cinematic.mjs';
@@ -117,9 +117,10 @@ function PillToggle({ label, active, onToggle, disabled, icon }) {
     );
 }
 
-// Image-mode reference uploader: round thumbnails + a dashed "+" (up to 3).
-// Nano Banana (Gemini) edits/combines these with the prompt.
-function ImageRefUploader({ refs, onUpload, onRemove }) {
+// Image-mode reference uploader: round thumbnails + a dashed "+" (up to the
+// selected model's cap — Nano Banana Pro takes 14, Flash 3). Nano Banana
+// (Gemini) edits/combines these with the prompt.
+function ImageRefUploader({ refs, onUpload, onRemove, maxRefs = 3 }) {
     const inputRef = useRef(null);
     return (
         <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -129,7 +130,7 @@ function ImageRefUploader({ refs, onUpload, onRemove }) {
                     <button type="button" onClick={() => onRemove(i)} aria-label="Remove" className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-white/20 bg-black text-[10px] leading-none text-white/70 hover:text-white">×</button>
                 </div>
             ))}
-            {refs.length < 3 && (
+            {refs.length < maxRefs && (
                 <>
                     <input ref={inputRef} type="file" hidden accept="image/*" multiple onChange={(e) => { onUpload?.(e.target.files); e.target.value = ''; }} />
                     <button
@@ -589,7 +590,7 @@ export default function PromptBar({
                         </div>
                     )}
                     {!isImage && <MediaButtons mode={mode} mediaByRole={mediaByRole} setMediaByRole={setMediaByRole} onUploadFiles={onUploadFiles} tags={allTags} />}
-                    {isImage && <ImageRefUploader refs={imageRefs} onUpload={onUploadImageRefs} onRemove={removeImageRef} />}
+                    {isImage && <ImageRefUploader refs={imageRefs} onUpload={onUploadImageRefs} onRemove={removeImageRef} maxRefs={imageRefMax(options.model)} />}
                     {/* Chip-rendered prompt: a backdrop paints the text (tokens as
                         cyan chips) behind a transparent-text textarea, so editing
                         mechanics stay native while @Image1 reads as a pill. */}
