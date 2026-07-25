@@ -116,9 +116,9 @@ export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteFo
     };
 
     const onDownloadSelected = () => runDownload(
-        selectedJobs.map((v, i) => ({ url: v.videoUrl, name: videoFileName(v, i) })),
+        selectedJobs.map((v, i) => ({ url: v.videoUrl, name: videoFileName(v, i), taskId: v.taskId })),
     );
-    const onDownloadOne = (v, i) => runDownload([{ url: v.videoUrl, name: videoFileName(v, i) }]);
+    const onDownloadOne = (v, i) => runDownload([{ url: v.videoUrl, name: videoFileName(v, i), taskId: v.taskId }]);
 
     const binMany = (ids) => { ids.forEach((id) => onBin(id)); setSelected(new Set()); };
     const restoreMany = (ids) => { ids.forEach((id) => onRestore(id)); setSelected(new Set()); };

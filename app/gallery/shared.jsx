@@ -331,7 +331,7 @@ export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext }) {
                         {dlUrl && (
                             <button
                                 type="button"
-                                onClick={() => downloadAsset(dlUrl, item.taskId || (isImage ? 'image' : 'video'))}
+                                onClick={() => downloadAsset(dlUrl, item.taskId || (isImage ? 'image' : 'video'), item.taskId)}
                                 title={isImage ? 'Download this image' : 'Download this video'}
                                 aria-label={isImage ? 'Download this image' : 'Download this video'}
                                 className="flex items-center justify-center px-3 py-2 rounded-lg border border-white/10 bg-white/[0.04] text-white/70 hover:text-white hover:border-white/25 transition-colors"

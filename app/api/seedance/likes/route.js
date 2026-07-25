@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../../lib/db/neon.js';
+import { getUser } from '../../../../lib/auth/user.js';
+import { recordGenerationEvent } from '../../../../lib/access/db.js';
 
 // Like store (Neon Postgres) — a thin write path over the seedance_prompts
 // table's `liked` column, keyed by ModelArk task id.
@@ -38,5 +40,9 @@ export async function POST(request) {
     } catch {
         return bad('Failed to save the like.', 502);
     }
+    // Log the per-user event for the dataset signal (best-effort; the boolean
+    // above is the current-state source of truth for the gallery heart).
+    const user = await getUser().catch(() => null);
+    await recordGenerationEvent(sql, { taskId, userId: user?.userId ?? null, eventType: liked ? 'like' : 'unlike' });
     return NextResponse.json({ ok: true, taskId, liked });
 }

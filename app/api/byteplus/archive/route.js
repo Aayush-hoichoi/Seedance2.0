@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { signTosRequest, presignGetUrl, encodePath, TOS_ENDPOINT } from '../../../../lib/byteplus/tosSign.js';
-import { archiveKeyForTask } from '../../../../lib/seedance/archiveKey.mjs';
+import { presignGetUrl, encodePath, TOS_ENDPOINT } from '../../../../lib/byteplus/tosSign.js';
+import { archiveVideo } from '../../../../lib/seedance/archiveVideo.mjs';
 
 // Archive a finished generation into the user's own TOS bucket so it outlives
 // ModelArk's ~24h signed URLs / ~48h task records. POST { url, taskId } —
@@ -13,7 +13,6 @@ export const runtime = 'nodejs';
 export const maxDuration = 120;
 
 const BUCKET = process.env.TOS_BUCKET?.trim() || 'seedance-studio-assets';
-const MAX_VIDEO_BYTES = 200 * 1024 * 1024;
 const KEY_RE = /^(videos|uploads|images)\/[\w.-]+$/;
 
 function credentials() {
@@ -22,6 +21,9 @@ function credentials() {
     return ak && sk ? { ak, sk } : null;
 }
 
+// Download + archive is shared with the queue processor (lib/seedance/archiveVideo)
+// so studio, MCP, and manual re-archives all land the same object. This route
+// adds the browser's needs on top: JSON parsing and a fresh presigned view URL.
 export async function POST(request) {
     const creds = credentials();
     if (!creds) return NextResponse.json({ error: 'ARK_AK / ARK_SK are not configured.' }, { status: 500 });
@@ -33,46 +35,14 @@ export async function POST(request) {
         return NextResponse.json({ error: 'Body must be JSON.' }, { status: 400 });
     }
     const { url, taskId } = body || {};
-    if (!url || !taskId) return NextResponse.json({ error: 'url and taskId are required.' }, { status: 400 });
-    let parsed;
-    try {
-        parsed = new URL(url);
-    } catch {
-        return NextResponse.json({ error: 'url is not a valid URL.' }, { status: 400 });
-    }
-    // Only fetch from BytePlus's own media hosts — this is not an open proxy.
-    if (!/\.(volces\.com|bytepluses\.com)$/.test(parsed.hostname)) {
-        return NextResponse.json({ error: 'url must be a BytePlus media URL.' }, { status: 400 });
-    }
 
     try {
-        const upstream = await fetch(url);
-        if (!upstream.ok) {
-            return NextResponse.json({ error: `Could not download the video (${upstream.status}) — the link may have expired.` }, { status: 502 });
-        }
-        const buf = Buffer.from(await upstream.arrayBuffer());
-        if (buf.length > MAX_VIDEO_BYTES) {
-            return NextResponse.json({ error: 'Video too large to archive.' }, { status: 413 });
-        }
-
+        const { key } = await archiveVideo({ url, taskId });
         const host = `${BUCKET}.${TOS_ENDPOINT}`;
-        const key = archiveKeyForTask(taskId);
-        const path = `/${encodePath(key)}`;
-        const headers = signTosRequest({
-            method: 'PUT', host, path,
-            ak: creds.ak, sk: creds.sk,
-            extraHeaders: { 'content-type': 'video/mp4' },
-        });
-        const put = await fetch(`https://${host}${path}`, { method: 'PUT', headers, body: buf });
-        if (!put.ok) {
-            const text = await put.text().catch(() => '');
-            return NextResponse.json({ error: `Archive upload failed (${put.status}): ${text.slice(0, 200)}` }, { status: 502 });
-        }
-
-        const signed = presignGetUrl({ host, path, ak: creds.ak, sk: creds.sk, expiresSec: 604800 }); // 7 days (TOS max)
+        const signed = presignGetUrl({ host, path: `/${encodePath(key)}`, ak: creds.ak, sk: creds.sk, expiresSec: 604800 }); // 7 days (TOS max)
         return NextResponse.json({ key, url: signed });
     } catch (error) {
-        return NextResponse.json({ error: error.message }, { status: 502 });
+        return NextResponse.json({ error: error.message }, { status: error.httpStatus || 502 });
     }
 }
 

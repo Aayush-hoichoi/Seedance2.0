@@ -2,6 +2,9 @@ import { Readable } from 'node:stream';
 import { NextResponse } from 'next/server';
 import { zipStream } from '../../../../lib/seedance/zip.mjs';
 import { safeName } from '../../../../lib/seedance/downloadName.mjs';
+import { getUser } from '../../../../lib/auth/user.js';
+import { getDb } from '../../../../lib/db/neon.js';
+import { recordGenerationEvent } from '../../../../lib/access/db.js';
 
 // Bulk-download finished generations (videos or images). POST { items: [{ url, name }] }.
 //   • one item  → streams that asset back as an attachment (raw mp4/png/…)
@@ -25,6 +28,25 @@ function bad(message, status = 400) {
     return NextResponse.json({ error: message }, { status });
 }
 
+// Log a per-user download event for every item that carried a taskId. Records
+// intent (the download was requested) — the actual byte transfer streams after.
+// Wholly best-effort: unauthenticated calls, a missing DB, or a bad taskId just
+// skip logging, never blocking the download itself.
+async function logDownloads(items) {
+    const tagged = items.filter((it) => it.taskId);
+    if (!tagged.length) return;
+    try {
+        const user = await getUser().catch(() => null);
+        const sql = await getDb();
+        if (!sql) return;
+        for (const it of tagged) {
+            await recordGenerationEvent(sql, { taskId: it.taskId, userId: user?.userId ?? null, eventType: 'download' });
+        }
+    } catch {
+        // never block a download on its analytics
+    }
+}
+
 // Validate + normalize the requested items up front, so a bad input fails with a
 // clean 400 *before* any bytes start streaming (headers can't change mid-stream).
 function parseItems(raw) {
@@ -37,7 +59,8 @@ function parseItems(raw) {
         let parsed;
         try { parsed = new URL(url); } catch { return; }
         if (!HOST_RE.test(parsed.hostname)) return; // silently drop foreign hosts
-        items.push({ url, name: safeName(it.name, url, `asset-${i + 1}`) });
+        const taskId = it && typeof it.taskId === 'string' && it.taskId.length <= 200 ? it.taskId : null;
+        items.push({ url, name: safeName(it.name, url, `asset-${i + 1}`), taskId });
     });
     if (!items.length) return { error: 'No downloadable BytePlus media URLs in the request.' };
     return { items };
@@ -67,6 +90,8 @@ export async function POST(request) {
     }
     const { items, error } = parseItems(body?.items);
     if (error) return bad(error);
+
+    await logDownloads(items);
 
     // Single asset → stream the raw file straight through (no zip overhead).
     if (items.length === 1) {
