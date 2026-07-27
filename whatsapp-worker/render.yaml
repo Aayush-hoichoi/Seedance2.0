@@ -1,22 +1,23 @@
-# Render blueprint for the WhatsApp worker. Deploy: New → Blueprint → point at
-# this repo, set Root Directory to `whatsapp-worker`. The persistent disk keeps
-# the WhatsApp session across restarts so you scan the QR only once.
+# Reference config for the WhatsApp worker. The session is stored in Postgres
+# (DATABASE_URL) and the worker self-pings to stay awake, so it needs NO
+# persistent disk and runs on Render's FREE plan.
+#
+# Deploying manually? New → Web Service → "Public Git Repository" →
+# https://github.com/Aayush-hoichoi/Seedance2.0 → Root Directory: whatsapp-worker.
 services:
   - type: web
     name: seedance-whatsapp-worker
     runtime: docker
-    plan: starter            # smallest paid tier; free tier sleeps and would drop the session
+    plan: free
     rootDir: whatsapp-worker
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health
-    disk:
-      name: wa-auth
-      mountPath: /data       # matches AUTH_DIR=/data/auth in the Dockerfile
-      sizeGB: 1
     envVars:
       - key: WORKER_TOKEN
-        generateValue: true  # copy this into the app's WHATSAPP_WORKER_TOKEN
+        sync: false   # shared secret; must match the app's WHATSAPP_WORKER_TOKEN
       - key: WA_RECIPIENTS
-        sync: false          # set in the dashboard: comma-separated intl numbers (max 5)
-      - key: AUTH_DIR
-        value: /data/auth
+        sync: false   # comma-separated intl numbers (max 5)
+      - key: DATABASE_URL
+        sync: false   # your Neon URL — the linked session persists in the wa_auth table
+      # KEEPALIVE_URL is unnecessary: it defaults to RENDER_EXTERNAL_URL, which
+      # Render injects automatically, so the self-ping just works.

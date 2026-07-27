@@ -3,26 +3,33 @@
 // spend alert to up to 5 recipients.
 //
 // ⚠️  Runs a persistent WebSocket to WhatsApp — CANNOT run on Vercel/serverless.
-//     Deploy to a host that stays up (Render/Railway/Fly/VPS) with a PERSISTENT
-//     disk for AUTH_DIR (else you re-scan the QR on every restart).
+//     Deploy to a host that stays up. The session lives in Postgres (not a local
+//     disk), so it survives restarts even on hosts with NO persistent disk
+//     (Render free). A built-in self-ping keeps free tiers from idle-sleeping.
 // ⚠️  Unofficial client → against WhatsApp ToS. Use a throwaway number; keep the
-//     recipients as saved contacts; the session db == full account access.
+//     recipients as saved contacts; the wa_auth table == full account access.
 //
 // Env:
-//   PORT            listen port (default 3000)
+//   PORT            listen port (default 3000; Render injects its own)
 //   WORKER_TOKEN    shared secret; callers must send it as X-Worker-Token
 //   WA_RECIPIENTS   comma-separated phone numbers in intl format, e.g. 91987...,44779...
-//   AUTH_DIR        session store dir (default ./auth; point at a persistent disk)
+//   DATABASE_URL    Postgres (Neon) — stores the linked session in wa_auth (REQUIRED)
+//   WA_SESSION_ID   session row key (default 'default'; change to run >1 number)
+//   KEEPALIVE_URL   public URL to self-ping every 10m (defaults to RENDER_EXTERNAL_URL)
 //   LOG_LEVEL       pino level (default warn)
 
 import { createServer } from 'node:http';
-import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, Browsers } from '@whiskeysockets/baileys';
+import makeWASocket, { DisconnectReason, fetchLatestBaileysVersion, Browsers } from '@whiskeysockets/baileys';
+import { neon } from '@neondatabase/serverless';
 import qrcode from 'qrcode-terminal';
 import pino from 'pino';
+import { usePostgresAuthState } from './pgAuthState.js';
 
 const PORT = Number(process.env.PORT) || 3000;
 const TOKEN = (process.env.WORKER_TOKEN || '').trim();
-const AUTH_DIR = process.env.AUTH_DIR || './auth';
+const DATABASE_URL = (process.env.DATABASE_URL || '').trim();
+const SESSION_ID = process.env.WA_SESSION_ID || 'default';
+const KEEPALIVE_URL = (process.env.KEEPALIVE_URL || process.env.RENDER_EXTERNAL_URL || '').trim();
 const MAX_RECIPIENTS = 5;
 const RECIPIENTS = (process.env.WA_RECIPIENTS || '')
     .split(',').map((s) => s.replace(/[^\d]/g, '')).filter(Boolean).slice(0, MAX_RECIPIENTS);
@@ -32,14 +39,16 @@ let sock = null;
 let connected = false;
 
 async function start() {
-    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+    if (!DATABASE_URL) throw new Error('DATABASE_URL is required — the WhatsApp session is stored in Postgres.');
+    const sql = neon(DATABASE_URL);
+    const { state, saveCreds, clearAuth } = await usePostgresAuthState(sql, SESSION_ID);
     // Announce the CURRENT WhatsApp-Web version — a stale one is rejected with a
     // 405 close before any QR is issued. Browsers.* sets the linked-device label.
     const { version } = await fetchLatestBaileysVersion();
     console.log(`[whatsapp] using WA-web version ${version.join('.')}`);
     sock = makeWASocket({ version, auth: state, browser: Browsers.macOS('Desktop'), logger });
     sock.ev.on('creds.update', saveCreds);
-    sock.ev.on('connection.update', (u) => {
+    sock.ev.on('connection.update', async (u) => {
         const { connection, lastDisconnect, qr } = u;
         if (qr) {
             console.log('\n[whatsapp] Open WhatsApp → Settings → Linked Devices → Link a device, and scan:\n');
@@ -50,8 +59,10 @@ async function start() {
             connected = false;
             const code = lastDisconnect?.error?.output?.statusCode;
             if (code === DisconnectReason.loggedOut) {
-                console.error('[whatsapp] logged out — delete the AUTH_DIR contents and restart to re-scan the QR.');
-                return; // don't auto-reconnect a dead session
+                console.error('[whatsapp] logged out — clearing the stored session and re-issuing a QR…');
+                await clearAuth().catch(() => {});
+                setTimeout(() => start().catch((e) => console.error('[whatsapp] restart failed:', e.message)), 2000);
+                return;
             }
             console.warn(`[whatsapp] connection closed (code ${code ?? '?'}) — reconnecting in 3s…`);
             setTimeout(() => start().catch((e) => console.error('[whatsapp] reconnect failed:', e.message)), 3000);
@@ -99,5 +110,14 @@ createServer(async (req, res) => {
     }
     return json(404, { ok: false, error: 'not found' });
 }).listen(PORT, () => console.log(`[worker] listening on :${PORT} — ${RECIPIENTS.length} recipient(s)`));
+
+// Free-tier keep-alive: hit our own public URL every 10 min so the host doesn't
+// idle-sleep (which would drop the WhatsApp socket). Render injects
+// RENDER_EXTERNAL_URL; locally KEEPALIVE_URL is unset so this is a no-op.
+if (KEEPALIVE_URL) {
+    const ping = () => fetch(`${KEEPALIVE_URL.replace(/\/+$/, '')}/health`).catch(() => {});
+    setInterval(ping, 10 * 60 * 1000);
+    console.log(`[worker] keep-alive: self-ping ${KEEPALIVE_URL}/health every 10m`);
+}
 
 start().catch((e) => { console.error('[whatsapp] failed to start:', e.message); process.exit(1); });

@@ -9,6 +9,7 @@
     "start": "node index.js"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^0.10.4",
     "@whiskeysockets/baileys": "^6.7.9",
     "pino": "^9.5.0",
     "qrcode-terminal": "^0.12.0"

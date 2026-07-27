@@ -1,14 +1,14 @@
 FROM node:20-slim
 
 WORKDIR /app
-COPY package.json ./
-RUN npm install --omit=dev
+COPY package*.json ./
+RUN npm ci --omit=dev
 
-COPY index.js ./
+# Both source files must be present — pgAuthState.js holds the Postgres session store.
+COPY index.js pgAuthState.js ./
 
-# Session lives on a PERSISTENT disk mounted at /data (see render.yaml) so the
-# QR link survives restarts. Without a persistent mount you re-scan every deploy.
-ENV AUTH_DIR=/data/auth
+# Session lives in Postgres (DATABASE_URL), so NO persistent disk is needed —
+# this runs fine on hosts with an ephemeral filesystem (e.g. Render free).
 ENV PORT=3000
 EXPOSE 3000
 
