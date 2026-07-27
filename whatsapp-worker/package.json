@@ -1,0 +1,16 @@
+{
+  "name": "seedance-whatsapp-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Always-on WhatsApp-Web (Baileys) worker: holds a linked session and sends spend alerts. NOT a Vercel app — deploy to a persistent host (Render/Railway/VPS).",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.9",
+    "pino": "^9.5.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}

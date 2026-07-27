@@ -1,0 +1,22 @@
+# Render blueprint for the WhatsApp worker. Deploy: New → Blueprint → point at
+# this repo, set Root Directory to `whatsapp-worker`. The persistent disk keeps
+# the WhatsApp session across restarts so you scan the QR only once.
+services:
+  - type: web
+    name: seedance-whatsapp-worker
+    runtime: docker
+    plan: starter            # smallest paid tier; free tier sleeps and would drop the session
+    rootDir: whatsapp-worker
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    disk:
+      name: wa-auth
+      mountPath: /data       # matches AUTH_DIR=/data/auth in the Dockerfile
+      sizeGB: 1
+    envVars:
+      - key: WORKER_TOKEN
+        generateValue: true  # copy this into the app's WHATSAPP_WORKER_TOKEN
+      - key: WA_RECIPIENTS
+        sync: false          # set in the dashboard: comma-separated intl numbers (max 5)
+      - key: AUTH_DIR
+        value: /data/auth

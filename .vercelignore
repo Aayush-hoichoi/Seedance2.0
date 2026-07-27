@@ -1,0 +1,3 @@
+# The WhatsApp worker is a separate always-on service (Render/Railway/VPS), NOT
+# part of the Next.js/Vercel build. Keep it out of the Vercel deployment.
+whatsapp-worker
