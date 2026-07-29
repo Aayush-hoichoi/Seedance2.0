@@ -44,6 +44,13 @@ test('supportedResolutionsFor follows model capability', () => {
     assert.equal(supportedResolutionsFor('no-such-model'), null);
 });
 
+test('supportedResolutionsFor accepts stable gateway aliases used by the console', () => {
+    assert.deepEqual(supportedResolutionsFor('seedance-2.0'), ['480p', '720p', '1080p', '4k']);
+    assert.deepEqual(supportedResolutionsFor('seedance-2.0-fast'), ['480p', '720p']);
+    assert.deepEqual(supportedResolutionsFor('seedance-2.0-mini'), ['480p', '720p']);
+    assert.deepEqual(supportedResolutionsFor('seedance-1.5-pro'), ['480p', '720p', '1080p']);
+});
+
 test('effectiveAccess carries the allow-override cap; grants/defaults are uncapped', () => {
     const now = new Date('2026-07-19T00:00:00Z');
     const capped = effectiveAccess({
