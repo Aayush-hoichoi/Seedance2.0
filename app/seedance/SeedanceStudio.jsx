@@ -15,6 +15,7 @@ import { getAsset, resolveMediaRefs, cleanupOldAssets, registerAssetFromUrl } fr
 import { useEvents } from '../hooks/useEvents.js';
 import { enhancePrompt } from '../../lib/seedance/enhance.js';
 import { friendlyError } from '../../lib/seedance/friendlyError.js';
+import { moveItem } from '../../lib/seedance/reorder.mjs';
 import { savePromptRecord, fetchPromptRecords, setLikeRecord, setBinRecord, deletePromptRecord } from '../../lib/seedance/promptsClient.js';
 import { uploadToCdn } from '../../lib/seedance/upload.js';
 import { validateMediaFile } from '../../lib/seedance/inspectMedia.js';
@@ -822,6 +823,7 @@ export default function SeedanceStudio() {
         }
     };
     const removeImageRef = (i) => setImageRefs((prev) => prev.filter((_, idx) => idx !== i));
+    const reorderImageRefs = (from, to) => setImageRefs((prev) => moveItem(prev, from, to));
 
     const changeMediaType = (t) => {
         setMediaType(t);
@@ -1387,6 +1389,7 @@ export default function SeedanceStudio() {
                 imageRefs={imageRefs}
                 onUploadImageRefs={onUploadImageRefs}
                 removeImageRef={removeImageRef}
+                reorderImageRefs={reorderImageRefs}
                 cinematic={cinematic}
                 onOpenCinematic={() => setShowCinematic(true)}
             />

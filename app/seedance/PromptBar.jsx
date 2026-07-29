@@ -12,6 +12,7 @@ import { imageCost } from '../../lib/gateway/imagePricing.mjs';
 import { summarize as summarizeCinematic } from '../../lib/seedance/cinematic.mjs';
 import { filterTags, tagLabelFor, tagToken, TOKEN_RE } from '../../lib/seedance/tags.js';
 import { friendlyError } from '../../lib/seedance/friendlyError.js';
+import { moveItem } from '../../lib/seedance/reorder.mjs';
 import MediaHoverPreview from './MediaHoverPreview.jsx';
 import AccessRequestModal from './AccessRequestModal.jsx';
 
@@ -120,12 +121,34 @@ function PillToggle({ label, active, onToggle, disabled, icon }) {
 // Image-mode reference uploader: round thumbnails + a dashed "+" (up to the
 // selected model's cap — Nano Banana Pro takes 14, Flash 3). Nano Banana
 // (Gemini) edits/combines these with the prompt.
-function ImageRefUploader({ refs, onUpload, onRemove, maxRefs = 3 }) {
+function ImageRefUploader({ refs, onUpload, onRemove, onReorder, maxRefs = 3 }) {
     const inputRef = useRef(null);
+    const [drag, setDrag] = useState(null);
     return (
         <div className="flex shrink-0 flex-wrap items-center gap-2">
             {refs.map((r, i) => (
-                <div key={i} className="relative h-10 w-10 shrink-0">
+                <div
+                    key={r.previewUrl || r.name || i}
+                    draggable
+                    onDragStart={(e) => {
+                        setDrag({ from: i, over: i });
+                        e.dataTransfer.effectAllowed = 'move';
+                        e.dataTransfer.setData('text/plain', String(i));
+                    }}
+                    onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                        if (drag?.over !== i) setDrag((d) => d && ({ ...d, over: i }));
+                    }}
+                    onDrop={(e) => {
+                        e.preventDefault();
+                        if (drag && drag.from !== i) onReorder?.(drag.from, i);
+                        setDrag(null);
+                    }}
+                    onDragEnd={() => setDrag(null)}
+                    title="Drag to change reference order"
+                    className={`relative h-10 w-10 shrink-0 cursor-grab transition-all active:cursor-grabbing ${drag?.from === i ? 'scale-95 opacity-45' : ''} ${drag?.over === i && drag.from !== i ? 'rounded-full ring-2 ring-primary ring-offset-2 ring-offset-black' : ''}`}
+                >
                     <img src={r.previewUrl} alt="" className="h-full w-full rounded-full border border-primary/40 object-cover" />
                     <button type="button" onClick={() => onRemove(i)} aria-label="Remove" className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-white/20 bg-black text-[10px] leading-none text-white/70 hover:text-white">×</button>
                 </div>
@@ -254,7 +277,7 @@ function SeedControl({ openKey, setOpenKey, seed, setSeed, disabled }) {
 }
 
 /* ── inline media (round buttons + thumbnails) ──────────────────────────── */
-function Thumb({ item, badge, tag, onRemove }) {
+function Thumb({ item, badge, tag, onRemove, draggable = false, dragging = false, dragOver = false, onDragStart, onDragOver, onDrop, onDragEnd }) {
     const [hover, setHover] = useState(false);
     const thumbRef = useRef(null); // anchor for the floating hover preview
     const closeTimer = useRef(null);
@@ -287,7 +310,13 @@ function Thumb({ item, badge, tag, onRemove }) {
     return (
         <div
             ref={thumbRef}
-            className="relative w-10 h-10 shrink-0"
+            draggable={draggable}
+            onDragStart={onDragStart}
+            onDragOver={onDragOver}
+            onDrop={onDrop}
+            onDragEnd={onDragEnd}
+            title={draggable ? 'Drag to change reference order' : undefined}
+            className={`relative w-10 h-10 shrink-0 transition-all ${draggable ? 'cursor-grab active:cursor-grabbing' : ''} ${dragging ? 'scale-95 opacity-45' : ''} ${dragOver ? 'rounded-full ring-2 ring-primary ring-offset-2 ring-offset-black' : ''}`}
             onMouseEnter={showPreview}
             onMouseLeave={hidePreview}
         >
@@ -319,7 +348,11 @@ function Thumb({ item, badge, tag, onRemove }) {
 // each picked file to the right slot by MIME type.
 function MediaButtons({ mode, mediaByRole, setMediaByRole, disabled, onUploadFiles, tags }) {
     const inputRef = useRef(null);
+    const [drag, setDrag] = useState(null);
     const removeAt = (role, i) => setMediaByRole({ ...mediaByRole, [role]: (mediaByRole[role] || []).filter((_, idx) => idx !== i) });
+    const reorder = (role, from, to) => {
+        setMediaByRole((current) => ({ ...current, [role]: moveItem(current[role] || [], from, to) }));
+    };
 
     if (!mode.media.length) return null;
 
@@ -335,7 +368,35 @@ function MediaButtons({ mode, mediaByRole, setMediaByRole, disabled, onUploadFil
                 const badge = slot.role === 'last_frame' ? 'END' : null;
                 return (
                     <Fragment key={slot.role}>
-                        {items.map((it, i) => <Thumb key={i} item={it} badge={badge} tag={tagLabelFor(tags || [], slot.role, i)} onRemove={() => removeAt(slot.role, i)} />)}
+                        {items.map((it, i) => (
+                            <Thumb
+                                key={it.pendingKey || it.assetId || it.url || `${slot.role}-${i}`}
+                                item={it}
+                                badge={badge}
+                                tag={tagLabelFor(tags || [], slot.role, i)}
+                                onRemove={() => removeAt(slot.role, i)}
+                                draggable={!disabled && !it.pending && items.length > 1}
+                                dragging={drag?.role === slot.role && drag.from === i}
+                                dragOver={drag?.role === slot.role && drag.over === i && drag.from !== i}
+                                onDragStart={(e) => {
+                                    setDrag({ role: slot.role, from: i, over: i });
+                                    e.dataTransfer.effectAllowed = 'move';
+                                    e.dataTransfer.setData('text/plain', `${slot.role}:${i}`);
+                                }}
+                                onDragOver={(e) => {
+                                    if (drag?.role !== slot.role) return;
+                                    e.preventDefault();
+                                    e.dataTransfer.dropEffect = 'move';
+                                    if (drag.over !== i) setDrag((d) => d && ({ ...d, over: i }));
+                                }}
+                                onDrop={(e) => {
+                                    e.preventDefault();
+                                    if (drag?.role === slot.role && drag.from !== i) reorder(slot.role, drag.from, i);
+                                    setDrag(null);
+                                }}
+                                onDragEnd={() => setDrag(null)}
+                            />
+                        ))}
                     </Fragment>
                 );
             })}
@@ -367,7 +428,7 @@ export default function PromptBar({
     onMediaError, onUploadFiles, tags, sidebarLeft = '',
     mediaType = 'video', onChangeMediaType, imageModels = [],
     imageStudio = false, onChangeImageModel,
-    imageRefs = [], onUploadImageRefs, removeImageRef,
+    imageRefs = [], onUploadImageRefs, removeImageRef, reorderImageRefs,
     cinematic = null, onOpenCinematic,
 }) {
     const isImage = mediaType === 'image';
@@ -590,7 +651,7 @@ export default function PromptBar({
                         </div>
                     )}
                     {!isImage && <MediaButtons mode={mode} mediaByRole={mediaByRole} setMediaByRole={setMediaByRole} onUploadFiles={onUploadFiles} tags={allTags} />}
-                    {isImage && <ImageRefUploader refs={imageRefs} onUpload={onUploadImageRefs} onRemove={removeImageRef} maxRefs={imageRefMax(options.model)} />}
+                    {isImage && <ImageRefUploader refs={imageRefs} onUpload={onUploadImageRefs} onRemove={removeImageRef} onReorder={reorderImageRefs} maxRefs={imageRefMax(options.model)} />}
                     {/* Chip-rendered prompt: a backdrop paints the text (tokens as
                         cyan chips) behind a transparent-text textarea, so editing
                         mechanics stay native while @Image1 reads as a pill. */}
