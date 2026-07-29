@@ -16,6 +16,7 @@ import { useEvents } from '../hooks/useEvents.js';
 import { enhancePrompt } from '../../lib/seedance/enhance.js';
 import { friendlyError } from '../../lib/seedance/friendlyError.js';
 import { moveItem } from '../../lib/seedance/reorder.mjs';
+import { mediaItemFromUpload } from '../../lib/seedance/mediaItem.mjs';
 import { savePromptRecord, fetchPromptRecords, setLikeRecord, setBinRecord, deletePromptRecord } from '../../lib/seedance/promptsClient.js';
 import { uploadToCdn } from '../../lib/seedance/upload.js';
 import { validateMediaFile } from '../../lib/seedance/inspectMedia.js';
@@ -660,7 +661,7 @@ export default function SeedanceStudio() {
     // from the slot so first_frame/last_frame stay correct. The ModelArk Asset
     // Library is deliberately NOT used (its entry tier caps out at 50 assets);
     // `tosKey` lets history refs re-presign the URL forever via /api/byteplus/archive.
-    const registerInto = async (slot, { name, initialStatus, resolveUrl }) => {
+    const registerInto = async (slot, { name, initialStatus, resolveUrl, metadata = {} }) => {
         setError(null);
         const key = `pending-${pendingRef.current++}`;
         const placeholder = { kind: slot.kind, role: slot.role, url: '', name, isImage: slot.kind === 'image', pending: true, status: initialStatus, pendingKey: key };
@@ -671,15 +672,7 @@ export default function SeedanceStudio() {
 
         try {
             const up = await resolveUrl();
-            patch(() => ({
-                kind: slot.kind,
-                role: slot.role,
-                url: up.url,
-                previewUrl: up.url,
-                tosKey: up.key || null,
-                name,
-                isImage: slot.kind === 'image',
-            }));
+            patch(() => mediaItemFromUpload(slot, name, up, metadata));
         } catch (e) {
             drop();
             setError(e.message);
@@ -687,8 +680,8 @@ export default function SeedanceStudio() {
     };
 
     // Pick a local file → upload to TOS, then register that URL.
-    const onUploadFile = (slot, file) =>
-        registerInto(slot, { name: file.name, initialStatus: 'Uploading', resolveUrl: () => uploadToCdn(file) });
+    const onUploadFile = (slot, file, metadata) =>
+        registerInto(slot, { name: file.name, initialStatus: 'Uploading', resolveUrl: () => uploadToCdn(file), metadata });
 
     // ONE picker for everything: route each selected file by its MIME type to the
     // mode's first open slot of that kind, validate against the Seedance limits,
@@ -710,10 +703,10 @@ export default function SeedanceStudio() {
             // (longest side ≤ 6000px, ≤ 30MB) instead of being rejected. Aspect /
             // min-dimension problems downscaling can't fix still error below.
             const f = kind === 'image' ? await fitImageToLimits(file) : file;
-            const { error: invalid } = await validateMediaFile(kind, f);
+            const { error: invalid, meta } = await validateMediaFile(kind, f);
             if (invalid) { setError(invalid); continue; }
             used[slot.role] += 1;
-            onUploadFile(slot, f);
+            onUploadFile(slot, f, meta);
         }
     };
 

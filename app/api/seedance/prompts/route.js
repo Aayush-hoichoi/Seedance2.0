@@ -23,6 +23,7 @@ const REF_KINDS = new Set(['image', 'video', 'audio']);
 function sanitizeRefs(refs) {
     if (!Array.isArray(refs)) return null;
     const clean = (v, max) => (typeof v === 'string' && v.length <= max && !v.startsWith('data:') ? v : null);
+    const finite = (v) => (Number.isFinite(v) ? v : null);
     const out = refs.slice(0, MAX_REFS).flatMap((r) => {
         if (!r || typeof r !== 'object' || !REF_KINDS.has(r.kind)) return [];
         return [{
@@ -32,6 +33,10 @@ function sanitizeRefs(refs) {
             previewUrl: clean(r.previewUrl, 4096),
             name: clean(r.name, 200),
             assetId: clean(r.assetId, 200),
+            durationSec: finite(r.durationSec),
+            width: finite(r.width),
+            height: finite(r.height),
+            fps: finite(r.fps),
             // TOS object key ("uploads/…") — lets any browser re-presign the
             // reference URL forever via GET /api/byteplus/archive?key=.
             tosKey: clean(r.tosKey, 200),
