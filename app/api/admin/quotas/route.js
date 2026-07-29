@@ -12,16 +12,20 @@ export async function GET(request) {
     const auth = await gatewayContext({ permission: 'quota.manage' });
     if (!auth.ok) return auth.response;
     const { sql } = auth.ctx;
-    const items = await sql`SELECT q.*, p.name AS project_name FROM quotas q
+    const items = await sql`SELECT q.*, p.name AS project_name, m.display_name AS model_name FROM quotas q
         LEFT JOIN projects p ON p.id = q.project_id
+        LEFT JOIN models m ON m.id = q.model_id
         WHERE q.deleted_at IS NULL ORDER BY q.created_at DESC`;
+    const models = await sql`SELECT id, display_name, category FROM models WHERE active = true
+        ORDER BY category, display_name`;
     if (new URL(request.url).searchParams.get('withUsage')) {
         const { usedByQuota, reservedByQuota } = await usageForQuotas(sql, items);
         return NextResponse.json({
             items: items.map((q) => ({ ...q, used: usedByQuota[q.id] ?? 0, reserved: reservedByQuota[q.id] ?? 0 })),
+            models,
         });
     }
-    return NextResponse.json({ items });
+    return NextResponse.json({ items, models });
 }
 
 export async function POST(request) {
@@ -32,9 +36,14 @@ export async function POST(request) {
     if (!b || !TYPES.includes(b.type) || !WINDOWS.includes(b.window) || !(Number(b.hardLimit) > 0)) {
         return apiError('BAD_REQUEST', `type (${TYPES.join('|')}), window (${WINDOWS.join('|')}) and hardLimit > 0 are required.`);
     }
+    const modelId = typeof b.modelId === 'string' && b.modelId.trim() ? b.modelId.trim() : null;
+    if (modelId) {
+        const [model] = await sql`SELECT id FROM models WHERE id = ${modelId} AND active = true`;
+        if (!model) return apiError('BAD_REQUEST', 'modelId must identify an active model.');
+    }
     const [quota] = await sql`INSERT INTO quotas
-        (project_id, user_id, type, "window", hard_limit, policy, soft_overage_pct, alert_thresholds, created_by)
-        VALUES (${b.projectId ?? null}, ${b.userId ?? null}, ${b.type}, ${b.window}, ${Number(b.hardLimit)},
+        (project_id, user_id, model_id, type, "window", hard_limit, policy, soft_overage_pct, alert_thresholds, created_by)
+        VALUES (${b.projectId ?? null}, ${b.userId ?? null}, ${modelId}, ${b.type}, ${b.window}, ${Number(b.hardLimit)},
                 ${b.policy === 'soft' ? 'soft' : 'hard'}, ${Number(b.softOveragePct) || 5},
                 ${Array.isArray(b.alertThresholds) && b.alertThresholds.length ? b.alertThresholds.map(Number) : [80, 90, 100]}, ${user.userId})
         RETURNING *`;

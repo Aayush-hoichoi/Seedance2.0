@@ -16,7 +16,7 @@ export default function BudgetsClient() {
     const projects = useApi('/api/projects');
     const users = useApi('/api/admin/users');
     const [open, setOpen] = useState(false);
-    const [form, setForm] = useState({ type: 'usd', window: 'monthly', hardLimit: '', policy: 'hard', softOveragePct: 5, projectId: '', userId: '' });
+    const [form, setForm] = useState({ type: 'usd', window: 'monthly', hardLimit: '', policy: 'hard', softOveragePct: 5, projectId: '', userId: '', modelId: '' });
 
     async function create() {
         const r = await sendJson('/api/admin/quotas', 'POST', {
@@ -24,6 +24,7 @@ export default function BudgetsClient() {
             hardLimit: Number(form.hardLimit),
             projectId: form.projectId ? Number(form.projectId) : null,
             userId: form.userId || null,
+            modelId: form.modelId || null,
         });
         r.ok ? (toast.success('Budget created — enforced on the next request'), setOpen(false), quotas.mutate()) : toast.error(r.data?.message || 'Failed');
     }
@@ -42,7 +43,8 @@ export default function BudgetsClient() {
     const limitText = form.hardLimit ? (form.type === 'usd' ? `$${form.hardLimit}` : `${form.hardLimit}${UNIT[form.type]}`) : '—';
     const scopeProject = (projects.data?.items ?? []).find((p) => String(p.id) === String(form.projectId))?.name;
     const scopeUser = (users.data?.users ?? []).find((u) => u.id === form.userId)?.email;
-    const scopeText = `${scopeProject ? `project “${scopeProject}”` : 'all projects'} · ${scopeUser || 'everyone'}`;
+    const scopeModel = (quotas.data?.models ?? []).find((m) => m.id === form.modelId)?.display_name;
+    const scopeText = `${scopeProject ? `project “${scopeProject}”` : 'all projects'} · ${scopeUser || 'everyone'} · ${scopeModel || 'all models'}`;
 
     return (
         <div>
@@ -52,7 +54,7 @@ export default function BudgetsClient() {
             {quotas.error?.code === 'FORBIDDEN'
                 ? <EmptyState title="Requires quota.manage" hint="Budgets are managed by admins and project managers." />
                 : !items.length
-                    ? <EmptyState icon={Wallet} title="No budgets yet" hint="Without budgets every allowed request goes through. Add a workspace-wide, per-project, or per-user limit — hard limits reject, soft limits allow a small overage." />
+                    ? <EmptyState icon={Wallet} title="No budgets yet" hint="Without budgets every allowed request goes through. Add a workspace-wide, per-project, per-user, or per-model limit — hard limits reject, soft limits allow a small overage." />
                     : (
                         <div className="grid gap-3 lg:grid-cols-2">
                             {items.map((q) => {
@@ -61,7 +63,11 @@ export default function BudgetsClient() {
                                     <Card key={q.id}>
                                         <div className="mb-1 flex items-center justify-between">
                                             <div className="text-sm font-medium text-ink">
-                                                {q.user_id ? `User · ${emailOf(q.user_id)}` : q.project_name ? `Project · ${q.project_name}` : 'Workspace-wide'}
+                                                {[
+                                                    q.project_name ? `Project · ${q.project_name}` : null,
+                                                    q.user_id ? `User · ${emailOf(q.user_id)}` : null,
+                                                    q.model_id ? `Model · ${q.model_name || q.model_id}` : null,
+                                                ].filter(Boolean).join(' · ') || 'Workspace-wide'}
                                             </div>
                                             <div className="flex items-center gap-1.5">
                                                 <Badge tone={q.policy === 'hard' ? 'red' : 'amber'}>{q.policy}{q.policy === 'soft' ? ` +${q.soft_overage_pct}%` : ''}</Badge>
@@ -85,7 +91,7 @@ export default function BudgetsClient() {
                 </>}>
                 <p className="mb-3 text-xs leading-relaxed text-ink-3">
                     A budget caps spend or usage <span className="text-ink-2">before a job runs</span>. Scope it to a
-                    project and/or user, or leave both blank for a workspace-wide cap. <span className="text-ink-2">Hard</span> budgets
+                    project, user, and/or model, or leave all three blank for a workspace-wide cap. <span className="text-ink-2">Hard</span> budgets
                     reject once the limit is hit; <span className="text-ink-2">soft</span> budgets allow a small overage and only warn.
                 </p>
                 <div className="grid grid-cols-2 gap-3">
@@ -118,6 +124,12 @@ export default function BudgetsClient() {
                         <Select className="w-full" value={form.userId} onChange={(e) => setForm({ ...form, userId: e.target.value })}>
                             <option value="">—</option>
                             {(users.data?.users ?? []).map((u) => <option key={u.id} value={u.id}>{u.email || u.name || u.id}</option>)}
+                        </Select>
+                    </Field>
+                    <Field label="Model (blank = all models)">
+                        <Select className="w-full" value={form.modelId} onChange={(e) => setForm({ ...form, modelId: e.target.value })}>
+                            <option value="">—</option>
+                            {(quotas.data?.models ?? []).map((m) => <option key={m.id} value={m.id}>{m.display_name} · {m.category}</option>)}
                         </Select>
                     </Field>
                 </div>

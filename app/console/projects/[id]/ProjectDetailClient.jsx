@@ -77,7 +77,7 @@ export default function ProjectDetailClient({ projectId }) {
                         {projectQuotas.length ? projectQuotas.map((q) => (
                             <Card key={q.id}>
                                 <div className="mb-1 flex items-center justify-between text-sm">
-                                    <span className="text-ink-2">{q.user_id ? `User ${emailOf(q.user_id)}` : 'Whole project'} · {q.type} · {q.window}</span>
+                                    <span className="text-ink-2">{q.user_id ? `User ${emailOf(q.user_id)}` : 'Whole project'}{q.model_name ? ` · ${q.model_name}` : ''} · {q.type} · {q.window}</span>
                                     <Badge tone={q.policy === 'hard' ? 'red' : 'amber'}>{q.policy}{q.policy === 'soft' ? ` +${q.soft_overage_pct}%` : ''}</Badge>
                                 </div>
                                 <div className="mb-2 text-xs text-ink-3">
@@ -85,7 +85,7 @@ export default function ProjectDetailClient({ projectId }) {
                                 </div>
                                 <ProgressBar value={Number(q.used) + Number(q.reserved || 0)} max={Number(q.hard_limit)} />
                             </Card>
-                        )) : <EmptyState title="No budgets on this project" hint="Create project or per-user budgets under Budgets — they enforce before any job reaches a provider." />}
+                        )) : <EmptyState title="No budgets on this project" hint="Create project, per-user, or per-model budgets under Budgets — they enforce before any job reaches a provider." />}
                     </div>
                 </Tabs.Content>
                 <Tabs.Content value="usage">

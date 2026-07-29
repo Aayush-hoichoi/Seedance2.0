@@ -27,6 +27,7 @@ import PromptBar from './PromptBar.jsx';
 import { UserButton } from '@clerk/nextjs';
 import MediaHoverPreview from './MediaHoverPreview.jsx';
 import ProjectSelect from './ProjectSelect.jsx';
+import BudgetRemaining from './BudgetRemaining.jsx';
 import Link from 'next/link';
 import { ArrowLeft, ShieldCheck } from 'lucide-react';
 import AssetsPanel from './AssetsPanel.jsx';
@@ -150,6 +151,7 @@ export default function SeedanceStudio() {
     const [projectsLoaded, setProjectsLoaded] = useState(false); // false → don't render the rail yet
     const [canManageProjects, setCanManageProjects] = useState(false); // admins/managers may create projects
     const [permsVersion, setPermsVersion] = useState(0); // bump → refetch access
+    const [budgetVersion, setBudgetVersion] = useState(0); // settlement/release → refresh remaining balance
 
     useEffect(() => {
         let alive = true;
@@ -235,6 +237,9 @@ export default function SeedanceStudio() {
         }
         if (type === 'budget.threshold_crossed') {
             setNotice(`Budget alert — ${data?.threshold}% of the ${data?.window} ${data?.type} limit is used.`);
+        }
+        if (type === 'job.status_changed' && ['succeeded', 'failed', 'cancelled', 'timed_out'].includes(data?.status)) {
+            setBudgetVersion((v) => v + 1);
         }
         if (type === 'project.paused') setNotice('This project was paused by an admin — new generations are held.');
     });
@@ -1304,6 +1309,7 @@ export default function SeedanceStudio() {
                         <ArrowLeft size={14} />
                     </Link>
                     {projects.length > 0 && <ProjectSelect projects={projects} value={projectId} onChange={selectProject} />}
+                    <BudgetRemaining projectId={projectId} modelId={options.model} refreshKey={budgetVersion} />
                 </div>
                 <div className="flex items-center gap-2">
                     {isAdmin && (

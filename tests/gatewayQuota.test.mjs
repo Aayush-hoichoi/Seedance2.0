@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    windowBounds, applicableQuotas, unitsForType, evaluateQuotas, thresholdsCrossed,
+    windowBounds, applicableQuotas, unitsForType, evaluateQuotas, quotaBalances, thresholdsCrossed,
 } from '../lib/gateway/quota.mjs';
 
 const NOW = new Date('2026-07-11T15:30:00Z');
@@ -29,15 +29,22 @@ test('lifetime window never resets', () => {
 // --- scoping -------------------------------------------------------------------
 
 const QUOTAS = [
-    { id: 1, org_id: 'org_1', project_id: null, user_id: null, type: 'usd', window: 'monthly', hard_limit: 500, policy: 'hard', soft_overage_pct: 5 },
-    { id: 2, org_id: 'org_1', project_id: 7, user_id: null, type: 'usd', window: 'monthly', hard_limit: 100, policy: 'hard', soft_overage_pct: 5 },
-    { id: 3, org_id: 'org_1', project_id: 7, user_id: 'u1', type: 'usd', window: 'monthly', hard_limit: 50, policy: 'hard', soft_overage_pct: 5 },
-    { id: 4, org_id: 'org_1', project_id: 9, user_id: null, type: 'usd', window: 'monthly', hard_limit: 10, policy: 'hard', soft_overage_pct: 5 },
-    { id: 5, org_id: 'org_1', project_id: 7, user_id: 'u2', type: 'usd', window: 'monthly', hard_limit: 5, policy: 'hard', soft_overage_pct: 5, deleted_at: '2026-07-01' },
+    { id: 1, project_id: null, user_id: null, model_id: null, type: 'usd', window: 'monthly', hard_limit: 500, policy: 'hard', soft_overage_pct: 5 },
+    { id: 2, project_id: 7, user_id: null, model_id: null, type: 'usd', window: 'monthly', hard_limit: 100, policy: 'hard', soft_overage_pct: 5 },
+    { id: 3, project_id: 7, user_id: 'u1', model_id: null, type: 'usd', window: 'monthly', hard_limit: 50, policy: 'hard', soft_overage_pct: 5 },
+    { id: 4, project_id: 9, user_id: null, model_id: null, type: 'usd', window: 'monthly', hard_limit: 10, policy: 'hard', soft_overage_pct: 5 },
+    { id: 5, project_id: 7, user_id: 'u2', model_id: null, type: 'usd', window: 'monthly', hard_limit: 5, policy: 'hard', soft_overage_pct: 5, deleted_at: '2026-07-01' },
+    { id: 6, project_id: 7, user_id: 'u1', model_id: 'seedance', type: 'usd', window: 'monthly', hard_limit: 20, policy: 'hard', soft_overage_pct: 5 },
+    { id: 7, project_id: 7, user_id: 'u1', model_id: 'nano-banana', type: 'usd', window: 'monthly', hard_limit: 10, policy: 'hard', soft_overage_pct: 5 },
 ];
 
-test('applicableQuotas layers org + project + user and skips others/deleted', () => {
-    const ids = applicableQuotas(QUOTAS, { projectId: 7, userId: 'u1' }).map((q) => q.id);
+test('applicableQuotas layers workspace, project, user, and matching model scopes', () => {
+    const ids = applicableQuotas(QUOTAS, { projectId: 7, userId: 'u1', modelId: 'seedance' }).map((q) => q.id);
+    assert.deepEqual(ids.sort(), [1, 2, 3, 6]);
+});
+
+test('a model budget does not bind requests for another model', () => {
+    const ids = applicableQuotas(QUOTAS, { projectId: 7, userId: 'u1', modelId: 'other-model' }).map((q) => q.id);
     assert.deepEqual(ids.sort(), [1, 2, 3]);
 });
 
@@ -56,10 +63,31 @@ test('unitsForType maps each quota type to its estimate units', () => {
 
 function evalWith({ used = {}, reserved = {}, estimate = { usd: 10 }, quotas = QUOTAS.slice(0, 3) } = {}) {
     return evaluateQuotas({
-        quotas, projectId: 7, userId: 'u1', now: NOW, estimate,
+        quotas, projectId: 7, userId: 'u1', modelId: 'seedance', now: NOW, estimate,
         usedByQuota: used, reservedByQuota: reserved,
     });
 }
+
+test('a per-user per-model budget is enforced', () => {
+    const r = evalWith({ quotas: [QUOTAS[5]], used: { 6: 15 } });
+    assert.equal(r.ok, false);
+    assert.equal(r.violations[0].quota.id, 6);
+});
+
+test('quotaBalances reports the tightest effective USD headroom including reservations', () => {
+    const rows = quotaBalances({
+        quotas: QUOTAS,
+        projectId: 7,
+        userId: 'u1',
+        modelId: 'seedance',
+        usedByQuota: { 1: 100, 2: 40, 3: 45, 6: 12 },
+        reservedByQuota: { 3: 2, 6: 1 },
+    });
+    assert.deepEqual(rows.map((r) => r.quota.id), [3, 6, 2, 1]);
+    assert.equal(rows[0].remaining, 3);
+    assert.equal(rows[0].used, 45);
+    assert.equal(rows[0].reserved, 2);
+});
 
 test('passes when every layered limit has headroom', () => {
     const r = evalWith({ used: { 1: 100, 2: 50, 3: 10 } });

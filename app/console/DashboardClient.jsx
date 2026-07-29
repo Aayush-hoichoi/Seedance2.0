@@ -123,7 +123,7 @@ export default function DashboardClient() {
                                     <div key={q.id}>
                                         <div className="mb-1 flex items-center justify-between text-xs">
                                             <span className="text-ink-2">
-                                                {q.user_id ? 'user' : q.project_name || 'org'} · {q.type} · {q.window}
+                                                {q.user_id ? 'user' : q.project_name || 'org'}{q.model_name ? ` · ${q.model_name}` : ''} · {q.type} · {q.window}
                                             </span>
                                             <span className="font-mono tabular-nums text-ink-2">
                                                 {q.type === 'usd' ? fmtUsd(q.used) : fmtInt(q.used)} / {q.type === 'usd' ? fmtUsd(q.hard_limit) : fmtInt(q.hard_limit)}
