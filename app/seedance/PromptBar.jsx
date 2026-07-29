@@ -123,6 +123,7 @@ function PillToggle({ label, active, onToggle, disabled, icon }) {
 // (Gemini) edits/combines these with the prompt.
 function ImageRefUploader({ refs, onUpload, onRemove, onReorder, maxRefs = 3 }) {
     const inputRef = useRef(null);
+    const dragRef = useRef(null);
     const [drag, setDrag] = useState(null);
     return (
         <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -131,25 +132,33 @@ function ImageRefUploader({ refs, onUpload, onRemove, onReorder, maxRefs = 3 }) 
                     key={r.previewUrl || r.name || i}
                     draggable
                     onDragStart={(e) => {
-                        setDrag({ from: i, over: i });
+                        dragRef.current = { index: i };
+                        setDrag({ index: i, over: i });
                         e.dataTransfer.effectAllowed = 'move';
                         e.dataTransfer.setData('text/plain', String(i));
                     }}
                     onDragOver={(e) => {
                         e.preventDefault();
                         e.dataTransfer.dropEffect = 'move';
-                        if (drag?.over !== i) setDrag((d) => d && ({ ...d, over: i }));
+                    }}
+                    onDragEnter={(e) => {
+                        e.preventDefault();
+                        const active = dragRef.current;
+                        if (!active || active.index === i) return;
+                        onReorder?.(active.index, i);
+                        active.index = i;
+                        setDrag({ index: i, over: i });
                     }}
                     onDrop={(e) => {
                         e.preventDefault();
-                        if (drag && drag.from !== i) onReorder?.(drag.from, i);
+                        dragRef.current = null;
                         setDrag(null);
                     }}
-                    onDragEnd={() => setDrag(null)}
+                    onDragEnd={() => { dragRef.current = null; setDrag(null); }}
                     title="Drag to change reference order"
-                    className={`relative h-10 w-10 shrink-0 cursor-grab transition-all active:cursor-grabbing ${drag?.from === i ? 'scale-95 opacity-45' : ''} ${drag?.over === i && drag.from !== i ? 'rounded-full ring-2 ring-primary ring-offset-2 ring-offset-black' : ''}`}
+                    className={`relative h-10 w-10 shrink-0 cursor-grab transition-all active:cursor-grabbing ${drag?.index === i ? 'scale-95 opacity-55 ring-2 ring-primary ring-offset-2 ring-offset-black rounded-full' : ''}`}
                 >
-                    <img src={r.previewUrl} alt="" className="h-full w-full rounded-full border border-primary/40 object-cover" />
+                    <img src={r.previewUrl} alt="" draggable={false} className="pointer-events-none h-full w-full select-none rounded-full border border-primary/40 object-cover" />
                     <button type="button" onClick={() => onRemove(i)} aria-label="Remove" className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-white/20 bg-black text-[10px] leading-none text-white/70 hover:text-white">×</button>
                 </div>
             ))}
@@ -277,7 +286,7 @@ function SeedControl({ openKey, setOpenKey, seed, setSeed, disabled }) {
 }
 
 /* ── inline media (round buttons + thumbnails) ──────────────────────────── */
-function Thumb({ item, badge, tag, onRemove, draggable = false, dragging = false, dragOver = false, onDragStart, onDragOver, onDrop, onDragEnd }) {
+function Thumb({ item, badge, tag, onRemove, draggable = false, dragging = false, onDragStart, onDragOver, onDragEnter, onDrop, onDragEnd }) {
     const [hover, setHover] = useState(false);
     const thumbRef = useRef(null); // anchor for the floating hover preview
     const closeTimer = useRef(null);
@@ -311,12 +320,13 @@ function Thumb({ item, badge, tag, onRemove, draggable = false, dragging = false
         <div
             ref={thumbRef}
             draggable={draggable}
-            onDragStart={onDragStart}
+            onDragStart={(e) => { setHover(false); onDragStart?.(e); }}
             onDragOver={onDragOver}
+            onDragEnter={onDragEnter}
             onDrop={onDrop}
             onDragEnd={onDragEnd}
             title={draggable ? 'Drag to change reference order' : undefined}
-            className={`relative w-10 h-10 shrink-0 transition-all ${draggable ? 'cursor-grab active:cursor-grabbing' : ''} ${dragging ? 'scale-95 opacity-45' : ''} ${dragOver ? 'rounded-full ring-2 ring-primary ring-offset-2 ring-offset-black' : ''}`}
+            className={`relative w-10 h-10 shrink-0 transition-all ${draggable ? 'cursor-grab active:cursor-grabbing' : ''} ${dragging ? 'scale-95 opacity-55 ring-2 ring-primary ring-offset-2 ring-offset-black rounded-full' : ''}`}
             onMouseEnter={showPreview}
             onMouseLeave={hidePreview}
         >
@@ -327,9 +337,9 @@ function Thumb({ item, badge, tag, onRemove, draggable = false, dragging = false
                 <MediaHoverPreview anchor={thumbRef.current} src={imgSrc} isVideo={isVid} tag={tag} name={item.name} onMouseEnter={showPreview} onMouseLeave={hidePreview} />
             )}
             {item.isImage && imgSrc ? (
-                <img src={imgSrc} alt="" className="w-full h-full object-cover rounded-full border border-primary/40" />
+                <img src={imgSrc} alt="" draggable={false} className="pointer-events-none w-full h-full select-none object-cover rounded-full border border-primary/40" />
             ) : item.kind === 'video' && imgSrc ? (
-                <video src={imgSrc} muted playsInline preload="metadata" title={item.name} className="w-full h-full object-cover rounded-full border border-primary/40 bg-black" />
+                <video src={imgSrc} draggable={false} muted playsInline preload="metadata" title={item.name} className="pointer-events-none w-full h-full select-none object-cover rounded-full border border-primary/40 bg-black" />
             ) : (
                 <div className="w-full h-full rounded-full border border-primary/40 bg-primary/5 flex items-center justify-center text-primary" title={item.name}>
                     {item.kind === 'video' ? <FilmIcon /> : item.kind === 'audio' ? <MusicIcon /> : <ImageIcon />}
@@ -348,6 +358,7 @@ function Thumb({ item, badge, tag, onRemove, draggable = false, dragging = false
 // each picked file to the right slot by MIME type.
 function MediaButtons({ mode, mediaByRole, setMediaByRole, disabled, onUploadFiles, tags }) {
     const inputRef = useRef(null);
+    const dragRef = useRef(null);
     const [drag, setDrag] = useState(null);
     const removeAt = (role, i) => setMediaByRole({ ...mediaByRole, [role]: (mediaByRole[role] || []).filter((_, idx) => idx !== i) });
     const reorder = (role, from, to) => {
@@ -376,25 +387,32 @@ function MediaButtons({ mode, mediaByRole, setMediaByRole, disabled, onUploadFil
                                 tag={tagLabelFor(tags || [], slot.role, i)}
                                 onRemove={() => removeAt(slot.role, i)}
                                 draggable={!disabled && !it.pending && items.length > 1}
-                                dragging={drag?.role === slot.role && drag.from === i}
-                                dragOver={drag?.role === slot.role && drag.over === i && drag.from !== i}
+                                dragging={drag?.role === slot.role && drag.index === i}
                                 onDragStart={(e) => {
-                                    setDrag({ role: slot.role, from: i, over: i });
+                                    dragRef.current = { role: slot.role, index: i };
+                                    setDrag({ role: slot.role, index: i });
                                     e.dataTransfer.effectAllowed = 'move';
                                     e.dataTransfer.setData('text/plain', `${slot.role}:${i}`);
                                 }}
                                 onDragOver={(e) => {
-                                    if (drag?.role !== slot.role) return;
+                                    if (dragRef.current?.role !== slot.role) return;
                                     e.preventDefault();
                                     e.dataTransfer.dropEffect = 'move';
-                                    if (drag.over !== i) setDrag((d) => d && ({ ...d, over: i }));
+                                }}
+                                onDragEnter={(e) => {
+                                    const active = dragRef.current;
+                                    if (active?.role !== slot.role || active.index === i) return;
+                                    e.preventDefault();
+                                    reorder(slot.role, active.index, i);
+                                    active.index = i;
+                                    setDrag({ role: slot.role, index: i });
                                 }}
                                 onDrop={(e) => {
                                     e.preventDefault();
-                                    if (drag?.role === slot.role && drag.from !== i) reorder(slot.role, drag.from, i);
+                                    dragRef.current = null;
                                     setDrag(null);
                                 }}
-                                onDragEnd={() => setDrag(null)}
+                                onDragEnd={() => { dragRef.current = null; setDrag(null); }}
                             />
                         ))}
                     </Fragment>
