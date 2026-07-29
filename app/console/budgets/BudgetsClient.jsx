@@ -13,6 +13,7 @@ const TYPES = [
 
 export default function BudgetsClient() {
     const quotas = useApi('/api/admin/quotas?withUsage=1');
+    const models = useApi('/api/admin/models');
     const projects = useApi('/api/projects');
     const users = useApi('/api/admin/users');
     const [open, setOpen] = useState(false);
@@ -34,6 +35,10 @@ export default function BudgetsClient() {
     }
 
     const items = quotas.data?.items ?? [];
+    // Dedicated catalog request avoids coupling this picker to the slower
+    // per-quota usage aggregation. Keep the inline payload as a compatibility
+    // fallback while older/newer deployments overlap during rollout.
+    const modelItems = models.data?.items ?? quotas.data?.models ?? [];
     const fmt = (q, v) => (q.type === 'usd' ? fmtUsd(v) : fmtInt(v));
     // Quotas store the Clerk user id; show the email humans recognize.
     const emailOf = (id) => (users.data?.users ?? []).find((u) => u.id === id)?.email || `${id.slice(0, 14)}…`;
@@ -43,7 +48,7 @@ export default function BudgetsClient() {
     const limitText = form.hardLimit ? (form.type === 'usd' ? `$${form.hardLimit}` : `${form.hardLimit}${UNIT[form.type]}`) : '—';
     const scopeProject = (projects.data?.items ?? []).find((p) => String(p.id) === String(form.projectId))?.name;
     const scopeUser = (users.data?.users ?? []).find((u) => u.id === form.userId)?.email;
-    const scopeModel = (quotas.data?.models ?? []).find((m) => m.id === form.modelId)?.display_name;
+    const scopeModel = modelItems.find((m) => m.id === form.modelId)?.display_name;
     const scopeText = `${scopeProject ? `project “${scopeProject}”` : 'all projects'} · ${scopeUser || 'everyone'} · ${scopeModel || 'all models'}`;
 
     return (
@@ -127,9 +132,12 @@ export default function BudgetsClient() {
                         </Select>
                     </Field>
                     <Field label="Model (blank = all models)">
-                        <Select className="w-full" value={form.modelId} onChange={(e) => setForm({ ...form, modelId: e.target.value })}>
-                            <option value="">—</option>
-                            {(quotas.data?.models ?? []).map((m) => <option key={m.id} value={m.id}>{m.display_name} · {m.category}</option>)}
+                        <Select className="w-full" value={form.modelId} disabled={!modelItems.length}
+                            onChange={(e) => setForm({ ...form, modelId: e.target.value })}>
+                            <option value="">
+                                {models.error ? 'Could not load models' : models.isLoading ? 'Loading models…' : '—'}
+                            </option>
+                            {modelItems.map((m) => <option key={m.id} value={m.id}>{m.display_name} · {m.category}</option>)}
                         </Select>
                     </Field>
                 </div>
