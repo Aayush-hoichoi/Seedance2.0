@@ -9,6 +9,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { downloadAssets } from '../../lib/seedance/downloadAssets.js';
+import ConfirmDialog from '../../components/ConfirmDialog.jsx';
 
 // Calendar-day bucket key + a human label (Today / Yesterday / a date).
 function startOfDay(ts) {
@@ -53,6 +54,7 @@ export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteFo
     const [selected, setSelected] = useState(() => new Set());
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(null);
+    const [pendingDelete, setPendingDelete] = useState(null); // { kind: 'bin' | 'permanent', ids }
 
     const assets = useMemo(
         () => (jobs || []).filter((j) => j.status === 'done' && j.videoUrl),
@@ -120,19 +122,21 @@ export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteFo
     );
     const onDownloadOne = (v, i) => runDownload([{ url: v.videoUrl, name: videoFileName(v, i), taskId: v.taskId }]);
 
-    const binMany = (ids) => { ids.forEach((id) => onBin(id)); setSelected(new Set()); };
     const restoreMany = (ids) => { ids.forEach((id) => onRestore(id)); setSelected(new Set()); };
 
-    const deleteForever = async (ids) => {
+    const requestDelete = (kind, ids) => {
         if (!ids.length || busy) return;
-        const ok = window.confirm(
-            `Permanently delete ${ids.length} video${ids.length === 1 ? '' : 's'}? This can't be undone.`,
-        );
-        if (!ok) return;
+        setPendingDelete({ kind, ids });
+    };
+
+    const confirmDelete = async () => {
+        if (!pendingDelete || busy) return;
         setBusy(true);
         try {
-            await Promise.all(ids.map((id) => Promise.resolve(onDeleteForever(id))));
+            const action = pendingDelete.kind === 'permanent' ? onDeleteForever : onBin;
+            await Promise.all(pendingDelete.ids.map((id) => Promise.resolve(action(id))));
             setSelected(new Set());
+            setPendingDelete(null);
         } finally {
             setBusy(false);
         }
@@ -142,6 +146,17 @@ export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteFo
 
     return (
         <div className="fixed inset-0 z-[80] flex flex-col bg-app-bg text-white animate-fade-in-up">
+            <ConfirmDialog
+                open={!!pendingDelete}
+                onOpenChange={(nextOpen) => { if (!nextOpen) setPendingDelete(null); }}
+                title={pendingDelete?.kind === 'permanent' ? 'Delete permanently?' : 'Move to bin?'}
+                description={pendingDelete?.kind === 'permanent'
+                    ? `Permanently delete ${pendingDelete?.ids.length || 0} video${pendingDelete?.ids.length === 1 ? '' : 's'}? This action cannot be undone.`
+                    : `Move ${pendingDelete?.ids.length || 0} video${pendingDelete?.ids.length === 1 ? '' : 's'} to the bin? You can restore ${pendingDelete?.ids.length === 1 ? 'it' : 'them'} later.`}
+                confirmLabel={pendingDelete?.kind === 'permanent' ? 'Delete forever' : 'Move to bin'}
+                onConfirm={confirmDelete}
+                loading={busy}
+            />
             <header className="shrink-0 flex items-center justify-between gap-4 h-16 px-5 sm:px-8 border-b border-white/[0.06]">
                 <div className="flex items-center gap-1">
                     <Tab active={!isBin} onClick={() => setView('assets')} label="All assets" count={assets.length} />
@@ -204,9 +219,9 @@ export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteFo
                                             disabled={busy}
                                             onToggle={() => toggle(v.id)}
                                             onDownload={() => onDownloadOne(v, i)}
-                                            onBin={() => onBin(v.id)}
+                                            onBin={() => requestDelete('bin', [v.id])}
                                             onRestore={() => onRestore(v.id)}
-                                            onDelete={() => deleteForever([v.id])}
+                                            onDelete={() => requestDelete('permanent', [v.id])}
                                         />
                                     ))}
                                 </div>
@@ -233,7 +248,7 @@ export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteFo
                             </button>
                             <button
                                 type="button"
-                                onClick={() => deleteForever([...selected])}
+                                onClick={() => requestDelete('permanent', [...selected])}
                                 disabled={busy}
                                 className="flex items-center gap-1.5 rounded-md bg-danger/15 px-3.5 py-2 text-sm font-semibold text-danger border border-danger/30 hover:bg-danger/25 transition-colors disabled:opacity-60"
                             >
@@ -260,7 +275,7 @@ export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteFo
                             </button>
                             <button
                                 type="button"
-                                onClick={() => binMany([...selected])}
+                                onClick={() => requestDelete('bin', [...selected])}
                                 disabled={busy}
                                 title="Move to bin"
                                 className="flex items-center gap-1.5 rounded-md bg-white/10 px-3.5 py-2 text-sm font-semibold text-white hover:bg-white/20 transition-colors disabled:opacity-60"

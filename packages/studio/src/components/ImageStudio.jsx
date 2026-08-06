@@ -15,6 +15,7 @@ import {
   getEffectsForI2IModel,
   getDefaultEffectForI2IModel,
 } from "../models.js";
+import ConfirmDeleteDialog from "./ConfirmDeleteDialog.jsx";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -42,6 +43,7 @@ function UploadButton({ apiKey, maxImages, onSelect, onClear, initialUrls = [] }
   const [uploading, setUploading] = useState(false);
   const [selectedEntries, setSelectedEntries] = useState([]); // [{url, thumbnail}]
   const [uploadHistory, setUploadHistory] = useState([]); // [{id, name, url, thumbnail}]
+  const [entryToRemove, setEntryToRemove] = useState(null);
   const [lastUploadProgress, setLastUploadProgress] = useState(0);
   const fileInputRef = useRef(null);
   const panelRef = useRef(null);
@@ -208,14 +210,20 @@ function UploadButton({ apiKey, maxImages, onSelect, onClear, initialUrls = [] }
 
   const handleRemoveFromHistory = (e, entry) => {
     e.stopPropagation();
-    if (entry.localUrl) URL.revokeObjectURL(entry.localUrl);
-    setUploadHistory((prev) => prev.filter((h) => h.id !== entry.id));
+    setEntryToRemove(entry);
+  };
 
-    const next = selectedEntries.filter((s) => s.url !== entry.url);
+  const confirmRemoveFromHistory = () => {
+    if (!entryToRemove) return;
+    if (entryToRemove.localUrl) URL.revokeObjectURL(entryToRemove.localUrl);
+    setUploadHistory((prev) => prev.filter((h) => h.id !== entryToRemove.id));
+
+    const next = selectedEntries.filter((s) => s.url !== entryToRemove.url);
     if (next.length !== selectedEntries.length) {
       setSelectedEntries(next);
       if (next.length === 0) onClear?.();
     }
+    setEntryToRemove(null);
   };
 
   const handleDone = (e) => {
@@ -395,6 +403,14 @@ function UploadButton({ apiKey, maxImages, onSelect, onClear, initialUrls = [] }
 
   return (
     <div className="relative">
+      <ConfirmDeleteDialog
+        open={!!entryToRemove}
+        title="Remove this image from history?"
+        description="The image will be removed from the reference-image history and from the current selection."
+        confirmLabel="Remove image"
+        onConfirm={confirmRemoveFromHistory}
+        onClose={() => setEntryToRemove(null)}
+      />
       {/* Hidden file input */}
       <input
         ref={fileInputRef}

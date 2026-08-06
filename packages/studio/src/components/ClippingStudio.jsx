@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { runClipping, uploadFile } from "../muapi.js";
+import ConfirmDeleteDialog from "./ConfirmDeleteDialog.jsx";
 
 // ---------------------------------------------------------------------------
 // Inline SVG Icons
@@ -127,6 +128,7 @@ export default function ClippingStudio({
 
   // ── History State ────────────────────────────────────────────────────────
   const [history, setHistory] = useState([]);
+  const [historyToDelete, setHistoryToDelete] = useState(null);
 
   const ASPECT_RATIOS = [
     { label: "9:16 (TikTok / Reels / Shorts)", value: "9:16" },
@@ -397,6 +399,17 @@ export default function ClippingStudio({
 
   return (
     <div className="w-full h-full flex flex-col items-center justify-center bg-app-bg text-white relative overflow-hidden">
+      <ConfirmDeleteDialog
+        open={!!historyToDelete}
+        title="Delete this clipping run?"
+        description="This saved clipping result will be removed from your history. This action cannot be undone."
+        confirmLabel="Delete from history"
+        onConfirm={() => {
+          setHistory((prev) => prev.filter((entry) => entry !== historyToDelete));
+          setHistoryToDelete(null);
+        }}
+        onClose={() => setHistoryToDelete(null)}
+      />
       
       {/* ─── CENTRAL AREA ─── */}
       <div className="flex-1 w-full max-w-7xl mx-auto overflow-y-auto custom-scrollbar pb-40 lg:pb-32 px-2">
@@ -472,7 +485,7 @@ export default function ClippingStudio({
                         title="Delete from history"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setHistory((prev) => prev.filter((h) => h.id !== entry.id));
+                          setHistoryToDelete(entry);
                         }}
                         className="p-2 bg-black/60 backdrop-blur-md rounded-full text-white hover:bg-red-500 hover:text-white transition-all border border-white/10"
                       >

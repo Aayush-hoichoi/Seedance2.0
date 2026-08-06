@@ -13,6 +13,7 @@ import {
 } from '../../lib/seedance/cinematic.mjs';
 import { loadPresets, savePresets } from '../../lib/seedance/cameraPresets.js';
 import { ApertureIris, CameraGlyph, LensGlyph } from './cinematicIcons.jsx';
+import ConfirmDialog from '../../components/ConfirmDialog.jsx';
 
 const TABS = [
     { id: 'all', label: 'All' },
@@ -103,6 +104,7 @@ export default function CinematicPanel({ open, setup, onApply, onClose }) {
     const [tab, setTab] = useState('all');
     const [draft, setDraft] = useState(DEFAULT_SETUP);
     const [saved, setSaved] = useState([]);
+    const [toDelete, setToDelete] = useState(null);
 
     // Each time the panel opens, seed the draft from the active setup (or the
     // default) and reload saved presets from localStorage.
@@ -111,6 +113,7 @@ export default function CinematicPanel({ open, setup, onApply, onClose }) {
         setDraft(sanitizeSetup(setup) || DEFAULT_SETUP);
         setSaved(loadPresets());
         setTab('all');
+        setToDelete(null);
     }, [open, setup]);
 
     if (!open) return null;
@@ -130,10 +133,12 @@ export default function CinematicPanel({ open, setup, onApply, onClose }) {
         setTab('saved');
     };
 
-    const removeSaved = (id) => {
-        const next = saved.filter((p) => p.id !== id);
+    const removeSaved = () => {
+        if (!toDelete) return;
+        const next = saved.filter((p) => p.id !== toDelete.id);
         savePresets(next);
         setSaved(next);
+        setToDelete(null);
     };
 
     const presetList = tab === 'recommended'
@@ -141,10 +146,19 @@ export default function CinematicPanel({ open, setup, onApply, onClose }) {
         : tab === 'saved' ? saved : CINEMATIC_PRESETS;
 
     return (
-        <div
-            className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-            onClick={onClose}
-        >
+        <>
+            <ConfirmDialog
+                open={!!toDelete}
+                onOpenChange={(nextOpen) => { if (!nextOpen) setToDelete(null); }}
+                title={`Delete “${toDelete?.name || 'this setup'}”?`}
+                description="This saved cinematic setup will be removed from this device. This action cannot be undone."
+                confirmLabel="Delete setup"
+                onConfirm={removeSaved}
+            />
+            <div
+                className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+                onClick={onClose}
+            >
             <div
                 onClick={(e) => e.stopPropagation()}
                 className="w-full max-w-3xl overflow-hidden rounded-2xl border border-white/10 bg-paper-1 shadow-2xl"
@@ -220,7 +234,7 @@ export default function CinematicPanel({ open, setup, onApply, onClose }) {
                                     <div className="text-[11px] text-white/45">{findCamera(p.cameraId)?.name} · {p.focalLength}mm · f/{p.aperture}</div>
                                     {tab === 'saved' && (
                                         <span
-                                            onClick={(e) => { e.stopPropagation(); removeSaved(p.id); }}
+                                            onClick={(e) => { e.stopPropagation(); setToDelete(p); }}
                                             className="absolute right-1.5 top-1.5 rounded p-1 text-white/30 opacity-0 transition-opacity hover:text-danger group-hover:opacity-100"
                                             title="Delete setup"
                                         >
@@ -253,6 +267,7 @@ export default function CinematicPanel({ open, setup, onApply, onClose }) {
                     </div>
                 </div>
             </div>
-        </div>
+            </div>
+        </>
     );
 }

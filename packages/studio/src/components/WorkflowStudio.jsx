@@ -15,6 +15,7 @@ import {
   getWorkflowData,
 } from "../muapi.js";
 import dynamic from "next/dynamic";
+import ConfirmDeleteDialog from "./ConfirmDeleteDialog.jsx";
 
 const WorkflowUI = dynamic(() => import("./WorkflowUI"), {
   ssr: false,
@@ -92,7 +93,7 @@ function WorkflowCard({ workflow, onClick, activeTab, onRename, onDelete }) {
                 Rename
               </button>
               <button
-                onClick={() => onDelete(workflow.id)}
+                onClick={() => onDelete(workflow)}
                 className="w-full px-4 py-2 text-left text-[11px] font-bold text-red-500 hover:bg-red-500/10 transition-colors flex items-center gap-2"
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -157,6 +158,7 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
   const [renamingWorkflow, setRenamingWorkflow] = useState(null);
   const [newWorkflowName, setNewWorkflowName] = useState("");
   const [isDeletingId, setIsDeletingId] = useState(null);
+  const [workflowToDelete, setWorkflowToDelete] = useState(null);
   const [inputSchema, setInputSchema] = useState(null);
   const [nodeSchemas, setNodeSchemas] = useState(null);
   const [workflowDef, setWorkflowDef] = useState(null);
@@ -277,12 +279,18 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
     [apiKey, router],
   );
 
-  const handleDeleteWorkflow = async (wfId) => {
-    if (!confirm("Are you sure you want to delete this workflow?")) return;
+  const handleDeleteWorkflow = (workflow) => {
+    setWorkflowToDelete(workflow);
+  };
+
+  const confirmDeleteWorkflow = async () => {
+    if (!workflowToDelete) return;
+    const wfId = workflowToDelete.id;
     setIsDeletingId(wfId);
     try {
       await deleteWorkflow(apiKey, wfId);
       setWorkflows((prev) => prev.filter((w) => w.id !== wfId));
+      setWorkflowToDelete(null);
     } catch (err) {
       console.error("Delete failed:", err);
       alert("Failed to delete workflow");
@@ -931,6 +939,16 @@ export default function WorkflowStudio({ apiKey, isHeaderVisible = true, onToggl
           </div>
         )}
       </div>
+
+      <ConfirmDeleteDialog
+        open={!!workflowToDelete}
+        title={`Delete “${workflowToDelete?.name || "this workflow"}”?`}
+        description="The workflow and its saved configuration will be permanently removed. This action cannot be undone."
+        confirmLabel="Delete workflow"
+        loading={isDeletingId === workflowToDelete?.id}
+        onConfirm={confirmDeleteWorkflow}
+        onClose={() => { if (!isDeletingId) setWorkflowToDelete(null); }}
+      />
 
       {/* Rename Modal */}
       {renamingWorkflow && (

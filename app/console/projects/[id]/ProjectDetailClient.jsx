@@ -111,6 +111,8 @@ export default function ProjectDetailClient({ projectId }) {
 function MembersTab({ projectId, members, allUsers, onChange }) {
     const [open, setOpen] = useState(false);
     const [userId, setUserId] = useState('');
+    const [toRemove, setToRemove] = useState(null);
+    const [removing, setRemoving] = useState(false);
 
     // Roles are platform-level (set on the Users console), NOT per-project. The
     // Role column shows each member's platform role, read-only. Adding a member
@@ -121,9 +123,15 @@ function MembersTab({ projectId, members, allUsers, onChange }) {
         toast.success('Member added');
         setOpen(false); setUserId(''); onChange();
     }
-    async function remove(uid) {
-        const r = await sendJson(`/api/projects/${projectId}/members?userId=${encodeURIComponent(uid)}`, 'DELETE');
-        r.ok ? (toast.success('Member removed'), onChange()) : toast.error(r.data?.message || 'Failed');
+    async function remove() {
+        if (!toRemove) return;
+        setRemoving(true);
+        const r = await sendJson(`/api/projects/${projectId}/members?userId=${encodeURIComponent(toRemove.user_id)}`, 'DELETE');
+        setRemoving(false);
+        if (!r.ok) return toast.error(r.data?.message || 'Failed');
+        toast.success('Member removed');
+        setToRemove(null);
+        onChange();
     }
 
     const candidates = allUsers.filter((u) => !members.some((m) => m.user_id === (u.id || u.user_id)));
@@ -132,7 +140,7 @@ function MembersTab({ projectId, members, allUsers, onChange }) {
         { accessorKey: 'created_at', header: 'Added', cell: ({ getValue }) => <span className="font-mono text-ink-3">{fmtDate(getValue())}</span> },
         {
             id: 'actions', header: '', enableSorting: false,
-            cell: ({ row }) => <Button variant="ghost" size="xs" onClick={() => remove(row.original.user_id)}><Trash2 size={13} className="text-danger" /></Button>,
+            cell: ({ row }) => <Button variant="ghost" size="xs" title="Remove member" onClick={() => setToRemove(row.original)}><Trash2 size={13} className="text-danger" /></Button>,
         },
     ];
     return (
@@ -141,6 +149,16 @@ function MembersTab({ projectId, members, allUsers, onChange }) {
                 <Button variant="primary" size="sm" onClick={() => setOpen(true)}><Plus size={14} /> Add member</Button>
             </div>
             <DataTable columns={columns} data={members} empty="No members yet." />
+            <Modal open={!!toRemove} onOpenChange={(nextOpen) => { if (!nextOpen && !removing) setToRemove(null); }}
+                title={`Remove ${toRemove?.email || toRemove?.name || 'this member'}?`}
+                footer={<>
+                    <Button variant="outline" onClick={() => setToRemove(null)} disabled={removing}>Cancel</Button>
+                    <Button variant="danger" onClick={remove} loading={removing}>Remove member</Button>
+                </>}>
+                <p className="text-sm text-ink-2">
+                    This person will lose access to the project. Their existing usage history will be kept.
+                </p>
+            </Modal>
             <Modal open={open} onOpenChange={setOpen} title="Add member"
                 footer={<>
                     <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
@@ -224,6 +242,8 @@ function ModelsTab({ projectId, grants, catalog, onChange }) {
 
 function OverridesTab({ projectId, overrides, members, catalog, onChange }) {
     const [form, setForm] = useState({ userId: '', modelId: '', effect: 'deny', maxResolution: '', validUntil: '' });
+    const [toRemove, setToRemove] = useState(null);
+    const [removing, setRemoving] = useState(false);
     // Quality caps an ALLOW only — a deny grants nothing to cap. Tiers come from
     // the picked model; switching model drops a cap it no longer supports.
     const tiers = supportedResolutionsFor(form.modelId) ?? [];
@@ -242,9 +262,15 @@ function OverridesTab({ projectId, overrides, members, catalog, onChange }) {
         });
         r.ok ? (toast.success(`Override saved (${form.effect})`), onChange()) : toast.error(r.data?.message || 'Failed');
     }
-    async function remove(o) {
-        const r = await sendJson(`/api/projects/${projectId}/overrides?userId=${encodeURIComponent(o.user_id)}&modelId=${encodeURIComponent(o.model_id)}`, 'DELETE');
-        r.ok ? (toast.success('Override removed'), onChange()) : toast.error(r.data?.message || 'Failed');
+    async function remove() {
+        if (!toRemove) return;
+        setRemoving(true);
+        const r = await sendJson(`/api/projects/${projectId}/overrides?userId=${encodeURIComponent(toRemove.user_id)}&modelId=${encodeURIComponent(toRemove.model_id)}`, 'DELETE');
+        setRemoving(false);
+        if (!r.ok) return toast.error(r.data?.message || 'Failed');
+        toast.success('Override removed');
+        setToRemove(null);
+        onChange();
     }
 
     const columns = [
@@ -263,7 +289,7 @@ function OverridesTab({ projectId, overrides, members, catalog, onChange }) {
                 : <span className="font-mono text-xs text-ink-2">{getValue() || 'full'}</span>,
         },
         { accessorKey: 'valid_until', header: 'Expires', cell: ({ getValue }) => <span className="font-mono text-ink-3">{getValue() ? fmtDate(getValue()) : 'never'}</span> },
-        { id: 'actions', header: '', enableSorting: false, cell: ({ row }) => <Button variant="ghost" size="xs" onClick={() => remove(row.original)}><Trash2 size={13} className="text-danger" /></Button> },
+        { id: 'actions', header: '', enableSorting: false, cell: ({ row }) => <Button variant="ghost" size="xs" title="Delete override" onClick={() => setToRemove(row.original)}><Trash2 size={13} className="text-danger" /></Button> },
     ];
     return (
         <div>
@@ -302,6 +328,16 @@ function OverridesTab({ projectId, overrides, members, catalog, onChange }) {
                 </div>
             </Card>
             <DataTable columns={columns} data={overrides} searchable={false} empty="No user overrides — everyone follows the project grants." />
+            <Modal open={!!toRemove} onOpenChange={(nextOpen) => { if (!nextOpen && !removing) setToRemove(null); }}
+                title="Delete this access override?"
+                footer={<>
+                    <Button variant="outline" onClick={() => setToRemove(null)} disabled={removing}>Cancel</Button>
+                    <Button variant="danger" onClick={remove} loading={removing}>Delete override</Button>
+                </>}>
+                <p className="text-sm text-ink-2">
+                    The user will immediately return to the project’s normal model-access rules.
+                </p>
+            </Modal>
         </div>
     );
 }

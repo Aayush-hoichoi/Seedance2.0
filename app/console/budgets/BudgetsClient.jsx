@@ -17,6 +17,8 @@ export default function BudgetsClient() {
     const projects = useApi('/api/projects');
     const users = useApi('/api/admin/users');
     const [open, setOpen] = useState(false);
+    const [toRemove, setToRemove] = useState(null);
+    const [removing, setRemoving] = useState(false);
     const [form, setForm] = useState({ type: 'usd', window: 'monthly', hardLimit: '', policy: 'hard', softOveragePct: 5, projectId: '', userId: '', modelId: '' });
 
     async function create() {
@@ -29,9 +31,15 @@ export default function BudgetsClient() {
         });
         r.ok ? (toast.success('Budget created — enforced on the next request'), setOpen(false), quotas.mutate()) : toast.error(r.data?.message || 'Failed');
     }
-    async function remove(id) {
-        const r = await sendJson(`/api/admin/quotas?id=${id}`, 'DELETE');
-        r.ok ? (toast.success('Budget removed'), quotas.mutate()) : toast.error(r.data?.message || 'Failed');
+    async function remove() {
+        if (!toRemove) return;
+        setRemoving(true);
+        const r = await sendJson(`/api/admin/quotas?id=${toRemove.id}`, 'DELETE');
+        setRemoving(false);
+        if (!r.ok) return toast.error(r.data?.message || 'Failed');
+        toast.success('Budget removed');
+        setToRemove(null);
+        quotas.mutate();
     }
 
     const items = quotas.data?.items ?? [];
@@ -76,7 +84,7 @@ export default function BudgetsClient() {
                                             </div>
                                             <div className="flex items-center gap-1.5">
                                                 <Badge tone={q.policy === 'hard' ? 'red' : 'amber'}>{q.policy}{q.policy === 'soft' ? ` +${q.soft_overage_pct}%` : ''}</Badge>
-                                                <Button variant="ghost" size="xs" onClick={() => remove(q.id)}><Trash2 size={13} className="text-danger" /></Button>
+                                                <Button variant="ghost" size="xs" title="Delete budget" onClick={() => setToRemove(q)}><Trash2 size={13} className="text-danger" /></Button>
                                             </div>
                                         </div>
                                         <div className="mb-2 text-xs text-ink-3">
@@ -153,6 +161,16 @@ export default function BudgetsClient() {
                         ? 'Requests past the limit are rejected.'
                         : `Allows a ~${form.softOveragePct}% overage, then just warns.`}
                 </div>
+            </Modal>
+            <Modal open={!!toRemove} onOpenChange={(nextOpen) => { if (!nextOpen && !removing) setToRemove(null); }}
+                title="Delete this budget?"
+                footer={<>
+                    <Button variant="outline" onClick={() => setToRemove(null)} disabled={removing}>Cancel</Button>
+                    <Button variant="danger" onClick={remove} loading={removing}>Delete budget</Button>
+                </>}>
+                <p className="text-sm text-ink-2">
+                    Are you sure you want to delete this budget? It will stop being enforced immediately. This action cannot be undone.
+                </p>
             </Modal>
         </div>
     );
