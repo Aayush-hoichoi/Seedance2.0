@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { gatewayContext, clientIp } from '../../../../lib/gateway/authz.js';
 import { apiError } from '../../../../lib/gateway/httpError.mjs';
-import { writeAudit, usageForQuotas } from '../../../../lib/gateway/db.js';
+import { modelUsageForQuotas, writeAudit, usageForQuotas } from '../../../../lib/gateway/db.js';
 
 export const runtime = 'nodejs';
 
@@ -12,16 +12,34 @@ export async function GET(request) {
     const auth = await gatewayContext({ permission: 'quota.manage' });
     if (!auth.ok) return auth.response;
     const { sql } = auth.ctx;
+    const url = new URL(request.url);
+    const rawProjectId = url.searchParams.get('projectId');
+    const projectId = rawProjectId == null ? null : Number(rawProjectId);
+    if (rawProjectId != null && (!Number.isInteger(projectId) || projectId <= 0)) {
+        return apiError('BAD_REQUEST', 'projectId must be a positive integer.');
+    }
     const items = await sql`SELECT q.*, p.name AS project_name, m.display_name AS model_name FROM quotas q
         LEFT JOIN projects p ON p.id = q.project_id
         LEFT JOIN models m ON m.id = q.model_id
-        WHERE q.deleted_at IS NULL ORDER BY q.created_at DESC`;
+        WHERE q.deleted_at IS NULL
+          AND (${projectId}::int IS NULL OR q.project_id = ${projectId})
+        ORDER BY q.created_at DESC`;
     const models = await sql`SELECT id, display_name, category FROM models WHERE active = true
         ORDER BY category, display_name`;
-    if (new URL(request.url).searchParams.get('withUsage')) {
+    if (url.searchParams.get('withUsage')) {
         const { usedByQuota, reservedByQuota } = await usageForQuotas(sql, items);
+        const breakdownByQuota = url.searchParams.get('withModelBreakdown')
+            ? await modelUsageForQuotas(sql, items)
+            : {};
         return NextResponse.json({
-            items: items.map((q) => ({ ...q, used: usedByQuota[q.id] ?? 0, reserved: reservedByQuota[q.id] ?? 0 })),
+            items: items.map((q) => ({
+                ...q,
+                used: usedByQuota[q.id] ?? 0,
+                reserved: reservedByQuota[q.id] ?? 0,
+                ...(url.searchParams.get('withModelBreakdown')
+                    ? { model_breakdown: breakdownByQuota[q.id] ?? [] }
+                    : {}),
+            })),
             models,
         });
     }

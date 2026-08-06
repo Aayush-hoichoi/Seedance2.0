@@ -18,17 +18,19 @@ export default function ProjectDetailClient({ projectId }) {
     const detail = useApi(`/api/projects/${projectId}`);
     const models = useApi(`/api/models?projectId=${projectId}`);
     const usersApi = useApi('/api/admin/users');
-    const usage = useApi(`/api/projects/${projectId}/usage?group_by=user&from=${monthStartIso()}`);
     const usageByModel = useApi(`/api/projects/${projectId}/usage?group_by=model&from=${monthStartIso()}`);
-    const quotas = useApi('/api/admin/quotas?withUsage=1');
+    const viewerRole = detail.data?.role;
+    const isAdmin = viewerRole === 'admin' || viewerRole === 'owner';
+    const usage = useApi(`/api/projects/${projectId}/usage?group_by=user${isAdmin ? '&include_model_breakdown=1' : ''}&from=${monthStartIso()}`);
+    const quotas = useApi(isAdmin
+        ? `/api/admin/quotas?withUsage=1&withModelBreakdown=1&projectId=${projectId}`
+        : null);
 
     if (detail.error) return <EmptyState title="Not available" hint={detail.error.message} />;
-    const { project, role: viewerRole, members = [], grants = [], overrides = [] } = detail.data || {};
+    const { project, members = [], grants = [], overrides = [] } = detail.data || {};
     if (!project) return null;
     // Models (model.grant) and Overrides (override.manage) are admin-only actions —
     // managers hold neither, so hide those tabs from them (their actions would 403).
-    const isAdmin = viewerRole === 'admin' || viewerRole === 'owner';
-
     const refresh = () => { detail.mutate(); models.mutate(); };
 
     async function togglePause() {
@@ -83,7 +85,7 @@ export default function ProjectDetailClient({ projectId }) {
                                 <div className="mb-2 text-xs text-ink-3">
                                     {q.type === 'usd' ? fmtUsd(q.used) : fmtInt(q.used)} used{Number(q.reserved) > 0 ? ` (+${q.type === 'usd' ? fmtUsd(q.reserved) : fmtInt(q.reserved)} reserved)` : ''} of {q.type === 'usd' ? fmtUsd(q.hard_limit) : fmtInt(q.hard_limit)}
                                 </div>
-                                <ProgressBar value={Number(q.used) + Number(q.reserved || 0)} max={Number(q.hard_limit)} />
+                                <BudgetProgressBar quota={q} />
                             </Card>
                         )) : <EmptyState title="No budgets on this project" hint="Create project, per-user, or per-model budgets under Budgets — they enforce before any job reaches a provider." />}
                     </div>
@@ -91,8 +93,13 @@ export default function ProjectDetailClient({ projectId }) {
                 <Tabs.Content value="usage">
                     <div className="grid gap-4 lg:grid-cols-2">
                         <Card>
-                            <div className="mb-2 text-sm font-medium text-ink-2">Per-user spend (this month)</div>
-                            {(usage.data?.items ?? []).length ? <TopBars data={usage.data.items} /> : <div className="grid h-[200px] place-items-center text-xs text-ink-3">No usage yet</div>}
+                            <div className="mb-2 text-sm font-medium text-ink-2">
+                                Per-user spend (this month)
+                                {isAdmin ? <span className="ml-1 text-xs font-normal text-ink-3">· Hover a bar for model breakdown</span> : null}
+                            </div>
+                            {(usage.data?.items ?? []).length
+                                ? <TopBars data={usage.data.items} detailed={isAdmin} />
+                                : <div className="grid h-[200px] place-items-center text-xs text-ink-3">No usage yet</div>}
                         </Card>
                         <Card>
                             <div className="mb-2 text-sm font-medium text-ink-2">Per-model spend (this month)</div>
@@ -104,6 +111,49 @@ export default function ProjectDetailClient({ projectId }) {
                     </div>
                 </Tabs.Content>
             </Tabs.Root>
+        </div>
+    );
+}
+
+function BudgetProgressBar({ quota }) {
+    const rows = quota.model_breakdown ?? [];
+    const tooltipId = `budget-${quota.id}-model-breakdown`;
+    const format = quota.type === 'usd' ? fmtUsd : fmtInt;
+
+    return (
+        <div
+            className="group relative -my-1 cursor-help py-1 outline-none"
+            tabIndex={0}
+            aria-describedby={tooltipId}
+            aria-label="Budget usage. Hover or focus for spending by model."
+        >
+            <ProgressBar value={Number(quota.used) + Number(quota.reserved || 0)} max={Number(quota.hard_limit)} />
+            <div
+                id={tooltipId}
+                role="tooltip"
+                className="pointer-events-none invisible absolute bottom-full left-1/2 z-50 mb-2 w-72 -translate-x-1/2 rounded-lg border border-line bg-paper-1 p-3 opacity-0 shadow-xl transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+            >
+                <div className="mb-2 text-xs font-medium text-ink">Spent by model · {quota.window}</div>
+                {rows.length ? (
+                    <div className="space-y-1.5">
+                        {rows.map((row) => (
+                            <div key={row.model_id} className="flex items-start justify-between gap-3 text-xs">
+                                <span className="min-w-0 truncate text-ink-2">{row.model_name || row.model_id}</span>
+                                <span className="shrink-0 text-right font-mono tabular-nums text-ink">
+                                    {format(row.used)}
+                                    {Number(row.reserved) > 0
+                                        ? <span className="block text-[10px] text-ink-3">+{format(row.reserved)} in flight</span>
+                                        : null}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                ) : <div className="text-xs text-ink-3">No model spend in this budget window.</div>}
+                <div className="mt-2 flex justify-between border-t border-line pt-2 text-xs">
+                    <span className="text-ink-3">Total spent</span>
+                    <span className="font-mono tabular-nums text-ink">{format(quota.used)}</span>
+                </div>
+            </div>
         </div>
     );
 }

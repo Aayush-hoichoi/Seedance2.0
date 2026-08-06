@@ -29,6 +29,7 @@ release/
 
 # Next.js
 .next/
+.next-dev/
 out/
 
 # Misc

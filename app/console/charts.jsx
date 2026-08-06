@@ -101,7 +101,48 @@ export function SpendDonut({ data, nameKey = 'key', valueKey = 'cost_usd', heigh
     );
 }
 
-export function TopBars({ data, xKey = 'key', yKey = 'cost_usd', height = 220 }) {
+function DetailedBarTooltip({ active, payload, label }) {
+    if (!active || !payload?.length) return null;
+    const total = Number(payload[0]?.value || 0);
+    const rows = payload[0]?.payload?.model_breakdown ?? [];
+    return (
+        <div style={TOOLTIP_STYLE.contentStyle} className="min-w-64 shadow-xl">
+            <div className="mb-2 text-xs text-ink-2">{label}</div>
+            <div className="space-y-1.5">
+                {rows.map((row) => {
+                    const amount = Number(row.cost_usd || 0);
+                    const pct = total > 0 ? (amount / total) * 100 : 0;
+                    const tasks = Number(row.generations || 0) + Number(row.failures || 0);
+                    const details = [
+                        `${tasks.toLocaleString('en-US')} task${tasks === 1 ? '' : 's'}`,
+                        Number(row.failures) > 0 ? `${Number(row.failures).toLocaleString('en-US')} failed` : null,
+                        Number(row.images) > 0 ? `${Number(row.images).toLocaleString('en-US')} images` : null,
+                        Number(row.video_seconds) > 0 ? `${Number(row.video_seconds).toLocaleString('en-US', { maximumFractionDigits: 1 })}s video` : null,
+                    ].filter(Boolean);
+                    return (
+                        <div key={row.model_id} className="border-b border-line/60 pb-1.5 last:border-0 last:pb-0">
+                            <div className="flex items-center justify-between gap-5 text-xs">
+                                <span className="max-w-[13rem] truncate text-ink-2">{row.model_name || row.model_id}</span>
+                                <span className="shrink-0 text-right font-mono tabular-nums text-ink">
+                                    ${amount.toFixed(4)}
+                                    <span className="ml-1.5 text-[10px] text-ink-3">{pct.toFixed(1)}%</span>
+                                </span>
+                            </div>
+                            <div className="mt-0.5 text-[10px] text-ink-3">{details.join(' · ')}</div>
+                        </div>
+                    );
+                })}
+            </div>
+            {!rows.length ? <div className="text-xs text-ink-3">No model spend recorded.</div> : null}
+            <div className="mt-2 flex justify-between border-t border-line pt-2 text-xs">
+                <span className="text-ink-3">Total spend</span>
+                <span className="font-mono tabular-nums text-ink">${total.toFixed(4)}</span>
+            </div>
+        </div>
+    );
+}
+
+export function TopBars({ data, xKey = 'key', yKey = 'cost_usd', height = 220, detailed = false }) {
     return (
         <ResponsiveContainer width="100%" height={height}>
             <BarChart data={data} layout="vertical" margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
@@ -109,7 +150,10 @@ export function TopBars({ data, xKey = 'key', yKey = 'cost_usd', height = 220 })
                 <XAxis type="number" {...AXIS} tickLine={false} axisLine={false} tickFormatter={(v) => `$${v}`} />
                 <YAxis type="category" dataKey={xKey} {...AXIS} tickLine={false} axisLine={false} width={130}
                     tickFormatter={(v) => (String(v).length > 18 ? `${String(v).slice(0, 17)}…` : v)} />
-                <Tooltip {...TOOLTIP_STYLE} formatter={(v) => [`$${Number(v).toFixed(4)}`, 'spend']} />
+                {detailed
+                    ? <Tooltip content={<DetailedBarTooltip />} allowEscapeViewBox={{ x: true, y: true }}
+                        wrapperStyle={{ zIndex: 50 }} />
+                    : <Tooltip {...TOOLTIP_STYLE} formatter={(v) => [`$${Number(v).toFixed(4)}`, 'spend']} />}
                 <Bar dataKey={yKey} radius={[0, 4, 4, 0]}>
                     {data.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
                 </Bar>
