@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { GATEWAY_DDL, SCHEMA_VERSION } from '../lib/db/schema.mjs';
 
 test('schema v10 consolidates duplicate active quota scopes before enforcing uniqueness', () => {
-    assert.equal(SCHEMA_VERSION, 10);
+    // Landed in v10 and must stay in the chain — pinning the exact number here
+    // just breaks this test on every unrelated bump.
+    assert.ok(SCHEMA_VERSION >= 10, 'the quota-scope migration ships from v10 onward');
     const migration = GATEWAY_DDL.find((statement) => statement.includes('quotas_unique_active_scope'));
     assert.ok(migration, 'quota-scope migration must be part of the automatic schema chain');
 
