@@ -214,6 +214,9 @@ export async function POST(request) {
         await respond(responseUrl, note('Request not found — it may already have been handled.'));
         return NextResponse.json({ ok: true });
     }
+    // The override is what the gateway enforces; the status row above only
+    // records the decision. Report a failed sync in the channel instead of
+    // confirming a grant the user cannot actually use.
     try {
         await syncGatewayOverride({
             action: approve ? 'approve' : 'revoke', row, validUntil,
@@ -221,6 +224,11 @@ export async function POST(request) {
         });
     } catch (err) {
         console.error('[slack] gateway sync failed:', err.message); // status is already saved
+        await respond(responseUrl, note(
+            `:warning: Recorded the decision for ${row.user_email}, but applying it FAILED — ${err.message}. `
+            + 'Access is unchanged; retry from the console.',
+        ));
+        return NextResponse.json({ ok: false });
     }
 
     if (isRevoke) {
