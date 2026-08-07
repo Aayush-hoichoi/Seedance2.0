@@ -43,12 +43,24 @@ export async function POST(request, { params }) {
     }
     const row = await setRequestStatus(requestId, nextStatus(action), admin.email, validUntil, maxResolution);
     if (!row) return NextResponse.json({ error: 'Request not found' }, { status: 404 });
+    // The override is what the gateway actually enforces — the status row above
+    // only DISPLAYS the decision. A silent failure here reads as a granted
+    // approval the user can't use, so report it instead of swallowing it.
+    let syncError = null;
     try {
         await syncGatewayOverride({ action, row, admin, validUntil });
     } catch (err) {
+        syncError = err.message;
         console.error('[access] gateway override sync failed:', err.message); // legacy status is already saved
     }
     // Post the outcome (approved / declined) to Slack. Best-effort.
     await notifySlackAccessDecided({ email: row.user_email, modelId: row.model_id, status: row.status, expiresAt: row.expires_at, maxResolution: row.max_resolution }).catch(() => {});
+    if (syncError) {
+        return NextResponse.json({
+            ok: false,
+            request: row,
+            error: `Decision saved, but access was NOT applied: ${syncError}. The user still cannot use this model.`,
+        }, { status: 500 });
+    }
     return NextResponse.json({ ok: true, request: row });
 }
