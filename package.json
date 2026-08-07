@@ -12,6 +12,7 @@
   ],
   "scripts": {
     "dev": "next dev",
+    "test": "node --test tests/*.test.mjs",
     "build": "npm run build:agent && next build",
     "start": "next start",
     "lint": "next lint",
@@ -59,6 +60,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.4",
     "@eslint/eslintrc": "^3",
     "autoprefixer": "^10.4.24",
     "eslint": "^9",

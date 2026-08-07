@@ -118,8 +118,8 @@ export async function PATCH(request) {
         const expectedHardLimit = Number(body.expectedHardLimit);
         const currentHardLimit = Number(before.hard_limit);
         const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
-        if (!Number.isFinite(newHardLimit) || !(newHardLimit > 0) || !Number.isFinite(expectedHardLimit)) {
-            return apiError('BAD_REQUEST', 'newHardLimit > 0 and expectedHardLimit are required.');
+        if (!Number.isFinite(newHardLimit) || newHardLimit < 0 || !Number.isFinite(expectedHardLimit)) {
+            return apiError('BAD_REQUEST', 'newHardLimit >= 0 and expectedHardLimit are required.');
         }
         if (['image_count', 'request_count'].includes(before.type) && !Number.isInteger(newHardLimit)) {
             return apiError('BAD_REQUEST', `${before.type} budgets require a whole-number cap.`);
