@@ -4,23 +4,29 @@ import { useState } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
 import dynamic from 'next/dynamic';
 import toast from 'react-hot-toast';
-import { PageHeader, Card, Badge, Button, Modal, Field, Select, DataTable, ProgressBar, EmptyState, DateTimePicker } from '../../ui.jsx';
+import { PageHeader, Card, Badge, Button, Modal, Field, Input, Select, DataTable, ProgressBar, EmptyState, DateTimePicker } from '../../ui.jsx';
 import { useApi, sendJson, fmtUsd, fmtInt, fmtDate, monthStartIso } from '../../lib.js';
 import { supportedResolutionsFor } from '../../../../lib/seedance/constants.js';
-import { PauseCircle, PlayCircle, Plus, ShieldBan, ShieldCheck, Trash2 } from 'lucide-react';
+import { PauseCircle, Pencil, PlayCircle, Plus, ShieldBan, ShieldCheck, Trash2, Wallet } from 'lucide-react';
 
 const SpendDonut = dynamic(() => import('../../charts.jsx').then((m) => m.SpendDonut), { ssr: false });
 const TopBars = dynamic(() => import('../../charts.jsx').then((m) => m.TopBars), { ssr: false });
 
 const TAB = 'rounded-lg px-3 py-1.5 text-sm text-ink-2 data-[state=active]:bg-paper-3 data-[state=active]:text-ink';
+const BUDGET_TYPES = [
+    ['usd', 'Dollars (USD)'], ['image_count', 'Image count'],
+    ['video_seconds', 'Video seconds'], ['request_count', 'Requests'],
+];
 
 export default function ProjectDetailClient({ projectId }) {
+    const [editingBudget, setEditingBudget] = useState(null);
     const detail = useApi(`/api/projects/${projectId}`);
     const models = useApi(`/api/models?projectId=${projectId}`);
     const usersApi = useApi('/api/admin/users');
     const usageByModel = useApi(`/api/projects/${projectId}/usage?group_by=model&from=${monthStartIso()}`);
     const viewerRole = detail.data?.role;
     const isAdmin = viewerRole === 'admin' || viewerRole === 'owner';
+    const budgetModels = useApi(isAdmin ? '/api/admin/models' : null);
     const usage = useApi(`/api/projects/${projectId}/usage?group_by=user${isAdmin ? '&include_model_breakdown=1' : ''}&from=${monthStartIso()}`);
     const quotas = useApi(isAdmin
         ? `/api/admin/quotas?withUsage=1&withModelBreakdown=1&projectId=${projectId}`
@@ -42,7 +48,12 @@ export default function ProjectDetailClient({ projectId }) {
 
     const projectQuotas = (quotas.data?.items ?? []).filter((q) => q.project_id === project.id);
     // Quotas store the Clerk user id; show the email humans recognize.
-    const emailOf = (id) => (usersApi.data?.users || usersApi.data?.items || []).find((u) => (u.id || u.user_id) === id)?.email || `${id.slice(0, 12)}…`;
+    const emailOf = (id) => {
+        const projectMember = members.find((member) => member.user_id === id);
+        if (projectMember?.email) return projectMember.email;
+        return (usersApi.data?.users || usersApi.data?.items || [])
+            .find((user) => (user.id || user.user_id) === id)?.email || `${id.slice(0, 12)}…`;
+    };
 
     return (
         <div>
@@ -76,19 +87,68 @@ export default function ProjectDetailClient({ projectId }) {
                 )}
                 <Tabs.Content value="budget">
                     <div className="grid gap-3 lg:grid-cols-2">
-                        {projectQuotas.length ? projectQuotas.map((q) => (
+                        {projectQuotas.map((q) => (
                             <Card key={q.id}>
-                                <div className="mb-1 flex items-center justify-between text-sm">
-                                    <span className="text-ink-2">{q.user_id ? `User ${emailOf(q.user_id)}` : 'Whole project'}{q.model_name ? ` · ${q.model_name}` : ''} · {q.type} · {q.window}</span>
-                                    <Badge tone={q.policy === 'hard' ? 'red' : 'amber'}>{q.policy}{q.policy === 'soft' ? ` +${q.soft_overage_pct}%` : ''}</Badge>
+                                <div className="mb-3 flex items-start justify-between gap-3">
+                                    <div>
+                                        <div className="text-sm font-medium text-ink">{q.project_name || project.name}</div>
+                                        <div className="mt-0.5 text-xs text-ink-3">{q.type} · {q.window}{q.model_name ? ` · ${q.model_name}` : ''}</div>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                        <Badge tone={q.policy === 'hard' ? 'red' : 'amber'}>{q.policy}{q.policy === 'soft' ? ` +${q.soft_overage_pct}%` : ''}</Badge>
+                                        {isAdmin ? (
+                                            <Button variant="ghost" size="xs" title="Edit budget cap" aria-label="Edit budget cap"
+                                                onClick={() => setEditingBudget(q)}>
+                                                <Pencil size={13} />
+                                            </Button>
+                                        ) : null}
+                                    </div>
                                 </div>
-                                <div className="mb-2 text-xs text-ink-3">
-                                    {q.type === 'usd' ? fmtUsd(q.used) : fmtInt(q.used)} used{Number(q.reserved) > 0 ? ` (+${q.type === 'usd' ? fmtUsd(q.reserved) : fmtInt(q.reserved)} reserved)` : ''} of {q.type === 'usd' ? fmtUsd(q.hard_limit) : fmtInt(q.hard_limit)}
+                                <div className="mb-3 grid grid-cols-3 gap-3 rounded-md border border-line bg-paper-3 px-3 py-2.5">
+                                    <BudgetCardValue label="Project" value={q.project_name || project.name} />
+                                    <BudgetCardValue label="User" value={q.user_id ? emailOf(q.user_id) : 'Everyone'} />
+                                    <BudgetCardValue
+                                        label="Spent"
+                                        value={q.type === 'usd' ? fmtUsd(q.used) : fmtInt(q.used)}
+                                        hint={Number(q.reserved) > 0 ? `+${q.type === 'usd' ? fmtUsd(q.reserved) : fmtInt(q.reserved)} in flight` : null}
+                                    />
+                                </div>
+                                <div className="mb-2 flex items-center justify-between gap-3 text-xs text-ink-3">
+                                    <span>Budget usage</span>
+                                    <span className="font-mono tabular-nums text-ink-2">
+                                        {q.type === 'usd' ? fmtUsd(Number(q.used) + Number(q.reserved || 0)) : fmtInt(Number(q.used) + Number(q.reserved || 0))}
+                                        {' '}of {q.type === 'usd' ? fmtUsd(q.hard_limit) : fmtInt(q.hard_limit)}
+                                    </span>
                                 </div>
                                 <BudgetProgressBar quota={q} />
                             </Card>
-                        )) : <EmptyState title="No budgets on this project" hint="Create project, per-user, or per-model budgets under Budgets — they enforce before any job reaches a provider." />}
+                        ))}
+                        {isAdmin ? (
+                            <AddBudgetCard
+                                project={project}
+                                members={members}
+                                models={budgetModels.data?.items ?? []}
+                                modelsLoading={budgetModels.isLoading}
+                                modelsError={budgetModels.error}
+                                onCreated={() => quotas.mutate()}
+                            />
+                        ) : !projectQuotas.length ? (
+                            <EmptyState title="No budgets on this project" hint="An admin can add a project, per-user, or per-model budget here." />
+                        ) : null}
                     </div>
+                    {editingBudget ? (
+                        <EditBudgetModal
+                            key={editingBudget.id}
+                            quota={editingBudget}
+                            projectName={editingBudget.project_name || project.name}
+                            userName={editingBudget.user_id ? emailOf(editingBudget.user_id) : 'Everyone'}
+                            onClose={() => setEditingBudget(null)}
+                            onUpdated={() => {
+                                setEditingBudget(null);
+                                quotas.mutate();
+                            }}
+                        />
+                    ) : null}
                 </Tabs.Content>
                 <Tabs.Content value="usage">
                     <div className="grid gap-4 lg:grid-cols-2">
@@ -112,6 +172,284 @@ export default function ProjectDetailClient({ projectId }) {
                 </Tabs.Content>
             </Tabs.Root>
         </div>
+    );
+}
+
+function BudgetCardValue({ label, value, hint }) {
+    return (
+        <div className="min-w-0">
+            <div className="text-[10px] font-medium uppercase tracking-[0.1em] text-ink-3">{label}</div>
+            <div className="mt-1 truncate text-xs font-medium text-ink" title={value}>{value}</div>
+            {hint ? <div className="mt-0.5 truncate text-[10px] text-ink-3" title={hint}>{hint}</div> : null}
+        </div>
+    );
+}
+
+function EditBudgetModal({ quota, projectName, userName, onClose, onUpdated }) {
+    const format = quota.type === 'usd' ? fmtUsd : fmtInt;
+    const wholeNumber = quota.type === 'image_count' || quota.type === 'request_count';
+    const [snapshot, setSnapshot] = useState({
+        hardLimit: Number(quota.hard_limit),
+        used: Number(quota.used || 0),
+        reserved: Number(quota.reserved || 0),
+    });
+    const [newCapInput, setNewCapInput] = useState(String(quota.hard_limit));
+    const [reason, setReason] = useState('');
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState('');
+
+    const newCap = Number(newCapInput);
+    const minimumCap = snapshot.used + snapshot.reserved;
+    const delta = newCap - snapshot.hardLimit;
+    const reducing = Number.isFinite(newCap) && delta < 0;
+    const validNumber = Number.isFinite(newCap) && newCap > 0 && (!wholeNumber || Number.isInteger(newCap));
+    const valid = validNumber
+        && newCap >= minimumCap
+        && newCap !== snapshot.hardLimit
+        && (!reducing || reason.trim().length >= 3);
+
+    async function save() {
+        if (!valid) return;
+        setSaving(true);
+        setError('');
+        const response = await sendJson('/api/admin/quotas', 'PATCH', {
+            id: quota.id,
+            newHardLimit: newCap,
+            expectedHardLimit: snapshot.hardLimit,
+            reason: reason.trim() || null,
+        });
+        setSaving(false);
+
+        if (!response.ok) {
+            const data = response.data || {};
+            if (data.code === 'BUDGET_CONFLICT' || data.code === 'BUDGET_CAP_TOO_LOW') {
+                setSnapshot({
+                    hardLimit: Number(data.currentHardLimit ?? snapshot.hardLimit),
+                    used: Number(data.used ?? snapshot.used),
+                    reserved: Number(data.reserved ?? snapshot.reserved),
+                });
+            }
+            setError(data.message || 'Failed to update budget');
+            return;
+        }
+
+        toast.success(reducing ? 'Budget cap reduced' : 'Budget cap updated');
+        onUpdated();
+    }
+
+    const validationMessage = !newCapInput
+        ? 'Enter a new cap.'
+        : !validNumber
+            ? wholeNumber ? 'This budget requires a positive whole number.' : 'Enter a positive number.'
+            : newCap < minimumCap
+                ? `The cap cannot be below ${format(minimumCap)} (spent plus in-flight usage).`
+                : newCap === snapshot.hardLimit
+                    ? 'Enter an amount different from the current cap.'
+                    : reducing && reason.trim().length < 3
+                        ? 'Add a short reason for reducing this budget.'
+                        : '';
+
+    return (
+        <Modal open onOpenChange={(nextOpen) => { if (!nextOpen && !saving) onClose(); }} title="Edit budget cap"
+            footer={<>
+                <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
+                <Button variant={reducing ? 'danger' : 'primary'} onClick={save} loading={saving} disabled={!valid}>
+                    {reducing ? 'Reduce budget' : 'Save cap'}
+                </Button>
+            </>}>
+            <Card className="bg-paper-3">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    <BudgetCardValue label="Project" value={projectName} />
+                    <BudgetCardValue label="User" value={userName} />
+                    <BudgetCardValue label="Spent" value={format(snapshot.used)} />
+                    <BudgetCardValue label="In flight" value={format(snapshot.reserved)} />
+                    <BudgetCardValue label="Current cap" value={format(snapshot.hardLimit)} />
+                    <BudgetCardValue label="Minimum safe cap" value={format(minimumCap)} />
+                </div>
+            </Card>
+
+            <Field label="New total budget cap">
+                <Input type="number" min={minimumCap} step={wholeNumber ? '1' : 'any'} value={newCapInput}
+                    onChange={(event) => { setNewCapInput(event.target.value); setError(''); }} />
+            </Field>
+
+            {validNumber && newCap >= minimumCap && newCap !== snapshot.hardLimit ? (
+                <div className={`rounded-md border px-3 py-2 text-xs ${reducing ? 'border-danger/30 bg-danger/10 text-danger' : 'border-line bg-paper-2 text-ink-2'}`}>
+                    {reducing
+                        ? `This removes ${format(Math.abs(delta))} of unused allowance. The new available balance will be ${format(newCap - minimumCap)}.`
+                        : `This adds ${format(delta)}. The new available balance will be ${format(newCap - minimumCap)}.`}
+                </div>
+            ) : null}
+
+            {reducing ? (
+                <Field label="Reason for reduction">
+                    <Input value={reason} maxLength={500} placeholder="Correcting an accidental allocation"
+                        onChange={(event) => { setReason(event.target.value); setError(''); }} />
+                </Field>
+            ) : null}
+
+            {error ? <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{error}</div> : null}
+            {!error && validationMessage ? <div className="text-xs text-ink-3">{validationMessage}</div> : null}
+        </Modal>
+    );
+}
+
+function AddBudgetCard({ project, members, models, modelsLoading, modelsError, onCreated }) {
+    const initialForm = { type: 'usd', window: 'monthly', addAmount: '', policy: 'hard', softOveragePct: 5, userId: '', modelId: '' };
+    const [open, setOpen] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [form, setForm] = useState(initialForm);
+    const previewParams = new URLSearchParams({
+        projectId: String(project.id),
+        type: form.type,
+        window: form.window,
+        ...(form.userId ? { userId: form.userId } : {}),
+        ...(form.modelId ? { modelId: form.modelId } : {}),
+    });
+    const preview = useApi(open ? `/api/admin/quotas/preview?${previewParams}` : null);
+    const previewData = preview.data;
+    const previewFormat = form.type === 'usd' ? fmtUsd : fmtInt;
+    const existingBudget = previewData?.existingBudget;
+    const previousCap = Number(previewData?.previouslyAllotted || 0);
+    const addAmount = Number(form.addAmount) || 0;
+    const newCap = previousCap + addAmount;
+    const effectivePolicy = existingBudget?.policy || form.policy;
+    const wholeNumber = form.type === 'image_count' || form.type === 'request_count';
+    const validAddAmount = addAmount > 0 && (!wholeNumber || Number.isInteger(addAmount));
+
+    function changeOpen(nextOpen) {
+        setOpen(nextOpen);
+        if (!nextOpen && !saving) setForm(initialForm);
+    }
+
+    async function create() {
+        setSaving(true);
+        const r = existingBudget
+            ? await sendJson('/api/admin/quotas', 'PATCH', { id: existingBudget.id, addAmount })
+            : await sendJson('/api/admin/quotas', 'POST', {
+                ...form,
+                hardLimit: addAmount,
+                projectId: project.id,
+                userId: form.userId || null,
+                modelId: form.modelId || null,
+            });
+        setSaving(false);
+        if (!r.ok) return toast.error(r.data?.message || 'Failed to add budget');
+        const toppedUp = !!existingBudget || r.data?.created === false;
+        toast.success(toppedUp ? 'Budget topped up' : 'Budget created — enforced on the next request');
+        setOpen(false);
+        setForm(initialForm);
+        onCreated();
+    }
+
+    return (
+        <>
+            <Card className="flex min-h-32 flex-col items-center justify-center border-dashed text-center">
+                <span className="mb-3 grid size-9 place-items-center rounded-full border border-line bg-paper-3 text-ink-2">
+                    <Wallet size={17} />
+                </span>
+                <div className="text-sm font-medium text-ink">Add a budget</div>
+                <div className="mt-1 max-w-xs text-xs text-ink-3">Cap spend or usage for this project, a member, or a model.</div>
+                <Button variant="primary" className="mt-3" onClick={() => setOpen(true)}>
+                    <Plus size={14} /> Add budget
+                </Button>
+            </Card>
+
+            <Modal open={open} onOpenChange={changeOpen} title={`Add budget · ${project.name}`}
+                footer={<>
+                    <Button variant="outline" onClick={() => changeOpen(false)} disabled={saving}>Cancel</Button>
+                    <Button variant="primary" onClick={create} loading={saving}
+                        disabled={!validAddAmount || preview.isLoading || !!preview.error}>
+                        {existingBudget ? 'Add to budget' : 'Create budget'}
+                    </Button>
+                </>}>
+                <p className="mb-3 text-xs leading-relaxed text-ink-3">
+                    This budget applies to <span className="font-medium text-ink-2">{project.name}</span>. Leave member and model blank to cap the whole project. If this scope already has a budget, the amount entered below is added on top of its current cap.
+                </p>
+                <Card className="mb-4 bg-paper-3">
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                        <BudgetCardValue label="Project" value={previewData?.project?.name || project.name} />
+                        <BudgetCardValue
+                            label="User"
+                            value={previewData?.user?.email || previewData?.user?.name || (preview.isLoading ? 'Loading…' : 'Everyone')}
+                        />
+                        <BudgetCardValue
+                            label="Spent"
+                            value={previewData ? previewFormat(previewData.used) : preview.isLoading ? 'Loading…' : '—'}
+                            hint={Number(previewData?.reserved) > 0 ? `+${previewFormat(previewData.reserved)} in flight` : null}
+                        />
+                        <BudgetCardValue
+                            label="Remaining"
+                            value={previewData ? previewFormat(previewData.remaining) : preview.isLoading ? 'Loading…' : '—'}
+                        />
+                        <BudgetCardValue
+                            label="Previously allotted"
+                            value={previewData ? previewFormat(previousCap) : preview.isLoading ? 'Loading…' : '—'}
+                            hint={previewData ? `${previewFormat(previewData.used)} spent + ${previewFormat(previewData.remaining)} remaining` : null}
+                        />
+                        <BudgetCardValue label="Adding now" value={previewFormat(addAmount)} />
+                        <BudgetCardValue label="New total budget" value={previewData ? previewFormat(newCap) : preview.isLoading ? 'Loading…' : '—'} />
+                    </div>
+                    {preview.error ? <div className="mt-2 text-xs text-danger">Could not load current spend.</div> : null}
+                </Card>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <Field label="Type">
+                        <Select className="w-full" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+                            {BUDGET_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                        </Select>
+                    </Field>
+                    <Field label="Window">
+                        <Select className="w-full" value={form.window} onChange={(e) => setForm({ ...form, window: e.target.value })}>
+                            <option value="daily">daily</option>
+                            <option value="monthly">monthly</option>
+                            <option value="lifetime">lifetime</option>
+                        </Select>
+                    </Field>
+                    <Field label={existingBudget ? 'Amount to add' : 'Initial budget amount'}>
+                        <Input
+                            type="number"
+                            min="0"
+                            step={wholeNumber ? '1' : 'any'}
+                            value={form.addAmount}
+                            onChange={(e) => setForm({ ...form, addAmount: e.target.value })}
+                            placeholder={form.type === 'usd' ? '100' : '50'}
+                        />
+                    </Field>
+                    <Field label="Policy">
+                        <Select className="w-full" value={effectivePolicy} disabled={!!existingBudget}
+                            title={existingBudget ? 'An existing budget keeps its current policy' : undefined}
+                            onChange={(e) => setForm({ ...form, policy: e.target.value })}>
+                            <option value="hard">hard — reject at limit</option>
+                            <option value="soft">soft — allow small overage</option>
+                        </Select>
+                    </Field>
+                    <Field label="Member (blank = everyone)">
+                        <Select className="w-full" value={form.userId} onChange={(e) => setForm({ ...form, userId: e.target.value })}>
+                            <option value="">—</option>
+                            {members.map((member) => <option key={member.user_id} value={member.user_id}>{member.email || member.name || member.user_id}</option>)}
+                        </Select>
+                    </Field>
+                    <Field label="Model (blank = all models)">
+                        <Select className="w-full" value={form.modelId} disabled={!models.length}
+                            onChange={(e) => setForm({ ...form, modelId: e.target.value })}>
+                            <option value="">{modelsError ? 'Could not load models' : modelsLoading ? 'Loading models…' : '—'}</option>
+                            {models.map((model) => <option key={model.id} value={model.id}>{model.display_name} · {model.category}</option>)}
+                        </Select>
+                    </Field>
+                </div>
+                {effectivePolicy === 'soft' && !existingBudget ? (
+                    <Field label="Overage % — how far past the limit the budget may go">
+                        <Input
+                            type="number"
+                            min="1"
+                            max="50"
+                            value={form.softOveragePct}
+                            onChange={(e) => setForm({ ...form, softOveragePct: Number(e.target.value) })}
+                        />
+                    </Field>
+                ) : null}
+            </Modal>
+        </>
     );
 }
 

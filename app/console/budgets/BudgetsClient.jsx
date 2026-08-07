@@ -29,7 +29,9 @@ export default function BudgetsClient() {
             userId: form.userId || null,
             modelId: form.modelId || null,
         });
-        r.ok ? (toast.success('Budget created — enforced on the next request'), setOpen(false), quotas.mutate()) : toast.error(r.data?.message || 'Failed');
+        r.ok
+            ? (toast.success(r.data?.created === false ? 'Existing budget topped up' : 'Budget created — enforced on the next request'), setOpen(false), quotas.mutate())
+            : toast.error(r.data?.message || 'Failed');
     }
     async function remove() {
         if (!toRemove) return;
