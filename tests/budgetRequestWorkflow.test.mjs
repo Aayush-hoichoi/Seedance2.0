@@ -368,7 +368,7 @@ test('cap correction and its audit are atomic against the latest reservation tot
     assert.equal(audits.count, 1);
 });
 
-test('the sweeper recovers interrupted reserving jobs without leaking held budget', async (t) => {
+test('the sweeper fails interrupted reserving jobs and releases held budget', async (t) => {
     const { db, sql } = await integrationDb();
     t.after(() => db.close());
     const [withReservation] = await sql`INSERT INTO jobs
@@ -385,14 +385,17 @@ test('the sweeper recovers interrupted reserving jobs without leaking held budge
 
     await recoverStaleReservations(sql);
 
-    const [recovered] = await sql`SELECT status FROM jobs WHERE id = ${withReservation.id}`;
-    const [failed] = await sql`SELECT status, error FROM jobs WHERE id = ${withoutReservation.id}`;
+    const [withHeldBudget] = await sql`SELECT status, error FROM jobs WHERE id = ${withReservation.id}`;
+    const [withoutHeldBudget] = await sql`SELECT status, error FROM jobs WHERE id = ${withoutReservation.id}`;
+    const releases = await sql`SELECT generation_id FROM billing_events WHERE event_type = 'release'`;
     const recoveryEvents = await sql`SELECT payload FROM events WHERE type = 'job.status_changed'`;
-    assert.equal(recovered.status, 'queued');
-    assert.equal(failed.status, 'failed');
-    assert.match(failed.error.message, /reservation was interrupted/i);
-    assert.equal(recoveryEvents.length, 1);
-    assert.equal(recoveryEvents[0].payload.recovered, true);
+    assert.equal(withHeldBudget.status, 'failed');
+    assert.match(withHeldBudget.error.message, /submission was interrupted/i);
+    assert.equal(withoutHeldBudget.status, 'failed');
+    assert.match(withoutHeldBudget.error.message, /submission was interrupted/i);
+    assert.deepEqual(releases.map((row) => row.generation_id), [String(withReservation.id)]);
+    assert.equal(recoveryEvents.length, 2);
+    assert.equal(recoveryEvents.every((event) => event.payload.interrupted === true), true);
 });
 
 test('approved-limit arithmetic never overwrites a newer cap', () => {
