@@ -334,6 +334,21 @@ test('authoritative reservations recheck live usage and serialize against applic
     assert.deepEqual(reservations.map((row) => row.generation_id), ['reservation-first']);
 });
 
+test('authoritative reservations accept fractional USD estimates', async (t) => {
+    const { db, sql } = await integrationDb();
+    t.after(() => db.close());
+
+    const reservation = await reserveBillingEvent(sql, {
+        generationId: 'fractional-usd-reservation', projectId: 15, userId: requester.userId,
+        modelId: 'seedance-2.0', modelVersionId: 'seedance-v2',
+        units: { video_seconds: 8 }, estCostUsd: 2.992, pricingSnapshot: { basis: 'estimate' },
+    });
+
+    assert.ok(reservation);
+    const [stored] = await sql`SELECT est_cost_usd FROM billing_events WHERE id = ${reservation.id}`;
+    assert.equal(Number(stored.est_cost_usd), 2.992);
+});
+
 test('cap correction and its audit are atomic against the latest reservation total', async (t) => {
     const { db, sql } = await integrationDb();
     t.after(() => db.close());
