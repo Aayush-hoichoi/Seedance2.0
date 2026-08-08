@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { PGlite } from '@electric-sql/pglite';
 import { createBudgetDecisionRouteHandler, createBudgetRequestRouteHandlers, createMyBudgetRouteHandler } from '../lib/http/budgetRequestHandlers.mjs';
 import { createBudgetRequest, decideBudgetRequest, getBudgetRequestContext, nextApprovedLimit } from '../lib/budgetRequests.mjs';
-import { activeQuotas, usageForQuotas } from '../lib/gateway/db.js';
+import { activeQuotas, changeQuotaCapSafely, reserveBillingEvent, usageForQuotas } from '../lib/gateway/db.js';
 import { effectiveAccess } from '../lib/gateway/access.mjs';
 import { visibleEvents } from '../lib/gateway/eventAudience.mjs';
 import { resolutionWithinTier, RESOLUTIONS } from '../lib/seedance/constants.js';
@@ -62,8 +62,9 @@ async function integrationDb() {
         );
         CREATE TABLE billing_events (
             id serial PRIMARY KEY, event_type text NOT NULL, generation_id text,
-            project_id integer, user_id text, model_id text,
-            cost_usd numeric, est_cost_usd numeric, units jsonb,
+            project_id integer, user_id text, model_id text, model_version_id text,
+            provider_id text, api_key_id integer,
+            cost_usd numeric, est_cost_usd numeric, units jsonb, pricing_snapshot jsonb,
             created_at timestamptz NOT NULL DEFAULT now()
         );
         CREATE TABLE quotas (
@@ -248,6 +249,117 @@ test('denial notification failure rolls back the denial decision', async (t) => 
     assert.equal(response.status, 500);
     const [decisionCount] = await sql`SELECT count(*)::int AS count FROM audit_log WHERE action = 'budget_request.denied'`;
     assert.equal(decisionCount.count, 0);
+});
+
+test('all-model approval rejects a newly active model without a quality ladder and rolls back everything', async (t) => {
+    const { db, sql } = await integrationDb();
+    t.after(() => db.close());
+    const request = await userRoutes(sql).POST(jsonRequest('http://local/api/budget-requests', {
+        projectId: 15, modelId: '*', quality: 'high', increaseAmount: 50,
+    }));
+    assert.equal(request.status, 201, await request.clone().text());
+    const { id } = await request.json();
+
+    await sql`INSERT INTO models (id, display_name, category, active)
+        VALUES ('future-unconfigured-model', 'Future Model', 'video', true)`;
+    const [beforeEvents] = await sql`SELECT count(*)::int AS count FROM events`;
+    const response = await decisionRoute(sql)(jsonRequest('http://local/approve', { policy: 'hard' }), {
+        params: Promise.resolve({ id, action: 'approve' }),
+    });
+    assert.equal(response.status, 409);
+
+    const [quota] = await sql`SELECT hard_limit FROM quotas WHERE project_id = 15 AND user_id = ${requester.userId}`;
+    const [overrideCount] = await sql`SELECT count(*)::int AS count FROM user_model_overrides`;
+    const [decisionCount] = await sql`SELECT count(*)::int AS count FROM audit_log WHERE action = 'budget_request.approved'`;
+    const [afterEvents] = await sql`SELECT count(*)::int AS count FROM events`;
+    assert.equal(Number(quota.hard_limit), 100);
+    assert.equal(overrideCount.count, 0);
+    assert.equal(decisionCount.count, 0);
+    assert.equal(afterEvents.count, beforeEvents.count);
+});
+
+test('approval rejects a requester removed from the project and commits no decision or grant', async (t) => {
+    const { db, sql } = await integrationDb();
+    t.after(() => db.close());
+    const request = await userRoutes(sql).POST(jsonRequest('http://local/api/budget-requests', {
+        projectId: 15, modelId: 'seedance-2.0', quality: '1080p', increaseAmount: 50,
+    }));
+    assert.equal(request.status, 201, await request.clone().text());
+    const { id } = await request.json();
+    await sql`DELETE FROM project_memberships WHERE project_id = 15 AND user_id = ${requester.userId}`;
+
+    const response = await decisionRoute(sql)(jsonRequest('http://local/approve', { policy: 'hard' }), {
+        params: Promise.resolve({ id, action: 'approve' }),
+    });
+    assert.equal(response.status, 409);
+    const [quota] = await sql`SELECT hard_limit FROM quotas WHERE project_id = 15 AND user_id = ${requester.userId}`;
+    const [overrideCount] = await sql`SELECT count(*)::int AS count FROM user_model_overrides`;
+    const [decisionCount] = await sql`SELECT count(*)::int AS count FROM audit_log WHERE action = 'budget_request.approved'`;
+    assert.equal(Number(quota.hard_limit), 100);
+    assert.equal(overrideCount.count, 0);
+    assert.equal(decisionCount.count, 0);
+});
+
+test('request snapshots preserve a real zero cap instead of treating it as no personal limit', async (t) => {
+    const { db, sql } = await integrationDb();
+    t.after(() => db.close());
+    await sql`UPDATE quotas SET hard_limit = 0 WHERE project_id = 15 AND user_id = ${requester.userId}`;
+    const response = await userRoutes(sql).POST(jsonRequest('http://local/api/budget-requests', {
+        projectId: 15, modelId: 'seedance-2.0', quality: '1080p', increaseAmount: 25,
+    }));
+    assert.equal(response.status, 201, await response.clone().text());
+    assert.equal((await response.json()).request.currentLimit, 0);
+});
+
+test('authoritative reservations recheck live usage and serialize against applicable quota rows', async (t) => {
+    const { db, sql } = await integrationDb();
+    t.after(() => db.close());
+    const event = (generationId, amount) => ({
+        generationId, projectId: 15, userId: requester.userId, modelId: 'seedance-2.0',
+        modelVersionId: 'seedance-v2', units: { video_seconds: 5 },
+        estCostUsd: amount, pricingSnapshot: { basis: 'estimate' },
+    });
+
+    const first = await reserveBillingEvent(sql, event('reservation-first', 60));
+    const second = await reserveBillingEvent(sql, event('reservation-second', 20));
+    assert.ok(first);
+    assert.equal(second, null);
+    const reservations = await sql`SELECT generation_id FROM billing_events WHERE event_type = 'reservation' ORDER BY id`;
+    assert.deepEqual(reservations.map((row) => row.generation_id), ['reservation-first']);
+});
+
+test('cap correction and its audit are atomic against the latest reservation total', async (t) => {
+    const { db, sql } = await integrationDb();
+    t.after(() => db.close());
+    const [before] = await sql`SELECT * FROM quotas WHERE project_id = 15 AND user_id = ${requester.userId}`;
+    const reservation = await reserveBillingEvent(sql, {
+        generationId: 'cap-race-reservation', projectId: 15, userId: requester.userId,
+        modelId: 'seedance-2.0', modelVersionId: 'seedance-v2',
+        units: { video_seconds: 5 }, estCostUsd: 60, pricingSnapshot: { basis: 'estimate' },
+    });
+    assert.ok(reservation);
+
+    const rejected = await changeQuotaCapSafely(sql, {
+        id: before.id, newHardLimit: 80, expectedHardLimit: 100, before,
+        actor: admin, reason: 'Correct allocation',
+    });
+    assert.equal(rejected, null);
+    let [quota] = await sql`SELECT hard_limit FROM quotas WHERE id = ${before.id}`;
+    let [audits] = await sql`SELECT count(*)::int AS count FROM audit_log WHERE action = 'quota.cap_changed'`;
+    assert.equal(Number(quota.hard_limit), 100);
+    assert.equal(audits.count, 0);
+
+    const accepted = await changeQuotaCapSafely(sql, {
+        id: before.id, newHardLimit: 90, expectedHardLimit: 100, before,
+        actor: admin, reason: 'Correct allocation',
+    });
+    assert.equal(Number(accepted.hard_limit), 90);
+    assert.equal(Number(accepted.used), 30);
+    assert.equal(Number(accepted.reserved), 60);
+    [quota] = await sql`SELECT hard_limit FROM quotas WHERE id = ${before.id}`;
+    [audits] = await sql`SELECT count(*)::int AS count FROM audit_log WHERE action = 'quota.cap_changed'`;
+    assert.equal(Number(quota.hard_limit), 90);
+    assert.equal(audits.count, 1);
 });
 
 test('approved-limit arithmetic never overwrites a newer cap', () => {

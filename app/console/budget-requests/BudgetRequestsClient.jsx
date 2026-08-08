@@ -85,7 +85,7 @@ export default function BudgetRequestsClient() {
                 </Field>
                 <div className="rounded-md border border-line bg-paper-3 px-3 py-2 text-xs text-ink-2">
                     Approving adds <span className="font-mono font-semibold text-accent-hi">{fmtUsd(review?.increaseAmount)}</span> to the latest live cap.
-                    The cap was <span className="font-mono text-ink">{review?.currentLimit ? fmtUsd(review.currentLimit) : fmtUsd(0)}</span> when this request was submitted.
+                    The cap was <span className="font-mono text-ink">{review?.currentLimit == null ? 'not configured' : fmtUsd(review.currentLimit)}</span> when this request was submitted.
                 </div>
                 <p className="text-[11px] leading-relaxed text-ink-3">
                     {policy === 'hard'
@@ -123,7 +123,7 @@ function RequestCard({ item, children }) {
                 <Detail label="Quality" value={`${item.quality} and lower`} capitalize />
                 <Detail label="Spent this month" value={fmtUsd(item.spent)} mono />
                 <Detail label="Requested increase" value={fmtUsd(item.increaseAmount)} mono accent />
-                <Detail label="Current limit" value={item.currentLimit ? fmtUsd(item.currentLimit) : 'No personal limit'} mono />
+                <Detail label="Current limit" value={item.currentLimit == null ? 'No personal limit' : fmtUsd(item.currentLimit)} mono />
                 <Detail label="Requested" value={fmtDate(item.createdAt)} />
             </dl>
             <div className="mt-4 rounded-md border border-line bg-paper-3 px-3 py-2 text-xs leading-relaxed text-ink-2">

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { gatewayContext, clientIp } from '../../../../lib/gateway/authz.js';
 import { apiError } from '../../../../lib/gateway/httpError.mjs';
-import { modelUsageForQuotas, writeAudit, usageForQuotas } from '../../../../lib/gateway/db.js';
+import { changeQuotaCapSafely, modelUsageForQuotas, writeAudit, usageForQuotas } from '../../../../lib/gateway/db.js';
 
 export const runtime = 'nodejs';
 
@@ -125,17 +125,10 @@ export async function PATCH(request) {
             return apiError('BAD_REQUEST', `${before.type} budgets require a whole-number cap.`);
         }
 
-        const { usedByQuota, reservedByQuota } = await usageForQuotas(sql, [before]);
-        const used = Number(usedByQuota[id] ?? 0);
-        const reserved = Number(reservedByQuota[id] ?? 0);
-        const minimumHardLimit = used + reserved;
-        const snapshot = { currentHardLimit, used, reserved, minimumHardLimit };
-
         if (currentHardLimit !== expectedHardLimit) {
-            return apiError('BUDGET_CONFLICT', 'This budget was changed by another admin. Review the latest values and try again.', snapshot);
-        }
-        if (newHardLimit < minimumHardLimit) {
-            return apiError('BUDGET_CAP_TOO_LOW', 'The cap cannot be lower than spent plus in-flight usage.', snapshot);
+            return apiError('BUDGET_CONFLICT', 'This budget was changed by another admin. Review the latest values and try again.', {
+                currentHardLimit,
+            });
         }
         if (newHardLimit === currentHardLimit) {
             return apiError('BAD_REQUEST', 'The new cap must differ from the current cap.');
@@ -147,29 +140,36 @@ export async function PATCH(request) {
             return apiError('BAD_REQUEST', 'The reason must be 500 characters or fewer.');
         }
 
-        const [quota] = await sql`UPDATE quotas
-            SET hard_limit = ${newHardLimit}
-            WHERE id = ${id} AND deleted_at IS NULL AND hard_limit = ${expectedHardLimit}
-            RETURNING *`;
-        if (!quota) {
-            const [current] = await sql`SELECT hard_limit FROM quotas WHERE id = ${id} AND deleted_at IS NULL`;
-            if (!current) return apiError('NOT_FOUND', 'Budget not found.');
-            return apiError('BUDGET_CONFLICT', 'This budget changed while you were saving. Refresh and try again.', {
-                ...snapshot,
-                currentHardLimit: Number(current.hard_limit),
-            });
-        }
-        await writeAudit(sql, {
-            actorId: user.userId,
-            actorEmail: user.email,
-            action: 'quota.cap_changed',
-            targetType: 'quota',
-            targetId: id,
+        const quota = await changeQuotaCapSafely(sql, {
+            id,
+            newHardLimit,
+            expectedHardLimit,
             before,
-            after: { ...quota, usage_at_change: { used, reserved, minimum_hard_limit: minimumHardLimit } },
+            actor: user,
             reason: reason || null,
             ip: clientIp(request),
         });
+        if (!quota) {
+            const [current] = await sql`SELECT * FROM quotas WHERE id = ${id} AND deleted_at IS NULL`;
+            if (!current) return apiError('NOT_FOUND', 'Budget not found.');
+            const { usedByQuota, reservedByQuota } = await usageForQuotas(sql, [current]);
+            const used = Number(usedByQuota[id] ?? 0);
+            const reserved = Number(reservedByQuota[id] ?? 0);
+            const minimumHardLimit = used + reserved;
+            if (Number(current.hard_limit) === expectedHardLimit && newHardLimit < minimumHardLimit) {
+                return apiError('BUDGET_CAP_TOO_LOW', 'The cap cannot be lower than spent plus in-flight usage.', {
+                    currentHardLimit: Number(current.hard_limit), used, reserved, minimumHardLimit,
+                });
+            }
+            return apiError('BUDGET_CONFLICT', 'This budget changed while you were saving. Refresh and try again.', {
+                currentHardLimit: Number(current.hard_limit),
+                used,
+                reserved,
+                minimumHardLimit,
+            });
+        }
+        const used = Number(quota.used || 0);
+        const reserved = Number(quota.reserved || 0);
         return NextResponse.json({ ...quota, used, reserved });
     }
 

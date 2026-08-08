@@ -43,7 +43,8 @@ export default function BudgetRequestModal({ projectId, onClose, onSent }) {
     const spent = modelId === ALL_MODELS
         ? Object.values(context?.spendByModel || {}).reduce((sum, value) => sum + Number(value), 0)
         : Number(context?.spendByModel?.[modelId] || 0);
-    const currentLimit = Number(context?.limitByModel?.[modelId] || 0);
+    const rawCurrentLimit = context?.limitByModel?.[modelId];
+    const currentLimit = rawCurrentLimit == null ? null : Number(rawCurrentLimit);
 
     function selectModel(next) {
         setModelId(next);
@@ -116,7 +117,7 @@ export default function BudgetRequestModal({ projectId, onClose, onSent }) {
                         </div>
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                             <ReadOnly label="Spent this month" value={money(spent)} />
-                            <ReadOnly label="Current monthly limit" value={currentLimit ? money(currentLimit) : 'No personal limit'} />
+                            <ReadOnly label="Current monthly limit" value={currentLimit == null ? 'No personal limit' : money(currentLimit)} />
                         </div>
                         <label className="block">
                             <Label>Required increase (USD)</Label>
