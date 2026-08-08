@@ -6,6 +6,7 @@ import { createBudgetRequest, decideBudgetRequest, getBudgetRequestContext, next
 import { activeQuotas, changeQuotaCapSafely, reserveBillingEvent, usageForQuotas } from '../lib/gateway/db.js';
 import { effectiveAccess } from '../lib/gateway/access.mjs';
 import { visibleEvents } from '../lib/gateway/eventAudience.mjs';
+import { recoverStaleReservations } from '../lib/gateway/sweep.mjs';
 import { resolutionWithinTier, RESOLUTIONS } from '../lib/seedance/constants.js';
 
 const requester = { userId: 'user-requester', email: 'requester@example.com', name: 'Requesting User', role: 'member' };
@@ -89,6 +90,11 @@ async function integrationDb() {
             id bigserial PRIMARY KEY, project_id integer, user_id text,
             type text NOT NULL, payload jsonb NOT NULL DEFAULT '{}'::jsonb,
             created_at timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE TABLE jobs (
+            id serial PRIMARY KEY, project_id integer, user_id text, model_id text,
+            model_version_id text, priority text, status text, request_body jsonb,
+            error jsonb, created_at timestamptz NOT NULL DEFAULT now(), finished_at timestamptz
         );
 
         INSERT INTO projects (id, name) VALUES (15, 'Launch Campaign');
@@ -360,6 +366,33 @@ test('cap correction and its audit are atomic against the latest reservation tot
     [audits] = await sql`SELECT count(*)::int AS count FROM audit_log WHERE action = 'quota.cap_changed'`;
     assert.equal(Number(quota.hard_limit), 90);
     assert.equal(audits.count, 1);
+});
+
+test('the sweeper recovers interrupted reserving jobs without leaking held budget', async (t) => {
+    const { db, sql } = await integrationDb();
+    t.after(() => db.close());
+    const [withReservation] = await sql`INSERT INTO jobs
+        (project_id, user_id, model_id, model_version_id, status, request_body, created_at)
+        VALUES (15, ${requester.userId}, 'seedance-2.0', 'seedance-v2', 'reserving', '{}'::jsonb,
+                now() - interval '3 minutes') RETURNING id`;
+    const [withoutReservation] = await sql`INSERT INTO jobs
+        (project_id, user_id, model_id, model_version_id, status, request_body, created_at)
+        VALUES (15, ${requester.userId}, 'seedance-2.0', 'seedance-v2', 'reserving', '{}'::jsonb,
+                now() - interval '3 minutes') RETURNING id`;
+    await sql`INSERT INTO billing_events
+        (event_type, generation_id, project_id, user_id, model_id, model_version_id, est_cost_usd)
+        VALUES ('reservation', ${String(withReservation.id)}, 15, ${requester.userId}, 'seedance-2.0', 'seedance-v2', 10)`;
+
+    await recoverStaleReservations(sql);
+
+    const [recovered] = await sql`SELECT status FROM jobs WHERE id = ${withReservation.id}`;
+    const [failed] = await sql`SELECT status, error FROM jobs WHERE id = ${withoutReservation.id}`;
+    const recoveryEvents = await sql`SELECT payload FROM events WHERE type = 'job.status_changed'`;
+    assert.equal(recovered.status, 'queued');
+    assert.equal(failed.status, 'failed');
+    assert.match(failed.error.message, /reservation was interrupted/i);
+    assert.equal(recoveryEvents.length, 1);
+    assert.equal(recoveryEvents[0].payload.recovered, true);
 });
 
 test('approved-limit arithmetic never overwrites a newer cap', () => {
