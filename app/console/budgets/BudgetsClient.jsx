@@ -171,7 +171,8 @@ export default function BudgetsClient() {
                     <Button variant="danger" onClick={remove} loading={removing}>Delete budget</Button>
                 </>}>
                 <p className="text-sm text-ink-2">
-                    Are you sure you want to delete this budget? It will stop being enforced immediately. This action cannot be undone.
+                    This removes the spending cap immediately, but does not spend or waste its remaining allowance.
+                    Existing usage history is retained. The affected scope falls back to any broader applicable budget; if none exists, this specific cap no longer restricts it.
                 </p>
             </Modal>
         </div>

@@ -1,5 +1,6 @@
 import { gatewayContext } from '../../../lib/gateway/authz.js';
 import { sweep } from '../../../lib/gateway/sweep.mjs';
+import { visibleEvents } from '../../../lib/gateway/eventAudience.mjs';
 
 // SSE stream (design §6): tails the Neon events outbox every 2s, scoped to
 // the caller's audience (workspace-wide + their projects + personal). Supports
@@ -39,13 +40,7 @@ export async function GET(request) {
             controller.enqueue(encoder.encode(`retry: 3000\n\n`));
             while (!closed && Date.now() - started < LIFETIME_MS) {
                 try {
-                    const rows = await sql.query(
-                        `SELECT * FROM events
-                         WHERE id > $1
-                           AND ($2 OR project_id IS NULL OR project_id = ANY($3::int[]) OR user_id = $4)
-                         ORDER BY id ASC LIMIT 100`,
-                        [cursor, isAdmin, projectIds, user.userId],
-                    );
+                    const rows = await visibleEvents(sql, { cursor, isAdmin, projectIds, userId: user.userId });
                     for (const row of rows) {
                         cursor = row.id;
                         controller.enqueue(encoder.encode(
