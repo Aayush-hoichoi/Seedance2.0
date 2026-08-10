@@ -417,3 +417,114 @@ test('approved-limit arithmetic never overwrites a newer cap', () => {
     assert.equal(nextApprovedLimit({ liveLimit: 200, minimumSafeCap: 30, increaseAmount: 50 }), 250);
     assert.equal(nextApprovedLimit({ liveLimit: 10, minimumSafeCap: 30, increaseAmount: 5 }), 35);
 });
+
+// --- budget approvals must not weaken an admin's quality grant -----------------
+//
+// A budget request is about money, not permission. Approving one used to assign
+// the request's own qualityCap unconditionally, so on 2026-08-10 an all-models
+// request at "high" silently dropped a seedream-5.0-pro grant from 4K to 2K
+// fifteen minutes after an admin approved it through the access-request flow.
+// The console kept displaying 4K because it renders model_access_requests, not
+// user_model_overrides, so the user was capped with no visible reason.
+
+async function approveWithExistingCap(sql, existingCap, requestedQuality = '1080p') {
+    await sql`INSERT INTO user_model_overrides
+        (project_id, user_id, model_id, effect, max_resolution, created_by)
+        VALUES (15, ${requester.userId}, 'seedance-2.0', 'allow', ${existingCap}, 'user-admin')`;
+    const request = await userRoutes(sql).POST(jsonRequest('http://local/api/budget-requests', {
+        projectId: 15, modelId: 'seedance-2.0', quality: requestedQuality, increaseAmount: 50,
+    }));
+    assert.equal(request.status, 201, await request.clone().text());
+    const { id } = await request.json();
+    const response = await decisionRoute(sql)(jsonRequest('http://local/approve', { policy: 'hard' }), {
+        params: Promise.resolve({ id, action: 'approve' }),
+    });
+    assert.equal(response.status, 200, await response.clone().text());
+    const [row] = await sql`SELECT max_resolution FROM user_model_overrides
+        WHERE project_id = 15 AND user_id = ${requester.userId} AND model_id = 'seedance-2.0'`;
+    return row.max_resolution;
+}
+
+test('approving a budget request never lowers an existing quality grant', async (t) => {
+    const { db, sql } = await integrationDb();
+    t.after(() => db.close());
+    // Admin granted 4k; the budget request only asks for 1080p.
+    assert.equal(await approveWithExistingCap(sql, '4k', '1080p'), '4k');
+});
+
+test('approving a budget request does raise a lower quality grant', async (t) => {
+    const { db, sql } = await integrationDb();
+    t.after(() => db.close());
+    assert.equal(await approveWithExistingCap(sql, '480p', '1080p'), '1080p');
+});
+
+test('an uncapped grant stays uncapped — NULL is the highest tier, not the lowest', async (t) => {
+    const { db, sql } = await integrationDb();
+    t.after(() => db.close());
+    assert.equal(await approveWithExistingCap(sql, null, '1080p'), null);
+});
+
+test('tier comparison is by ladder position and case-insensitive, not lexical', async (t) => {
+    const { db, sql } = await integrationDb();
+    t.after(() => db.close());
+    // '4K' > '1080p' by ladder, but '1080p' > '4K' lexically — and the column
+    // holds both cases historically, so the stored '4K' must still win.
+    assert.equal(await approveWithExistingCap(sql, '4K', '1080p'), '4K');
+    const ladder = RESOLUTIONS.map((tier) => tier.toLowerCase());
+    assert.ok(ladder.indexOf('4k') > ladder.indexOf('1080p'), 'guards the fixture, not the code');
+});
+
+test('a raised cap is written to the audit log with before and after', async (t) => {
+    const { db, sql } = await integrationDb();
+    t.after(() => db.close());
+    assert.equal(await approveWithExistingCap(sql, '480p', '1080p'), '1080p');
+
+    const rows = await sql`SELECT before, after, reason FROM audit_log
+        WHERE action = 'override.allow' AND target_type = 'user_model_override'`;
+    assert.equal(rows.length, 1, 'an override change must never be invisible');
+    assert.equal(rows[0].before.maxResolution, '480p');
+    assert.equal(rows[0].after.maxResolution, '1080p');
+    assert.equal(rows[0].after.modelId, 'seedance-2.0');
+    assert.match(rows[0].reason, /budget request/, 'the audit must say what caused the change');
+});
+
+test('a no-op approval writes no override audit entry', async (t) => {
+    const { db, sql } = await integrationDb();
+    t.after(() => db.close());
+    assert.equal(await approveWithExistingCap(sql, '4k', '1080p'), '4k');
+    const rows = await sql`SELECT id FROM audit_log WHERE action = 'override.allow'`;
+    assert.equal(rows.length, 0, 'nothing changed, so nothing should be logged');
+});
+
+test('a newly created override is audited too', async (t) => {
+    const { db, sql } = await integrationDb();
+    t.after(() => db.close());
+    const request = await userRoutes(sql).POST(jsonRequest('http://local/api/budget-requests', {
+        projectId: 15, modelId: 'seedance-2.0', quality: '1080p', increaseAmount: 50,
+    }));
+    const { id } = await request.json();
+    const response = await decisionRoute(sql)(jsonRequest('http://local/approve', { policy: 'hard' }), {
+        params: Promise.resolve({ id, action: 'approve' }),
+    });
+    assert.equal(response.status, 200, await response.clone().text());
+
+    const [override] = await sql`SELECT max_resolution FROM user_model_overrides`;
+    assert.equal(override.max_resolution, '1080p', 'a first grant still comes from the request');
+    const rows = await sql`SELECT before, after FROM audit_log WHERE action = 'override.allow'`;
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].after.maxResolution, '1080p');
+});
+
+test('the raised cap is what the gateway actually enforces', async (t) => {
+    const { db, sql } = await integrationDb();
+    t.after(() => db.close());
+    assert.equal(await approveWithExistingCap(sql, '480p', '1080p'), '1080p');
+
+    const overrides = await sql`SELECT * FROM user_model_overrides WHERE project_id = 15`;
+    const decision = effectiveAccess({
+        modelId: 'seedance-2.0', now: new Date(), grants: [], overrides, defaultModelIds: [],
+    });
+    assert.equal(decision.allowed, true);
+    assert.ok(resolutionWithinTier('1080p', decision.maxResolution, RESOLUTIONS));
+    assert.ok(!resolutionWithinTier('4k', decision.maxResolution, RESOLUTIONS), '1080p is still a ceiling');
+});

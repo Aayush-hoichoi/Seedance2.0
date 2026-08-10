@@ -26,10 +26,15 @@ export async function POST(request, { params }) {
     if (maxResolution && !tiers.includes(maxResolution)) {
         return apiError('BAD_REQUEST', `maxResolution must be one of: ${tiers.join(', ') || 'none'}.`);
     }
+    // The uniqueness on (project_id, user_id, model_id) is a PARTIAL index
+    // (… WHERE source_request_id IS NULL), so the arbiter needs that same
+    // predicate — a bare column list matches no constraint and Postgres rejects
+    // the statement outright, 500ing every save from the project access editor.
+    // Same shape as lib/access/gatewaySync.mjs; both write manual-scope rows.
     const [override] = await sql`INSERT INTO user_model_overrides
         (project_id, user_id, model_id, effect, max_resolution, valid_from, valid_until, created_by, revoked_at)
         VALUES (${project.id}, ${body.userId}, ${body.modelId}, ${body.effect}, ${maxResolution}, ${body.validFrom ?? null}, ${body.validUntil ?? null}, ${user.userId}, NULL)
-        ON CONFLICT (project_id, user_id, model_id)
+        ON CONFLICT (project_id, user_id, model_id) WHERE source_request_id IS NULL
         DO UPDATE SET effect = EXCLUDED.effect, revoked_at = NULL, max_resolution = EXCLUDED.max_resolution, valid_from = EXCLUDED.valid_from, valid_until = EXCLUDED.valid_until, created_by = EXCLUDED.created_by
         RETURNING *`;
     await emitEvent(sql, {
