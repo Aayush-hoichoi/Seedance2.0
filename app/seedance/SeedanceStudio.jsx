@@ -30,8 +30,9 @@ import { UserButton } from '@clerk/nextjs';
 import MediaHoverPreview from './MediaHoverPreview.jsx';
 import ProjectSelect from './ProjectSelect.jsx';
 import BudgetRemaining from './BudgetRemaining.jsx';
+import BudgetRequestModal from './BudgetRequestModal.jsx';
 import Link from 'next/link';
-import { ArrowLeft, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, ShieldCheck, WalletCards } from 'lucide-react';
 import AssetsPanel from './AssetsPanel.jsx';
 import CinematicPanel from './CinematicPanel.jsx';
 import { cinematicToPayload, sanitizeSetup, DEFAULT_SETUP } from '../../lib/seedance/cinematic.mjs';
@@ -154,6 +155,7 @@ export default function SeedanceStudio() {
     const [canManageProjects, setCanManageProjects] = useState(false); // admins/managers may create projects
     const [permsVersion, setPermsVersion] = useState(0); // bump → refetch access
     const [budgetVersion, setBudgetVersion] = useState(0); // settlement/release → refresh remaining balance
+    const [budgetRequestOpen, setBudgetRequestOpen] = useState(false);
 
     useEffect(() => {
         let alive = true;
@@ -239,6 +241,14 @@ export default function SeedanceStudio() {
         }
         if (type === 'budget.threshold_crossed') {
             setNotice(`Budget alert — ${data?.threshold}% of the ${data?.window} ${data?.type} limit is used.`);
+        }
+        if (type === 'budget.request.approved') {
+            setBudgetVersion((v) => v + 1);
+            setPermsVersion((v) => v + 1);
+            setNotice(`Budget approved for ${data?.modelName || 'your requested models'} — hard limit $${Number(data?.hardLimit || 0).toFixed(2)}.`);
+        }
+        if (type === 'budget.request.denied') {
+            setNotice(`Budget request denied for ${data?.modelName || 'the requested models'}${data?.reason ? ` — ${data.reason}` : '.'}`);
         }
         if (type === 'job.status_changed' && ['succeeded', 'failed', 'cancelled', 'timed_out'].includes(data?.status)) {
             setBudgetVersion((v) => v + 1);
@@ -1305,6 +1315,12 @@ export default function SeedanceStudio() {
                     </Link>
                     {projects.length > 0 && <ProjectSelect projects={projects} value={projectId} onChange={selectProject} />}
                     <BudgetRemaining projectId={projectId} modelId={options.model} refreshKey={budgetVersion} />
+                    {!isAdmin && projectId && (
+                        <button type="button" onClick={() => setBudgetRequestOpen(true)} title="Request more budget"
+                            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-line bg-paper-2 px-2.5 text-[11px] font-semibold text-ink-2 transition-colors hover:border-accent/40 hover:text-accent-hi">
+                            <WalletCards size={13} /> <span className="hidden sm:inline">Request budget</span>
+                        </button>
+                    )}
                 </div>
                 <div className="flex items-center gap-2">
                     {isAdmin && (
@@ -1318,6 +1334,17 @@ export default function SeedanceStudio() {
                     <UserButton />
                 </div>
             </div>
+
+            {budgetRequestOpen && projectId ? (
+                <BudgetRequestModal
+                    projectId={projectId}
+                    onClose={() => setBudgetRequestOpen(false)}
+                    onSent={(request) => {
+                        setBudgetRequestOpen(false);
+                        setNotice(`Budget request sent — an admin will review the $${Number(request?.increaseAmount || 0).toFixed(2)} increase for ${request?.modelName || 'your models'}.`);
+                    }}
+                />
+            ) : null}
 
 
             {/* Center stage: hero when empty, else the selected job plays big.

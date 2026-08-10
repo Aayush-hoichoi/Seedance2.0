@@ -196,13 +196,16 @@ function EditBudgetModal({ quota, projectName, userName, onClose, onUpdated }) {
     const [newCapInput, setNewCapInput] = useState(String(quota.hard_limit));
     const [reason, setReason] = useState('');
     const [saving, setSaving] = useState(false);
+    const [deleting, setDeleting] = useState(false);
+    const [confirmDelete, setConfirmDelete] = useState(false);
     const [error, setError] = useState('');
 
     const newCap = Number(newCapInput);
     const minimumCap = snapshot.used + snapshot.reserved;
+    const unusedAllowance = Math.max(0, snapshot.hardLimit - minimumCap);
     const delta = newCap - snapshot.hardLimit;
     const reducing = Number.isFinite(newCap) && delta < 0;
-    const validNumber = Number.isFinite(newCap) && newCap > 0 && (!wholeNumber || Number.isInteger(newCap));
+    const validNumber = Number.isFinite(newCap) && newCap >= 0 && (!wholeNumber || Number.isInteger(newCap));
     const valid = validNumber
         && newCap >= minimumCap
         && newCap !== snapshot.hardLimit
@@ -237,10 +240,23 @@ function EditBudgetModal({ quota, projectName, userName, onClose, onUpdated }) {
         onUpdated();
     }
 
+    async function remove() {
+        setDeleting(true);
+        setError('');
+        const response = await sendJson(`/api/admin/quotas?id=${quota.id}`, 'DELETE');
+        setDeleting(false);
+        if (!response.ok) {
+            setError(response.data?.message || 'Failed to delete budget');
+            return;
+        }
+        toast.success('Budget deleted — unused allowance was not spent');
+        onUpdated();
+    }
+
     const validationMessage = !newCapInput
         ? 'Enter a new cap.'
         : !validNumber
-            ? wholeNumber ? 'This budget requires a positive whole number.' : 'Enter a positive number.'
+            ? wholeNumber ? 'This budget requires a non-negative whole number.' : 'Enter zero or a positive number.'
             : newCap < minimumCap
                 ? `The cap cannot be below ${format(minimumCap)} (spent plus in-flight usage).`
                 : newCap === snapshot.hardLimit
@@ -250,12 +266,20 @@ function EditBudgetModal({ quota, projectName, userName, onClose, onUpdated }) {
                         : '';
 
     return (
-        <Modal open onOpenChange={(nextOpen) => { if (!nextOpen && !saving) onClose(); }} title="Edit budget cap"
+        <Modal open onOpenChange={(nextOpen) => { if (!nextOpen && !saving && !deleting) onClose(); }} title={confirmDelete ? 'Delete this budget?' : 'Edit budget cap'}
             footer={<>
-                <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
-                <Button variant={reducing ? 'danger' : 'primary'} onClick={save} loading={saving} disabled={!valid}>
-                    {reducing ? 'Reduce budget' : 'Save cap'}
-                </Button>
+                {confirmDelete ? <>
+                    <Button variant="outline" onClick={() => setConfirmDelete(false)} disabled={deleting}>Keep budget</Button>
+                    <Button variant="danger" onClick={remove} loading={deleting}>Delete budget</Button>
+                </> : <>
+                    <Button variant="danger" className="sm:mr-auto" onClick={() => setConfirmDelete(true)} disabled={saving}>
+                        <Trash2 size={13} /> Delete budget
+                    </Button>
+                    <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
+                    <Button variant={reducing ? 'danger' : 'primary'} onClick={save} loading={saving} disabled={!valid}>
+                        {reducing ? 'Reduce budget' : 'Save cap'}
+                    </Button>
+                </>}
             </>}>
             <Card className="bg-paper-3">
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -267,6 +291,16 @@ function EditBudgetModal({ quota, projectName, userName, onClose, onUpdated }) {
                     <BudgetCardValue label="Minimum safe cap" value={format(minimumCap)} />
                 </div>
             </Card>
+
+            {confirmDelete ? (
+                <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-3 text-xs leading-relaxed text-ink-2">
+                    <div className="font-medium text-danger">This removes only the spending cap.</div>
+                    <p className="mt-1">
+                        The unused allowance of <span className="font-mono font-semibold text-ink">{format(unusedAllowance)}</span> is not charged or wasted.
+                        Existing spend history remains unchanged. After deletion, this user falls back to any broader project or workspace budget; if none exists, this specific cap no longer restricts them.
+                    </p>
+                </div>
+            ) : <>
 
             <Field label="New total budget cap">
                 <Input type="number" min={minimumCap} step={wholeNumber ? '1' : 'any'} value={newCapInput}
@@ -287,9 +321,10 @@ function EditBudgetModal({ quota, projectName, userName, onClose, onUpdated }) {
                         onChange={(event) => { setReason(event.target.value); setError(''); }} />
                 </Field>
             ) : null}
+            </>}
 
             {error ? <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{error}</div> : null}
-            {!error && validationMessage ? <div className="text-xs text-ink-3">{validationMessage}</div> : null}
+            {!confirmDelete && !error && validationMessage ? <div className="text-xs text-ink-3">{validationMessage}</div> : null}
         </Modal>
     );
 }
