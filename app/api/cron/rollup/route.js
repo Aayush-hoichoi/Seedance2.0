@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../../lib/db/neon.js';
 import { sweep } from '../../../../lib/gateway/sweep.mjs';
+import { cleanupOldAssets } from '../../../../lib/byteplus/assetsServer.js';
 
 // The single daily Vercel cron (Hobby plan allows 1/day): materializes
 // yesterday's billing events into usage_rollups_daily and runs a forced
@@ -44,5 +45,15 @@ export async function GET(request) {
         RETURNING day`;
 
     await sweep({ force: true }).catch(() => {});
-    return NextResponse.json({ ok: true, rolledUp: rows.length });
+
+    // Floor for the reference-asset pool. The registration-time sweep only runs
+    // when somebody registers something, so a quiet stretch that leaves stale
+    // assets behind would otherwise sit until the next upload — which is the
+    // upload most likely to hit a full pool. Riding this job rather than a new
+    // cron because vercel.json is on the Hobby one-cron-per-day limit.
+    // Best-effort: the rollup above is the reason this route exists.
+    const sweptAssets = await cleanupOldAssets({ maxAgeHours: 1 })
+        .catch((error) => { console.error('[assets] cron sweep failed:', error.message); return 0; });
+
+    return NextResponse.json({ ok: true, rolledUp: rows.length, sweptAssets });
 }

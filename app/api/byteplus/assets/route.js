@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { signAssetRequest, assetUrl } from '../../../../lib/byteplus/assetSign.js';
+import { sweepAssetsIfDue } from '../../../../lib/byteplus/assetsServer.js';
 
 // Server-side signed proxy for the BytePlus ModelArk Asset Library APIs.
 // The browser POSTs { action, payload }; we sign with the server-only AK/SK and
@@ -72,6 +73,14 @@ export async function POST(request) {
             // client only ever sees the mapped, friendly message).
             if (action === 'GetAsset' && json?.Result?.Status === 'Failed') {
                 console.error('[byteplus] asset verification failed', JSON.stringify(json.Result));
+            }
+            // Registration is the one moment we KNOW the pool just grew, and it
+            // is the only pool-touching path every client shares — the studio,
+            // and MCP register_asset, which the browser-side sweep never saw at
+            // all. Throttled and deferred via after(), so it costs the upload
+            // nothing; a failure here must never fail the registration.
+            if (action === 'CreateAsset' && upstream.ok) {
+                after(() => { sweepAssetsIfDue(); });
             }
             return NextResponse.json(json, { status: upstream.status });
         } catch {
