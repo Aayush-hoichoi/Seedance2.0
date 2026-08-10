@@ -38,3 +38,54 @@ test('empty input stays empty', () => {
     assert.equal(friendlyError(null), null);
     assert.equal(friendlyError(''), '');
 });
+
+// One bare /quota/i used to claim that FOUR unrelated failures were all a full
+// reference-asset pool. On 2026-08-10 the studio showed "the reference-asset
+// pool filled up — delete unused assets" while the pool held four objects, none
+// older than an hour. Worst case, a user who had merely exhausted their BUDGET
+// was sent to delete assets in a third party's console.
+const QUOTA_CASES = [
+    {
+        name: 'the provider’s own billing quota (real Gemini text, job 5128)',
+        raw: 'You exceeded your current quota, please check your plan and billing details. '
+            + 'For more information on this error, head to: https://ai.google.dev/gemini-api/docs/',
+        expect: /billing quota/i,
+    },
+    {
+        name: 'BytePlus per-minute write throttle',
+        raw: 'QuotaWriteQPMExceeded: request rejected',
+        expect: /rate-limiting/i,
+    },
+    {
+        name: 'this workspace’s own spend cap',
+        raw: 'A budget or quota limit would be exceeded.',
+        expect: /budget for your project/i,
+    },
+    {
+        name: 'genuine pool exhaustion',
+        raw: 'The BytePlus asset pool is still full after clearing studio assets — '
+            + 'delete unused assets in the BytePlus console (Asset Library) and try again.',
+        expect: /reference-asset pool filled up/i,
+    },
+];
+
+for (const { name, raw, expect } of QUOTA_CASES) {
+    test(`quota-shaped error is attributed to its real cause: ${name}`, () => {
+        assert.match(friendlyError(raw), expect);
+    });
+}
+
+test('the four quota-shaped errors do not collapse onto one message', () => {
+    const messages = QUOTA_CASES.map(({ raw }) => friendlyError(raw));
+    assert.equal(new Set(messages).size, QUOTA_CASES.length,
+        `distinct causes must read differently, got:\n${messages.join('\n')}`);
+});
+
+test('only genuine capacity exhaustion mentions deleting assets', () => {
+    for (const { raw, name } of QUOTA_CASES) {
+        const msg = friendlyError(raw);
+        const isPool = /asset pool is still full/i.test(raw);
+        assert.equal(/delete unused assets/i.test(msg), isPool,
+            `${name}: advice to delete assets must appear only for a full pool`);
+    }
+});
