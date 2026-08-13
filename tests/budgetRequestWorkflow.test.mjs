@@ -413,6 +413,113 @@ test('the sweeper fails interrupted reserving jobs and releases held budget', as
     assert.equal(recoveryEvents.every((event) => event.payload.interrupted === true), true);
 });
 
+// --- admins decide the amount, not just the yes/no ----------------------------
+//
+// A request is a proposal. An admin can fund less of it (partial approval) or
+// more of it, and the ledger has to show both numbers so a shortfall is never
+// silent. Omitting the field still approves exactly what was requested.
+
+async function approveWithAmount(sql, approvedAmount, requestedAmount = 50) {
+    const request = await userRoutes(sql).POST(jsonRequest('http://local/api/budget-requests', {
+        projectId: 15, modelId: 'seedance-2.0', quality: '1080p', increaseAmount: requestedAmount,
+    }));
+    assert.equal(request.status, 201, await request.clone().text());
+    const { id } = await request.json();
+    const body = approvedAmount === undefined ? { policy: 'hard' } : { policy: 'hard', approvedAmount };
+    const response = await decisionRoute(sql)(jsonRequest('http://local/approve', body), {
+        params: Promise.resolve({ id, action: 'approve' }),
+    });
+    return { id, response };
+}
+
+test('an admin can approve less than the requested increase', async (t) => {
+    const { db, sql } = await integrationDb();
+    t.after(() => db.close());
+    // Requested $50 against a live $100 cap; the admin funds $20 of it.
+    const { id, response } = await approveWithAmount(sql, 20);
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.equal((await response.json()).limit, 120);
+
+    const [quota] = await sql`SELECT hard_limit FROM quotas WHERE project_id = 15 AND user_id = ${requester.userId} AND model_id = 'seedance-2.0'`;
+    assert.equal(Number(quota.hard_limit), 120);
+
+    const [decision] = await sql`SELECT after FROM audit_log WHERE action = 'budget_request.approved' AND target_id = ${id}`;
+    assert.equal(decision.after.approvedIncrease, 20);
+    assert.equal(decision.after.requestedIncrease, 50, 'the ask stays on the record next to the grant');
+    assert.equal(decision.after.amountAdjusted, true);
+
+    const [event] = await sql`SELECT payload FROM events WHERE type = 'budget.request.approved'`;
+    assert.equal(Number(event.payload.approvedIncrease), 20);
+    assert.equal(Number(event.payload.requestedIncrease), 50, 'the requester is told what was actually granted');
+});
+
+test('an admin can approve more than the requested increase', async (t) => {
+    const { db, sql } = await integrationDb();
+    t.after(() => db.close());
+    const { response } = await approveWithAmount(sql, 75);
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.equal((await response.json()).limit, 175);
+    const [quota] = await sql`SELECT hard_limit FROM quotas WHERE project_id = 15 AND user_id = ${requester.userId} AND model_id = 'seedance-2.0'`;
+    assert.equal(Number(quota.hard_limit), 175);
+});
+
+test('an edited approval is still an increment — it never claws back spent budget', async (t) => {
+    const { db, sql } = await integrationDb();
+    t.after(() => db.close());
+    // $30 is already settled this month. Approving a token $1 must land above
+    // that floor, never below it, or the next generation is blocked retroactively.
+    await sql`UPDATE quotas SET hard_limit = 5 WHERE project_id = 15 AND user_id = ${requester.userId}`;
+    const { response } = await approveWithAmount(sql, 1);
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.equal((await response.json()).limit, 31, 'minimum safe cap ($30 used) + the $1 approved');
+});
+
+test('omitting the amount approves exactly what was requested', async (t) => {
+    const { db, sql } = await integrationDb();
+    t.after(() => db.close());
+    const { id, response } = await approveWithAmount(sql, undefined);
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.equal((await response.json()).limit, 150);
+    const [decision] = await sql`SELECT after FROM audit_log WHERE action = 'budget_request.approved' AND target_id = ${id}`;
+    assert.equal(decision.after.approvedIncrease, 50);
+    assert.equal(decision.after.amountAdjusted, false);
+});
+
+test('an explicit null amount means unedited, not invalid', async (t) => {
+    const { db, sql } = await integrationDb();
+    t.after(() => db.close());
+    const { response } = await approveWithAmount(sql, null);
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.equal((await response.json()).limit, 150);
+});
+
+test('a zero, negative, or unparseable approved amount decides nothing', async (t) => {
+    const { db, sql } = await integrationDb();
+    t.after(() => db.close());
+    for (const bad of [0, -10, 'plenty']) {
+        const { id, response } = await approveWithAmount(sql, bad);
+        assert.equal(response.status, 400, `${JSON.stringify(bad)} must be rejected`);
+        const [quota] = await sql`SELECT hard_limit FROM quotas WHERE project_id = 15 AND user_id = ${requester.userId} AND model_id = 'seedance-2.0'`;
+        assert.equal(Number(quota.hard_limit), 100, 'the live cap is untouched');
+        const [decisions] = await sql`SELECT count(*)::int AS count FROM audit_log
+            WHERE action = 'budget_request.approved' AND target_id = ${id}`;
+        assert.equal(decisions.count, 0, 'the request stays pending and re-decidable');
+    }
+});
+
+test('an edited approval is still one-shot — the second decision is rejected', async (t) => {
+    const { db, sql } = await integrationDb();
+    t.after(() => db.close());
+    const { id, response } = await approveWithAmount(sql, 20);
+    assert.equal(response.status, 200);
+    const second = await decisionRoute(sql)(jsonRequest('http://local/approve', { policy: 'hard', approvedAmount: 500 }), {
+        params: Promise.resolve({ id, action: 'approve' }),
+    });
+    assert.equal(second.status, 409, 'an admin cannot top up by re-approving the same request');
+    const [quota] = await sql`SELECT hard_limit FROM quotas WHERE project_id = 15 AND user_id = ${requester.userId} AND model_id = 'seedance-2.0'`;
+    assert.equal(Number(quota.hard_limit), 120);
+});
+
 test('approved-limit arithmetic never overwrites a newer cap', () => {
     assert.equal(nextApprovedLimit({ liveLimit: 200, minimumSafeCap: 30, increaseAmount: 50 }), 250);
     assert.equal(nextApprovedLimit({ liveLimit: 10, minimumSafeCap: 30, increaseAmount: 5 }), 35);

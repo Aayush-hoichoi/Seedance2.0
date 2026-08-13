@@ -1,0 +1,74 @@
+// A video tier is wired across THREE files that never import each other:
+//   lib/seedance/constants.js   MODELS[].kind      — what the studio picker offers
+//   lib/db/seeds.mjs            catalog().kind     — what the database catalogues
+//   lib/seedance/pricing.mjs    RATES[kind]        — what the budget reserves against
+// The studio resolves a user's allowed models by matching `kind` between the
+// first two (SeedanceStudio bridges provider tag → alias via kind), so a typo in
+// one file makes a model seed cleanly, return from /api/models, report as
+// allowed, and STILL never appear in the picker — with no error anywhere. A
+// missing pricing entry is worse than silent: estimateCost() returns null, no
+// reservation is taken, and the tier generates outside quota enforcement.
+// These are the joins, so they get a test rather than a comment.
+
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { MODELS, supportedResolutionsFor } from '../lib/seedance/constants.js';
+import { catalog } from '../lib/db/seeds.mjs';
+import { estimateCost, unitPrice } from '../lib/seedance/pricing.mjs';
+
+const videoCatalog = catalog().filter((m) => m.category === 'video');
+
+test('every catalogued video kind is offered by the studio picker', () => {
+    const studioKinds = new Set(MODELS.map((m) => m.kind));
+    for (const entry of videoCatalog) {
+        assert.ok(studioKinds.has(entry.kind),
+            `${entry.id} is catalogued as kind '${entry.kind}' but no MODELS entry carries it — it would never render`);
+    }
+});
+
+test('every studio video kind is priced — an unpriced tier escapes budget enforcement', () => {
+    for (const model of MODELS) {
+        const price = unitPrice(model.kind, '720p', false);
+        assert.ok(typeof price === 'number' && price > 0,
+            `${model.name} (kind '${model.kind}') has no RATES entry`);
+        const estimate = estimateCost({ kind: model.kind, resolution: '720p', duration: 5 });
+        assert.ok(typeof estimate === 'number' && estimate > 0,
+            `${model.name} (kind '${model.kind}') has no EXAMPLE_5S entry, so no reservation is taken`);
+    }
+});
+
+test('a catalogued tier resolves its quality ladder from either alias or provider tag', () => {
+    for (const entry of videoCatalog) {
+        const byAlias = supportedResolutionsFor(entry.id);
+        assert.ok(Array.isArray(byAlias) && byAlias.length,
+            `${entry.id} has no resolution ladder — admins would have nothing to grant`);
+    }
+});
+
+// --- Seedance 2.5 specifically ------------------------------------------------
+//
+// It ships on the gated path, exactly like Seedance 2.0: catalogued and active,
+// but reachable only after an admin approves. The two flags that carry that are
+// isDefault (an org default is an implicit grant to everyone) and gated (below).
+
+test('Seedance 2.5 is catalogued and is never an org default', () => {
+    const entry = catalog().find((m) => m.id === 'seedance-2.5');
+    assert.ok(entry, 'seedance-2.5 must be in the catalog');
+    assert.equal(entry.isDefault, false, 'an org default would bypass the approval flow');
+    assert.equal(entry.kind, 'full_2_5');
+    assert.equal(entry.providerModelId.startsWith('dreamina-seedance-2-5-'), true);
+});
+
+test('Seedance 2.5 carries the same access posture as Seedance 2.0', () => {
+    const [two, twoFive] = ['seedance-2.0', 'seedance-2.5'].map((id) => catalog().find((m) => m.id === id));
+    assert.equal(twoFive.isDefault, two.isDefault, 'default-ness must match 2.0');
+    assert.equal(twoFive.active ?? true, two.active ?? true, 'activeness must match 2.0');
+    const studio = (kind) => MODELS.find((m) => m.kind === kind);
+    assert.equal(studio(twoFive.kind).gated, studio(two.kind).gated, 'gating must match 2.0');
+});
+
+test('Seedance 2.5 is gated, so activation alone never grants anyone access', () => {
+    const model = MODELS.find((m) => m.kind === 'full_2_5');
+    assert.ok(model, 'the studio must know the 2.5 tier');
+    assert.equal(model.gated, true, 'ungated would make it open the moment it is activated');
+});
