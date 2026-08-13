@@ -139,6 +139,13 @@ export default function SeedanceStudio() {
     // null = still loading; then string[]. Gated models the user lacks are locked
     // in the picker with a "request access" action.
     const [allowedModelIds, setAllowedModelIds] = useState(null);
+    // Video `kind`s present in the ACTIVE gateway catalog — allowed or not. The
+    // picker renders from the constants list, so without this a model that is
+    // seeded but deactivated (a tier awaiting activation at the provider) would
+    // still show as a locked row and collect access requests it cannot honour.
+    // null = catalog unknown (pre-migration / fetch failed) → show everything,
+    // which is the behaviour that predates this filter.
+    const [catalogVideoKinds, setCatalogVideoKinds] = useState(null);
     // Per-model quality cap from the grant ('4k', '2K', …); absent/null = the
     // model's full range. Keys are studio model ids (video tags + image aliases).
     const [tierCaps, setTierCaps] = useState({});
@@ -199,6 +206,10 @@ export default function SeedanceStudio() {
                 // image picker can't tell Nano Banana Pro is unlocked.
                 const allowed = d.items.filter((m) => m.allowed);
                 const allowedKinds = new Set(allowed.map((m) => m.kind));
+                // Every active video kind, regardless of grant — drives which
+                // rows the picker offers at all (see catalogVideoKinds).
+                const videoKinds = d.items.filter((m) => m.category === 'video' && m.kind).map((m) => m.kind);
+                setCatalogVideoKinds(videoKinds.length ? new Set(videoKinds) : null);
                 const videoIds = MODELS.filter((m) => allowedKinds.has(m.kind)).map((m) => m.id);
                 const imageIds = allowed.filter((m) => m.category === 'image').map((m) => m.id);
                 setAllowedModelIds([...videoIds, ...imageIds]);
@@ -317,6 +328,13 @@ export default function SeedanceStudio() {
     const mode = useMemo(() => MODES.find((m) => m.id === modeId), [modeId]);
     const tags = useMemo(() => buildTags(mode, mediaByRole), [mode, mediaByRole]);
     const selectedModel = useMemo(() => MODELS.find((m) => m.id === options.model), [options.model]);
+    // A deactivated catalog entry disappears from the picker entirely rather
+    // than showing as locked: `active` is the switch, and flipping it in the DB
+    // brings the tier back with no deploy.
+    const visibleVideoModels = useMemo(
+        () => (catalogVideoKinds ? MODELS.filter((m) => catalogVideoKinds.has(m.kind)) : MODELS),
+        [catalogVideoKinds],
+    );
     // Capability-only list: tiers above the user's granted cap stay VISIBLE in
     // the picker (locked, with an upgrade-request affordance in PromptBar) —
     // the clamp below keeps them from ever being the active selection.
@@ -1397,7 +1415,7 @@ export default function SeedanceStudio() {
                 setOpt={setOpt}
                 mediaByRole={mediaByRole}
                 setMediaByRole={setMediaByRole}
-                models={MODELS}
+                models={visibleVideoModels}
                 allowedModelIds={allowedModelIds}
                 projectId={projectId}
                 resolutions={resolutions}
