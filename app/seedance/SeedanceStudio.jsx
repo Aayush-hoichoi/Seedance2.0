@@ -245,7 +245,15 @@ export default function SeedanceStudio() {
         if (type === 'budget.request.approved') {
             setBudgetVersion((v) => v + 1);
             setPermsVersion((v) => v + 1);
-            setNotice(`Budget approved for ${data?.modelName || 'your requested models'} — hard limit $${Number(data?.hardLimit || 0).toFixed(2)}.`);
+            // An admin can approve a different amount than was asked for, so say
+            // what was actually granted — otherwise a partial approval reads as
+            // a silent shortfall the next time a generation is blocked.
+            const granted = Number(data?.approvedIncrease);
+            const asked = Number(data?.requestedIncrease);
+            const adjusted = Number.isFinite(granted) && Number.isFinite(asked) && granted !== asked
+                ? ` — $${granted.toFixed(2)} of the $${asked.toFixed(2)} you requested`
+                : '';
+            setNotice(`Budget approved for ${data?.modelName || 'your requested models'}${adjusted} — hard limit $${Number(data?.hardLimit || 0).toFixed(2)}.`);
         }
         if (type === 'budget.request.denied') {
             setNotice(`Budget request denied for ${data?.modelName || 'the requested models'}${data?.reason ? ` — ${data.reason}` : '.'}`);
