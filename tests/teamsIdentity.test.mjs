@@ -97,3 +97,33 @@ test('an empty approver list authorises nobody', () =>
         const result = await resolveTeamsAdmin(AAD_ADMIN, { sql: stubSql({ [AAD_ADMIN]: ADMIN_ROW }) });
         assert.equal(result.ok, false, 'unconfigured must fail closed, never open');
     }));
+
+// --- the configured list and the linked accounts must agree ------------------
+//
+// TEAMS_ADMIN_AAD_IDS decides BOTH who receives a card and who may act on one.
+// If those two sets drift, someone gets an actionable card whose buttons always
+// fail — the worst failure shape, because it looks like a broken product rather
+// than a missing link.
+
+test('describeApprovers reports every configured id as linked or not', () =>
+    withApprovers(`${AAD_ADMIN},${AAD_STRANGER}`, async () => {
+        const { describeApprovers } = await import('../lib/teams/identity.mjs');
+        const rows = await describeApprovers({ sql: stubSql({ [AAD_ADMIN]: ADMIN_ROW }) });
+        assert.equal(rows.length, 2, 'every configured id is accounted for');
+
+        const linked = rows.find((r) => r.aadObjectId === AAD_ADMIN);
+        assert.equal(linked.linked, true);
+        assert.equal(linked.admin.email, 'swapnanil.logline@gmail.com');
+
+        const orphan = rows.find((r) => r.aadObjectId === AAD_STRANGER);
+        assert.equal(orphan.linked, false, 'an id with no account must be reported, not ignored');
+        assert.ok(orphan.reason, 'and must say why, so the operator knows the fix');
+    }));
+
+test('a configured id linked to a NON-admin is reported as unusable', () =>
+    withApprovers(AAD_ADMIN, async () => {
+        const { describeApprovers } = await import('../lib/teams/identity.mjs');
+        const [row] = await describeApprovers({ sql: stubSql({ [AAD_ADMIN]: MEMBER_ROW }) });
+        assert.equal(row.linked, false, 'a linked member is not an approver');
+        assert.match(row.reason, /not an admin/);
+    }));
