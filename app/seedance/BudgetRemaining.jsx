@@ -4,11 +4,7 @@
 
 import { useEffect, useState } from 'react';
 import { WalletCards } from 'lucide-react';
-
-const money = (value) => `$${Number(value).toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-})}`;
+import { usd as money } from '../../lib/seedance/money.mjs';
 
 export default function BudgetRemaining({ projectId, modelId, refreshKey = 0 }) {
     const [budget, setBudget] = useState(null);

@@ -19,13 +19,29 @@ export async function GET() {
         ? await sql`SELECT p.*, m2.role AS my_role,
               (SELECT count(*)::int FROM project_memberships m WHERE m.project_id = p.id) AS member_count,
               (SELECT COALESCE(SUM(COALESCE(b.cost_usd, b.est_cost_usd, 0)), 0)::float8 FROM billing_events b
-                WHERE b.project_id = p.id AND b.event_type IN ('settlement', 'failure')) AS spent_usd
+                WHERE b.project_id = p.id AND b.event_type IN ('settlement', 'failure')) AS spent_usd,
+              -- The caller's own slice of the same total, same semantics, same
+              -- window. Deliberately derived here rather than from a separate
+              -- endpoint: the studio shows both figures side by side, and two
+              -- queries with different scopes would let "your spend" exceed
+              -- "project spend" and read as a bug.
+              (SELECT COALESCE(SUM(COALESCE(b.cost_usd, b.est_cost_usd, 0)), 0)::float8 FROM billing_events b
+                WHERE b.project_id = p.id AND b.user_id = ${user.userId}
+                  AND b.event_type IN ('settlement', 'failure')) AS my_spent_usd
            FROM projects p LEFT JOIN project_memberships m2 ON m2.project_id = p.id AND m2.user_id = ${user.userId}
            WHERE p.archived_at IS NULL ORDER BY p.created_at`
         : await sql`SELECT p.*, m2.role AS my_role,
               (SELECT count(*)::int FROM project_memberships m WHERE m.project_id = p.id) AS member_count,
               (SELECT COALESCE(SUM(COALESCE(b.cost_usd, b.est_cost_usd, 0)), 0)::float8 FROM billing_events b
-                WHERE b.project_id = p.id AND b.event_type IN ('settlement', 'failure')) AS spent_usd
+                WHERE b.project_id = p.id AND b.event_type IN ('settlement', 'failure')) AS spent_usd,
+              -- The caller's own slice of the same total, same semantics, same
+              -- window. Deliberately derived here rather than from a separate
+              -- endpoint: the studio shows both figures side by side, and two
+              -- queries with different scopes would let "your spend" exceed
+              -- "project spend" and read as a bug.
+              (SELECT COALESCE(SUM(COALESCE(b.cost_usd, b.est_cost_usd, 0)), 0)::float8 FROM billing_events b
+                WHERE b.project_id = p.id AND b.user_id = ${user.userId}
+                  AND b.event_type IN ('settlement', 'failure')) AS my_spent_usd
            FROM projects p JOIN project_memberships m2 ON m2.project_id = p.id AND m2.user_id = ${user.userId}
            WHERE p.archived_at IS NULL ORDER BY p.created_at`;
     return NextResponse.json({ items: rows, role, canManageProjects });

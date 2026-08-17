@@ -30,6 +30,7 @@ import { UserButton } from '@clerk/nextjs';
 import MediaHoverPreview from './MediaHoverPreview.jsx';
 import ProjectSelect from './ProjectSelect.jsx';
 import BudgetRemaining from './BudgetRemaining.jsx';
+import MySpend from './MySpend.jsx';
 import BudgetRequestModal from './BudgetRequestModal.jsx';
 import Link from 'next/link';
 import { ArrowLeft, ShieldCheck, WalletCards } from 'lucide-react';
@@ -153,7 +154,11 @@ export default function SeedanceStudio() {
     // on locked tiers when a quality upgrade is already parked with the admin.
     const [accessRequests, setAccessRequests] = useState([]);
     const [isAdmin, setIsAdmin] = useState(false); // shows the /admin shortcut (server still enforces)
-    const [monthSpend, setMonthSpend] = useState(null); // this month's spend (USD) for the badge
+    // (There was a monthSpend state here for "the badge" that was set and never
+    // read. The badge now exists — MySpend — but shows spend on the CURRENT
+    // PROJECT, not this user's workspace-wide month, so it reconciles with the
+    // project total beside it. /api/access/me still returns monthSpendUsd for
+    // the MCP catalog tool.)
     // Gateway projects: model access + budgets are scoped per project. The
     // picker only appears when the user belongs to more than one.
     const [projects, setProjects] = useState([]);
@@ -168,7 +173,7 @@ export default function SeedanceStudio() {
         let alive = true;
         fetch('/api/access/me')
             .then((r) => (r.ok ? r.json() : null))
-            .then((d) => { if (alive && d) { setAllowedModelIds(d.allowedModelIds); setIsAdmin(!!d.isAdmin); if (typeof d.monthSpendUsd === 'number') setMonthSpend(d.monthSpendUsd); if (Array.isArray(d.requests)) setAccessRequests(d.requests); } })
+            .then((d) => { if (alive && d) { setAllowedModelIds(d.allowedModelIds); setIsAdmin(!!d.isAdmin); if (Array.isArray(d.requests)) setAccessRequests(d.requests); } })
             .catch(() => {});
         fetch('/api/projects')
             .then((r) => (r.ok ? r.json() : null))
@@ -190,6 +195,32 @@ export default function SeedanceStudio() {
             .catch(() => { if (alive) setProjectsLoaded(true); });
         return () => { alive = false; };
     }, []);
+
+    // The spend on the project chip is captured at mount, so it would sit
+    // frozen while the user kept generating. Refresh it on the same signal the
+    // budget badge uses (settlement/release). Only the AMOUNTS are merged in:
+    // re-running the mount effect above would redo project SELECTION (?project=
+    // / localStorage) and could yank someone into a different project
+    // mid-session. New objects, no mutation.
+    useEffect(() => {
+        if (!budgetVersion) return undefined; // mount already fetched these
+        let alive = true;
+        fetch('/api/projects')
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => {
+                if (!alive || !Array.isArray(d?.items)) return;
+                const spendById = new Map(d.items.map((p) => [p.id, p]));
+                setProjects((prev) => prev.map((p) => {
+                    const fresh = spendById.get(p.id);
+                    // Both figures move together — refreshing one without the
+                    // other would briefly show a personal spend above the
+                    // project's.
+                    return fresh ? { ...p, spent_usd: fresh.spent_usd, my_spent_usd: fresh.my_spent_usd } : p;
+                }));
+            })
+            .catch(() => { /* a stale figure beats a broken header */ });
+        return () => { alive = false; };
+    }, [budgetVersion]);
 
     // Per-project effective model list (precedence-aware). Falls back to the
     // /api/access/me answer above when the gateway isn't migrated yet.
@@ -1354,6 +1385,7 @@ export default function SeedanceStudio() {
                     )}
                 </div>
                 <div className="flex items-center gap-2">
+                    <MySpend project={projects.find((p) => p.id === projectId) ?? null} />
                     {isAdmin && (
                         <Link href="/console" title="Console" className="grid h-7 w-7 place-items-center rounded-md border border-line bg-paper-2 text-warn/80 transition-colors hover:text-warn">
                             <ShieldCheck size={14} />
