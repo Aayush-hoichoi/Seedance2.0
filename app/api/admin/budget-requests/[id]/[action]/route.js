@@ -1,7 +1,7 @@
 import { getUser } from '../../../../../../lib/auth/user.js';
 import { canReviewBudgetRequests, decideBudgetRequest } from '../../../../../../lib/budgetRequests.mjs';
 import { createBudgetDecisionRouteHandler } from '../../../../../../lib/http/budgetRequestHandlers.mjs';
-import { loadBudgetRequestPayload, updateTeamsBudgetCards } from '../../../../../../lib/notify/teams.mjs';
+import { loadBudgetRequestPayload, teamsConfigured, updateTeamsBudgetCards } from '../../../../../../lib/notify/teams.mjs';
 
 export const runtime = 'nodejs';
 
@@ -10,6 +10,10 @@ export const runtime = 'nodejs';
 // budget.request.approved/denied event that the console already revalidates on
 // (ConsoleShell's REFRESH map). This closes the loop the other way.
 async function syncTeamsCards({ id, action, admin, decision }) {
+    // Checked BEFORE the lookup, not inside it. With Teams unconfigured this
+    // path must cost nothing at all: the console decides budgets whether or not
+    // Teams exists, and it should not pay a query for a feature that is off.
+    if (!teamsConfigured()) return;
     const request = await loadBudgetRequestPayload(id);
     if (!request) return;
     await updateTeamsBudgetCards({
