@@ -8,7 +8,7 @@
 import { useEffect, useRef } from 'react';
 
 const TYPES = [
-    'access.granted', 'access.revoked', 'access.expired',
+    'access.granted', 'access.revoked', 'access.expired', 'access.request.denied',
     'job.status_changed', 'budget.threshold_crossed',
     'budget.requested', 'budget.request.approved', 'budget.request.denied',
     'project.paused', 'project.resumed',

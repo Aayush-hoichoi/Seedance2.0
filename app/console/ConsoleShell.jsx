@@ -36,6 +36,7 @@ const REVALIDATE = {
     'access.granted': ['/api/projects'],
     'access.revoked': ['/api/projects'],
     'access.expired': ['/api/projects'],
+    'access.request.denied': ['/api/admin/requests'],
     'budget.threshold_crossed': ['/api/admin/quotas?withUsage=1'],
     'budget.requested': ['/api/admin/budget-requests'],
     'budget.request.approved': ['/api/admin/budget-requests', '/api/admin/quotas?withUsage=1'],

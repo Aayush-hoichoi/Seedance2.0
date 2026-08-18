@@ -300,6 +300,9 @@ export default function SeedanceStudio() {
         if (type === 'budget.request.denied') {
             setNotice(`Budget request denied for ${data?.modelName || 'the requested models'}${data?.reason ? ` — ${data.reason}` : '.'}`);
         }
+        if (type === 'access.request.denied') {
+            setNotice(`Access request ${data?.upgradeDeclined ? 'for a higher quality tier ' : ''}denied for ${data?.modelId || 'the requested model'}${data?.reason ? ` — ${data.reason}` : '.'}`);
+        }
         if (type === 'job.status_changed' && ['succeeded', 'failed', 'cancelled', 'timed_out'].includes(data?.status)) {
             setBudgetVersion((v) => v + 1);
         }
