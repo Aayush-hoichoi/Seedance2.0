@@ -77,15 +77,18 @@ test('Seedance 2.5 is gated, so activation alone never grants anyone access', ()
 // and what gets priced — but the provider is the only thing that actually knows.
 // 2.5 shipped as 1080p/4k-capable by analogy with 2.0 and users hit
 // "resolution 1080p is not supported for this account and model" at submit time,
-// after the request had been priced. Verified per-tier against the live API on
-// 2026-08-13: 480p/720p accepted, 1080p and 4k rejected.
+// after the request had been priced. Verified per-tier against the live API:
+//   2026-08-13  480p/720p accepted, 1080p and 4k rejected  -> capped at 720p
+//   2026-08-18  480p/720p/1080p accepted, 4k rejected      -> 1080p re-enabled
+// The 1080p refusal was account-scoped and lifted on its own, so this ladder
+// tracks a live probe, never an assumption. 4k is a model limit.
 test('Seedance 2.5 offers only the tiers the provider actually accepts', () => {
     const model = MODELS.find((m) => m.kind === 'full_2_5');
-    assert.equal(model.supports1080p, false, '1080p is refused for this account');
+    assert.equal(model.supports1080p, true, '1080p accepted for this account since 2026-08-18');
     assert.equal(model.supports4k, false, '4k is not valid for this model in t2v');
-    assert.deepEqual(supportedResolutionsFor('seedance-2.5'), ['480p', '720p'],
+    assert.deepEqual(supportedResolutionsFor('seedance-2.5'), ['480p', '720p', '1080p'],
         'the grantable ladder must not promise a tier the provider rejects');
-    assert.deepEqual(supportedResolutionsFor(model.id), ['480p', '720p'],
+    assert.deepEqual(supportedResolutionsFor(model.id), ['480p', '720p', '1080p'],
         'same ladder via the provider tag');
 });
 
