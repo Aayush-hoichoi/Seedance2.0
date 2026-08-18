@@ -1,15 +1,24 @@
 import { NextResponse } from 'next/server';
 import { getUser } from '../../../../../../lib/auth/user.js';
-import { setRequestStatus, denyUpgrade } from '../../../../../../lib/access/db.js';
-import { nextStatus } from '../../../../../../lib/access/requestStatus.mjs';
-import { syncGatewayOverride } from '../../../../../../lib/access/gatewaySync.mjs';
-import { notifySlackAccessDecided } from '../../../../../../lib/notify/slack.mjs';
+import { decideAccessRequest, canReviewAccessRequests } from '../../../../../../lib/access/decideAccessRequest.mjs';
+import { teamsConfigured, loadAccessRequestPayload, updateTeamsAccessCards } from '../../../../../../lib/notify/teamsAccess.mjs';
 
 export const runtime = 'nodejs';
 
+// Teams → console needs no code here: a Teams decision calls the exact same
+// decideAccessRequest, whose events row the console's SSE stream already
+// revalidates on. This is the other direction — a console decision updating
+// every Teams card for the request.
+async function syncTeamsCards({ id, decision }) {
+    if (!teamsConfigured()) return;
+    const request = await loadAccessRequestPayload(id);
+    if (!request) return;
+    await updateTeamsAccessCards({ requestId: id, request, decision });
+}
+
 export async function POST(request, { params }) {
     const admin = await getUser();
-    if (!admin || admin.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    if (!canReviewAccessRequests(admin)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     const { id, action } = await params;
     if (action !== 'approve' && action !== 'revoke' && action !== 'deny_upgrade') {
         return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
@@ -17,13 +26,6 @@ export async function POST(request, { params }) {
     const requestId = Number(id);
     if (!Number.isInteger(requestId) || requestId <= 0) {
         return NextResponse.json({ error: 'Invalid request id' }, { status: 400 });
-    }
-    // deny_upgrade clears only the parked tier ask — the live grant and its
-    // gateway override stay untouched, so no sync and no revoke notification.
-    if (action === 'deny_upgrade') {
-        const row = await denyUpgrade(requestId, admin.email);
-        if (!row) return NextResponse.json({ error: 'No pending upgrade on that request.' }, { status: 404 });
-        return NextResponse.json({ ok: true, request: row });
     }
     // Approving requires a future expiry — the grant is time-boxed. The admin
     // may also pick the granted quality tier (possibly lower than requested);
@@ -35,32 +37,40 @@ export async function POST(request, { params }) {
     if (action === 'approve') {
         const body = await request.json().catch(() => null);
         validUntil = body?.validUntil ?? null;
-        const at = validUntil ? Date.parse(validUntil) : NaN;
-        if (!validUntil || Number.isNaN(at) || at <= Date.now()) {
-            return NextResponse.json({ error: 'A future expiry time (validUntil) is required to approve.' }, { status: 400 });
-        }
         maxResolution = typeof body?.maxResolution === 'string' ? body.maxResolution.slice(0, 12) : null;
     }
-    const row = await setRequestStatus(requestId, nextStatus(action), admin.email, validUntil, maxResolution);
-    if (!row) return NextResponse.json({ error: 'Request not found' }, { status: 404 });
-    // The override is what the gateway actually enforces — the status row above
-    // only DISPLAYS the decision. A silent failure here reads as a granted
-    // approval the user can't use, so report it instead of swallowing it.
-    let syncError = null;
-    try {
-        await syncGatewayOverride({ action, row, admin, validUntil });
-    } catch (err) {
-        syncError = err.message;
-        console.error('[access] gateway override sync failed:', err.message); // legacy status is already saved
+    const result = await decideAccessRequest({ id: requestId, action, admin, validUntil, maxResolution });
+    if (result.error === 'not_found') {
+        return NextResponse.json({ error: action === 'deny_upgrade' ? 'No pending upgrade on that request.' : 'Request not found' }, { status: 404 });
     }
-    // Post the outcome (approved / declined) to Slack. Best-effort.
-    await notifySlackAccessDecided({ email: row.user_email, modelId: row.model_id, status: row.status, expiresAt: row.expires_at, maxResolution: row.max_resolution }).catch(() => {});
-    if (syncError) {
+    if (result.error === 'expiry') {
+        return NextResponse.json({ error: 'A future expiry time (validUntil) is required to approve.' }, { status: 400 });
+    }
+    if (result.error) return NextResponse.json({ error: 'Could not decide that request.' }, { status: 400 });
+
+    if (action === 'deny_upgrade') return NextResponse.json({ ok: true, request: result.row });
+
+    // A console decision must reach the Teams cards too — otherwise they sit
+    // showing "pending" for a request that is settled. Awaited so a failure is
+    // logged in context, never rethrown: the decision is already committed.
+    try {
+        await syncTeamsCards({
+            id: requestId,
+            decision: {
+                status: result.status, decidedBy: admin.name || admin.email,
+                maxResolution: result.row.max_resolution, expiresAt: result.row.expires_at,
+            },
+        });
+    } catch (err) {
+        console.error('[access] Teams card sync failed:', err.message);
+    }
+
+    if (result.syncError) {
         return NextResponse.json({
             ok: false,
-            request: row,
-            error: `Decision saved, but access was NOT applied: ${syncError}. The user still cannot use this model.`,
+            request: result.row,
+            error: `Decision saved, but access was NOT applied: ${result.syncError}. The user still cannot use this model.`,
         }, { status: 500 });
     }
-    return NextResponse.json({ ok: true, request: row });
+    return NextResponse.json({ ok: true, request: result.row });
 }

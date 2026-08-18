@@ -54,6 +54,9 @@ export async function GET(request) {
             400,
         );
     }
+    if (verified.payload.kind !== 'budget') {
+        return page('This link no longer works', 'It is invalid. Decide this request from the console instead.', 400);
+    }
     const { requestId, adminUserId, aadObjectId, action } = verified.payload;
 
     const sql = await getDb();

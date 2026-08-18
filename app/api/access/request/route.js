@@ -4,6 +4,7 @@ import { requestAccess } from '../../../../lib/access/db.js';
 import { getDb } from '../../../../lib/db/neon.js';
 import { GATED_MODEL_IDS, IMAGE_GATED_MODEL_IDS, supportedResolutionsFor } from '../../../../lib/seedance/constants.js';
 import { notifySlackAccessRequested } from '../../../../lib/notify/slack.mjs';
+import { notifyTeamsAccessRequested } from '../../../../lib/notify/teamsAccess.mjs';
 
 export const runtime = 'nodejs';
 
@@ -51,6 +52,18 @@ export async function POST(request) {
         await notifySlackAccessRequested({
             id, email: user.email, modelId, projectName: member.name, note: cleanNote, maxResolution: tier,
             upgradeFrom: status === 'upgrade_pending' ? (currentMax ?? 'any') : null,
+        }).catch(() => {});
+        // Same request, second surface — shape matches what loadAccessRequestPayload
+        // re-reads later, so the same card builder renders it from send-time and
+        // from a reload alike.
+        await notifyTeamsAccessRequested({
+            requestId: id,
+            request: {
+                userId: user.userId, userEmail: user.email, modelId, status,
+                maxResolution: status === 'upgrade_pending' ? (currentMax ?? null) : tier,
+                pendingMaxResolution: status === 'upgrade_pending' ? tier : null,
+                projectId: pid, projectName: member.name, note: cleanNote,
+            },
         }).catch(() => {});
     }
     return NextResponse.json({ ok: true, status });
