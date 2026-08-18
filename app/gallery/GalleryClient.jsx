@@ -28,8 +28,9 @@ export default function GalleryClient() {
                 if (!alive) return;
                 setCreators(d.creators || []);
                 setMe(d.me || null);
-                // Land on the most recently active creator so the page opens
-                // onto real work instead of an empty pane.
+                // The API hands these back newest-active first, so the first
+                // creator with work is the most recently active one — land
+                // there so the page opens onto real work, not an empty pane.
                 const first = (d.creators || []).find((c) => c.generations > 0) || (d.creators || [])[0];
                 if (first) setSelected(first.id);
             })

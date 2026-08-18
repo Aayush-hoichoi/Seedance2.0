@@ -5,6 +5,7 @@ import { toItem } from '../../../lib/seedance/galleryItem.mjs';
 
 // Community gallery — every signed-in user can browse every creator's work.
 //   GET /api/gallery            → { me, creators: [{ id, name, email, generations, last_at }] }
+//                                 ordered newest → oldest by last_at (sidebar order)
 //   GET /api/gallery?user=<id>  → { items: [...] } that creator's generations
 //   GET /api/gallery?liked=1    → { items: [...] } every liked generation (all creators)
 // Each item carries a presigned URL for the archived copy of its video
@@ -37,7 +38,11 @@ export async function GET(request) {
             return NextResponse.json({ items });
         }
         if (!target) {
-            const creators = await listCreators();
+            // Newest → oldest by last activity: this list is only ever the
+            // gallery's creators sidebar, and it should read the same way the
+            // generation grid does. The admin roster keeps its own (volume)
+            // order — this is the sidebar's ordering, not a global one.
+            const creators = await listCreators({ order: 'recent' });
             return NextResponse.json({ me: user.userId, creators });
         }
         if (target.length > 200) return NextResponse.json({ error: 'Invalid user id.' }, { status: 400 });
