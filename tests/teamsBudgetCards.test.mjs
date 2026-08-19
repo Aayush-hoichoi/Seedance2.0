@@ -140,3 +140,53 @@ test('approverEmails parses a comma list, tolerates spacing, and lowercases', as
     process.env.TEAMS_ADMIN_EMAILS = ' Mandar@Hoichoi.tv , aayush@hoichoi.tv ,, ';
     assert.deepEqual(approverEmails(), ['mandar@hoichoi.tv', 'aayush@hoichoi.tv']);
 });
+
+// TEAMS_ADMIN_EMAILS held work addresses (aayush@hoichoi.tv) while users.email
+// holds the account people actually sign in with (aayushkumarhigh@gmail.com).
+// Requiring one string to be both silently delivered ZERO cards for a day: every
+// lookup missed, every send skipped, and the only trace was a log line.
+test('a recipient entry separates the Teams address from the app admin account', async (t) => {
+    const { approverRecipients } = await import('../lib/teams/bot.mjs');
+    const saved = process.env.TEAMS_ADMIN_EMAILS;
+    t.after(() => { process.env.TEAMS_ADMIN_EMAILS = saved; });
+
+    process.env.TEAMS_ADMIN_EMAILS = ' Aayush@Hoichoi.TV = AayushKumarHigh@gmail.com , mandar.banerjee@hoichoi.tv ';
+    assert.deepEqual(approverRecipients(), [
+        { teamsEmail: 'aayush@hoichoi.tv', appEmail: 'aayushkumarhigh@gmail.com' },
+        { teamsEmail: 'mandar.banerjee@hoichoi.tv', appEmail: 'mandar.banerjee@hoichoi.tv' },
+    ], 'mapped entries split; a bare entry uses the same address for both');
+});
+
+test('a bare list still works — the mapping is opt-in, not a migration', async (t) => {
+    const { approverRecipients, approverEmails } = await import('../lib/teams/bot.mjs');
+    const saved = process.env.TEAMS_ADMIN_EMAILS;
+    t.after(() => { process.env.TEAMS_ADMIN_EMAILS = saved; });
+
+    process.env.TEAMS_ADMIN_EMAILS = 'mandar@hoichoi.tv, aayush@hoichoi.tv';
+    assert.deepEqual(approverRecipients().map((r) => r.appEmail), ['mandar@hoichoi.tv', 'aayush@hoichoi.tv']);
+    assert.deepEqual(approverEmails(), ['mandar@hoichoi.tv', 'aayush@hoichoi.tv'],
+        'the delivery-address view is unchanged for existing callers');
+});
+
+test('a malformed entry cannot produce a recipient with no delivery address', async (t) => {
+    const { approverRecipients } = await import('../lib/teams/bot.mjs');
+    const saved = process.env.TEAMS_ADMIN_EMAILS;
+    t.after(() => { process.env.TEAMS_ADMIN_EMAILS = saved; });
+
+    process.env.TEAMS_ADMIN_EMAILS = ' , =orphan@x.com, ok@hoichoi.tv=admin@gmail.com,  ';
+    assert.deepEqual(approverRecipients(), [{ teamsEmail: 'orphan@x.com', appEmail: 'orphan@x.com' },
+        { teamsEmail: 'ok@hoichoi.tv', appEmail: 'admin@gmail.com' }],
+        'a leading = leaves one usable address rather than an empty chat target');
+});
+
+// A card with no links is deliberate, not a degraded failure: the recipient is
+// told about the request, but the decision stays attributable to a real admin.
+test('a card built without links still renders, carrying only the console action', () => {
+    const card = buildBudgetRequestCard(
+        { projectName: 'P', userEmail: 'u@x.com', modelName: 'M', increaseAmount: 10 }, 'req-1', {},
+    );
+    assert.ok(Array.isArray(card.actions));
+    const titles = card.actions.map((a) => a.title);
+    assert.ok(!titles.some((t) => /approve|deny/i.test(t)),
+        'no approve/deny without an admin to sign them as');
+});
