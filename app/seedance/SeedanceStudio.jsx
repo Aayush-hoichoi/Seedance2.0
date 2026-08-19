@@ -145,6 +145,14 @@ export default function SeedanceStudio() {
     // null = still loading; then string[]. Gated models the user lacks are locked
     // in the picker with a "request access" action.
     const [allowedModelIds, setAllowedModelIds] = useState(null);
+    // Which authority produced allowedModelIds: null = the global
+    // /api/access/me list (legacy per-user approvals), a project id = that
+    // project's /api/models answer (grants + overrides — what the picker
+    // actually honors). The lock guard below must only clamp against the
+    // CURRENT project's list: the global one can miss a project-scoped grant,
+    // and clamping on it resets a legitimately remembered model on every
+    // reload — then the settings save persists the damage.
+    const allowedScopeRef = useRef(null);
     // Video `kind`s present in the ACTIVE gateway catalog — allowed or not. The
     // picker renders from the constants list, so without this a model that is
     // seeded but deactivated (a tier awaiting activation at the provider) would
@@ -178,7 +186,15 @@ export default function SeedanceStudio() {
         let alive = true;
         fetch('/api/access/me')
             .then((r) => (r.ok ? r.json() : null))
-            .then((d) => { if (alive && d) { setAllowedModelIds(d.allowedModelIds); setIsAdmin(!!d.isAdmin); if (Array.isArray(d.requests)) setAccessRequests(d.requests); } })
+            .then((d) => {
+                if (!alive || !d) return;
+                // Global fallback only — never clobber a project-scoped answer
+                // that already landed (this fetch has no project dependency, so
+                // it can finish before OR after /api/models).
+                if (allowedScopeRef.current == null) setAllowedModelIds(d.allowedModelIds);
+                setIsAdmin(!!d.isAdmin);
+                if (Array.isArray(d.requests)) setAccessRequests(d.requests);
+            })
             .catch(() => {});
         fetch('/api/projects')
             .then((r) => (r.ok ? r.json() : null))
@@ -248,6 +264,7 @@ export default function SeedanceStudio() {
                 setCatalogVideoKinds(videoKinds.length ? new Set(videoKinds) : null);
                 const videoIds = MODELS.filter((m) => allowedKinds.has(m.kind)).map((m) => m.id);
                 const imageIds = allowed.filter((m) => m.category === 'image').map((m) => m.id);
+                allowedScopeRef.current = projectId; // authoritative for this project
                 setAllowedModelIds([...videoIds, ...imageIds]);
                 // Quality caps ride the same payload; bridge video via kind
                 // (same mapping as above), image keys are the item id already.
@@ -270,6 +287,11 @@ export default function SeedanceStudio() {
     // own toggle, so leave it alone.
     useEffect(() => {
         if (!allowedModelIds) return;
+        // Inside a project, only that project's /api/models answer may clamp.
+        // Acting on the interim global list resets a remembered model that IS
+        // granted here (project grants/overrides are invisible to
+        // /api/access/me) — and the settings save then persists the reset.
+        if (projectId && allowedScopeRef.current !== projectId) return;
         const list = mediaType === 'image' ? IMAGE_MODELS : MODELS;
         if (mediaType === 'image' && options.imageStudio) return;
         const cur = list.find((m) => m.id === options.model);
@@ -277,7 +299,7 @@ export default function SeedanceStudio() {
         if (!locked) return;
         const avail = list.find((m) => !m.gated || allowedModelIds.includes(m.id));
         if (avail && avail.id !== options.model) setOpt('model', avail.id);
-    }, [allowedModelIds, mediaType, options.model, options.imageStudio]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [allowedModelIds, projectId, mediaType, options.model, options.imageStudio]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Live governance: revokes/expiries flip the picker instantly; budget
     // alerts surface as the studio's notice banner.
