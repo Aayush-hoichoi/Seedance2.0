@@ -10,7 +10,7 @@ import { MODELS, MODES, RATIOS, RESOLUTIONS, DEFAULT_OPTIONS, IMAGE_MODELS, IMAG
 import { sanitizeOptions } from '../../lib/seedance/options.mjs';
 import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js';
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
-import { buildTags, modeSupportsTags, normalizePromptForApi, restorePromptTokens, validatePromptReferences } from '../../lib/seedance/tags.js';
+import { buildTags, modeSupportsTags, normalizePromptForApi, restorePromptTokens, tagToken, validatePromptReferences } from '../../lib/seedance/tags.js';
 import { getAsset, resolveMediaRefs, cleanupOldAssets, registerAssetFromUrl } from '../../lib/seedance/assetsClient.js';
 import { useEvents } from '../hooks/useEvents.js';
 import { enhancePrompt } from '../../lib/seedance/enhance.js';
@@ -419,9 +419,13 @@ export default function SeedanceStudio() {
         () => seedance25Constraints({
             modelKind: selectedModel?.kind,
             hasVideoInput,
-            hasFirstFrame: mode.media.some((s) => s.role === 'first_frame'),
+            // Attached media, not the mode's slots: the ratio pill hides on the
+            // same signal (ratioIsInherited), so the clamp and the picker must
+            // agree — a visible pill whose choice gets snapped back is worse
+            // than either behavior alone.
+            hasFirstFrame: mode.media.some((s) => (s.role === 'first_frame' || s.role === 'last_frame') && (mediaByRole[s.role] || []).length > 0),
         }),
-        [selectedModel, mode, hasVideoInput],
+        [selectedModel, mode, hasVideoInput, mediaByRole],
     );
 
     // Attaching a video (or switching model/mode) can strand a ratio/duration
@@ -845,7 +849,7 @@ export default function SeedanceStudio() {
             // (longest side ≤ 6000px, ≤ 30MB) instead of being rejected. Aspect /
             // min-dimension problems downscaling can't fix still error below.
             const f = kind === 'image' ? await fitImageToLimits(file) : file;
-            const { error: invalid, meta } = await validateMediaFile(kind, f);
+            const { error: invalid, meta } = await validateMediaFile(kind, f, MODELS.find((m) => m.id === options.model)?.kind ?? null);
             if (invalid) { setError(invalid); continue; }
             // A clip an editing prompt would reject (2.5 edits need 4–30s) is
             // still a valid reference — attach it, but say so up front instead
@@ -1145,7 +1149,10 @@ export default function SeedanceStudio() {
                 const result = await enhancePrompt({
                     style: mode.enhanceStyle,
                     prompt: apiPrompt,
-                    assets: tags.map((t) => ({ label: t.label, kind: t.kind, name: t.name })),
+                    // Send the @-token, not the bare "Image 1": the enhancer is
+                    // told to reference assets by their exact label, and Seedance
+                    // binds a reference only when the @ survives into the prompt.
+                    assets: tags.map((t) => ({ label: tagToken(t), kind: t.kind, name: t.name })),
                 });
                 if (result.refused) {
                     // Keep apiPrompt as the user's raw prompt; drop the styled meta

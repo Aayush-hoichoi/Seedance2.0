@@ -70,7 +70,19 @@ export async function POST(request) {
         : '';
 
     const userMessage = [
-        assetLines ? `Attached assets (reference these by their exact labels):\n${assetLines}` : 'No assets are attached.',
+        assetLines
+            // The labels are @-tokens (@Image1, @Video1). Seedance binds a
+            // reference ONLY when that token survives into the final prompt —
+            // strip the @ and the model gets the assets with nothing tying them
+            // to the words. Restructuring used to drop them, which is how four
+            // attached references produced a video that honoured none of them.
+            ? `Attached assets. You MUST refer to each one by its exact @-token, `
+              + `character for character, including the leading "@". Never rewrite `
+              + `"@Image1" as "Image 1", "the first image", or a description — the `
+              + `token is what binds the asset to your words. Keep every token that `
+              + `appears in the user's request, and say what each asset provides `
+              + `(appearance, motion, timbre):\n${assetLines}`
+            : 'No assets are attached.',
         cameraLines ? `Camera settings:\n${cameraLines}` : null,
         `User request:\n${prompt}`,
     ].filter(Boolean).join('\n\n');
