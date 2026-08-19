@@ -22,6 +22,7 @@ import { uploadToCdn } from '../../lib/seedance/upload.js';
 import { validateMediaFile } from '../../lib/seedance/inspectMedia.js';
 import { fitImageToLimits } from '../../lib/seedance/downscaleImage.js';
 import { loadJobs, saveJobs, newJob, loadPrompts, savePrompt, removePrompt } from '../../lib/seedance/jobs.js';
+import { packSettings, unpackSettings, loadSettings, saveSettings } from '../../lib/seedance/settingsMemory.mjs';
 import { archiveKeyForTask } from '../../lib/seedance/archiveKey.mjs';
 import { resolveFreshVideoUrl } from '../../lib/seedance/videoUrl.js';
 import { downloadAsset } from '../../lib/seedance/downloadAssets.js';
@@ -133,6 +134,9 @@ export default function SeedanceStudio() {
     const [enhancing, setEnhancing] = useState(false); // the enhancer prompt restructuring in flight
     const [fullscreen, setFullscreen] = useState(null);
     const [showAssets, setShowAssets] = useState(false); // "All assets" overlay
+    // The remembered settings have been applied — until they are, saving would
+    // overwrite the user's setup with this mount's defaults.
+    const [settingsReady, setSettingsReady] = useState(false);
     const controllersRef = useRef({}); // jobId -> AbortController (not persisted)
     const pendingRef = useRef(0);
 
@@ -523,6 +527,7 @@ export default function SeedanceStudio() {
     useEffect(() => {
         // "Reuse" handoff from the Community Gallery: apply the saved setup
         // (prompt + refs + settings + mode) once, then clear it.
+        let reused = false;
         try {
             const raw = localStorage.getItem('seedance:reuse');
             if (raw) {
@@ -533,8 +538,17 @@ export default function SeedanceStudio() {
                     Array.isArray(r.refs) ? r.refs : [],
                 );
                 setNotice('Loaded from the gallery — tweak anything and hit Generate.');
+                reused = true;
             }
         } catch { /* corrupt handoff — open the studio blank */ }
+
+        // Otherwise bring back the settings this browser last used, so a reload
+        // — the reflex after an interrupted generation — comes back to the same
+        // mode/model/ratio/resolution/duration/seed instead of the defaults. A
+        // gallery "Reuse" is the user explicitly choosing a different setup, so
+        // it wins. Either way the bar is now authoritative and safe to save.
+        if (!reused) restoreSettings();
+        setSettingsReady(true);
 
         const restored = loadJobs().map((raw) => {
             // Expired marks are session-local — re-probe next visit (the
@@ -1143,6 +1157,51 @@ export default function SeedanceStudio() {
         // (resolveMediaRefs cache) — the 1h age sweep cleans them up.
         for (let i = 0; i < batch; i++) launchJob(payload, apiPrompt, promptMeta, creation);
     };
+
+    /* ── settings memory (survives a reload) ────────────────────────────── */
+
+    // Everything unpackSettings needs to validate a stored entry against the
+    // LIVE catalog — it can't import the constants itself and stay testable.
+    const settingsCatalog = () => ({
+        defaults: DEFAULT_OPTIONS,
+        modeIds: MODES.map((m) => m.id),
+        modelIds: MODELS.map((m) => m.id),
+        ratios: RATIOS,
+        resolutions: RESOLUTIONS,
+        modelSupports1080p: (id) => !!MODELS.find((m) => m.id === id)?.supports1080p,
+        modelSupports4k: (id) => !!MODELS.find((m) => m.id === id)?.supports4k,
+        imageModelIds: IMAGE_MODELS.map((m) => m.id),
+        imageRatios: IMAGE_RATIOS,
+        imageResolutions: IMAGE_RESOLUTIONS,
+        imageDefaultModelId: IMAGE_DEFAULT_MODEL_ID,
+        imageStudioModelId: IMAGE_STUDIO_MODEL_ID,
+    });
+
+    // Put the remembered settings back in the bar. Only the pills are touched:
+    // prompt and references are never stored, so a reload never re-attaches a
+    // file or refills a prompt. The access guards that run after this still get
+    // the last word — a model revoked while the tab was closed, or a tier now
+    // above the granted cap, falls back exactly as it does for any selection.
+    const restoreSettings = () => {
+        const s = unpackSettings(loadSettings(), settingsCatalog());
+        if (!s) return;
+        if (s.modeId) setModeId(s.modeId);
+        setMediaType(s.mediaType);
+        // Merged over the live defaults, not swapped in: a setting added to
+        // DEFAULT_OPTIONS after this entry was written keeps its default rather
+        // than coming back undefined.
+        setOptions((cur) => ({ ...cur, ...s.options }));
+        // Cinematic Studio without a camera rig would be a dead toggle — the
+        // model picker sets one when you choose Studio, so match that here.
+        if (s.options.imageStudio) setCinematic((c) => c || DEFAULT_SETUP);
+    };
+
+    // Save on every settings change. These are pill clicks, not keystrokes, so
+    // a direct write is cheap and nothing needs debouncing.
+    useEffect(() => {
+        if (!settingsReady) return;
+        saveSettings(packSettings({ modeId, mediaType, options }));
+    }, [settingsReady, modeId, mediaType, options]);
 
     // "Reuse" on a history card: load that generation's reference assets AND
     // its prompt back into the prompt bar — restoring the mode it was made in,
