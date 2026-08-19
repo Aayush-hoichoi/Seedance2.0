@@ -10,7 +10,7 @@ import { MODELS, MODES, RATIOS, RESOLUTIONS, DEFAULT_OPTIONS, IMAGE_MODELS, IMAG
 import { sanitizeOptions } from '../../lib/seedance/options.mjs';
 import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js';
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
-import { buildTags, modeSupportsTags, normalizePromptForApi, restorePromptTokens, validatePromptReferences } from '../../lib/seedance/tags.js';
+import { buildTags, modeSupportsTags, normalizePromptForApi, restorePromptTokens, tagToken, validatePromptReferences } from '../../lib/seedance/tags.js';
 import { getAsset, resolveMediaRefs, cleanupOldAssets, registerAssetFromUrl } from '../../lib/seedance/assetsClient.js';
 import { useEvents } from '../hooks/useEvents.js';
 import { enhancePrompt } from '../../lib/seedance/enhance.js';
@@ -792,7 +792,7 @@ export default function SeedanceStudio() {
             // (longest side ≤ 6000px, ≤ 30MB) instead of being rejected. Aspect /
             // min-dimension problems downscaling can't fix still error below.
             const f = kind === 'image' ? await fitImageToLimits(file) : file;
-            const { error: invalid, meta } = await validateMediaFile(kind, f);
+            const { error: invalid, meta } = await validateMediaFile(kind, f, MODELS.find((m) => m.id === options.model)?.kind ?? null);
             if (invalid) { setError(invalid); continue; }
             used[slot.role] += 1;
             onUploadFile(slot, f, meta);
@@ -1085,7 +1085,10 @@ export default function SeedanceStudio() {
                 const result = await enhancePrompt({
                     style: mode.enhanceStyle,
                     prompt: apiPrompt,
-                    assets: tags.map((t) => ({ label: t.label, kind: t.kind, name: t.name })),
+                    // Send the @-token, not the bare "Image 1": the enhancer is
+                    // told to reference assets by their exact label, and Seedance
+                    // binds a reference only when the @ survives into the prompt.
+                    assets: tags.map((t) => ({ label: tagToken(t), kind: t.kind, name: t.name })),
                 });
                 if (result.refused) {
                     // Keep apiPrompt as the user's raw prompt; drop the styled meta
