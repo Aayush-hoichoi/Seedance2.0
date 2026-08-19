@@ -1,72 +1,64 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { hasVideoInput } from '../lib/gateway/videoCreate.mjs';
+import { MODELS } from '../lib/seedance/constants.js';
 
-// Seedance 2.5 classifies the task from the PROMPT, server-side, AFTER we have
-// sent the request. If it decides the ask is video EDITING, the output inherits
-// the source clip's length and ratio — an edit cannot be re-timed — so it
-// rejects any fixed duration:
+// Seedance decides "this is an edit" DURING processing, not at submit. The
+// create call returns 200 with a task id and the TASK fails minutes later with
+// "`duration` must be -1". Verified against the live API, identical request,
+// video reference and edit prompt:
 //
-//   "Seedance identified your task as video editing based on your prompt. For
-//    this task type, the output ratio and duration follow the input video …
-//    Issues: [0] `duration` must be -1."
+//   duration=5   accepted at submit -> task FAILED
+//   duration=-1  accepted at submit -> task SUCCEEDED
 //
-// The verdict is NOT predictable from here. Verified against the live API: the
-// same request shape, video reference included, is accepted with duration 5
-// when it classifies as generation instead. So forcing -1 for every 2.5 request
-// would wrongly strip duration control from ordinary generation — the retry
-// reacts to the provider naming the value it wants, and nothing else.
+// Production carried three jobs (7002, 7003, 7012) that ALL had a
+// provider_task_id and still failed — proof the rejection is asynchronous.
+// A retry on the create response therefore could never fire; it was removed.
 
 const SOURCE = readFileSync(new URL('../lib/gateway/videoCreate.mjs', import.meta.url), 'utf8');
 
-// The matcher lives in the module; mirror it here so a reword is caught.
-const MATCHER = /`?duration`?\s+must be\s+-1/i;
-
-const REAL_ERROR = 'The parameter `duration` specified in the request is not valid. '
-    + 'Seedance identified your task as video editing based on your prompt. For this task type, '
-    + 'the output ratio and duration follow the input video selected by the model for editing, and '
-    + 'the video selected must satisfy the duration requirement of 4 to 30 seconds. '
-    + 'Issues: [0] `duration` must be -1.';
-
-test('the matcher fires on the provider’s real editing rejection', () => {
-    assert.ok(MATCHER.test(REAL_ERROR));
+test('the dead synchronous retry is gone, not left as decoration', () => {
+    assert.doesNotMatch(SOURCE, /DURATION_MUST_BE_AUTO/,
+        'the create response is always ok here — code that reacts to it misleads the next reader');
+    assert.doesNotMatch(SOURCE, /retried with duration=-1/);
 });
 
-test('the matcher keys on the instruction, not the surrounding prose', () => {
-    // The task-type sentence and the 4-30s requirement are the parts most
-    // likely to be reworded; the instruction is the contract.
-    assert.ok(MATCHER.test('Issues: [0] duration must be -1'), 'backticks are optional');
-    assert.ok(MATCHER.test('`duration`  must be  -1'), 'spacing must not matter');
+test('a video reference on 2.5 sends duration=-1 instead of the picked value', () => {
+    assert.match(SOURCE, /const inheritsSourceDuration = MODELS\.find\(\(m\) => m\.id === modelId\)\?\.kind === 'full_2_5'/);
+    assert.match(SOURCE, /&& hasVideoInput\(lowered\?\.content\)/);
+    assert.match(SOURCE, /\{ \.\.\.lowered, duration: AUTO_DURATION \}/,
+        'only the duration changes — prompt, refs, ratio and resolution survive');
 });
 
-test('unrelated duration complaints do not trigger the retry', () => {
-    for (const other of [
-        'the parameter duration is not valid for model dreamina-seedance-2-5 in t2v',
-        'duration must be between 4 and 15',
-        '`duration` must be -1 seconds longer',      // different claim, not the instruction
-        'the parameter `resolution` specified in the request is not valid',
-    ]) {
-        if (other === '`duration` must be -1 seconds longer') continue; // documented below
-        assert.ok(!MATCHER.test(other), `must not match: ${other}`);
-    }
+test('it is scoped to 2.5, so 2.0 keeps its fixed duration with a reference video', () => {
+    // 2.0 accepts a fixed duration alongside a reference video today; widening
+    // this would remove duration control from a path that works.
+    const kinds = [...SOURCE.matchAll(/kind === '([a-z0-9_]+)'/g)].map((m) => m[1]);
+    assert.ok(kinds.includes('full_2_5'));
+    assert.ok(!kinds.includes('full'), 'must not catch Seedance 2.0');
 });
 
-test('the retry is guarded so it cannot loop or fire on a success', () => {
-    // One shot: it must be conditional on a FAILED response, on the specific
-    // message, and on us having sent something other than -1 already.
-    assert.match(SOURCE, /if \(!response\.ok && DURATION_MUST_BE_AUTO\.test\(text\) && parsed\?\.duration !== AUTO_DURATION\)/);
-    // And exactly one retry — a second occurrence would mean a loop.
-    const retries = SOURCE.match(/DURATION_MUST_BE_AUTO\.test/g) || [];
-    assert.equal(retries.length, 1, 'exactly one retry site, so a stubborn provider cannot spin');
+test('an already-auto request is left alone rather than rewritten', () => {
+    assert.match(SOURCE, /lowered\?\.duration !== AUTO_DURATION/,
+        'no needless rewrite, and the log line stays truthful');
 });
 
-test('the retry changes only the duration, preserving the rest of the request', () => {
-    assert.match(SOURCE, /\{ \.\.\.parsed, duration: AUTO_DURATION \}/,
-        'prompt, refs, ratio and resolution must survive the retry unchanged');
+// hasVideoInput is the trigger, so its contract matters.
+test('hasVideoInput recognises both shapes the studio and MCP send', () => {
+    assert.equal(hasVideoInput([{ type: 'text', text: 'hi' }, { type: 'video_url', video_url: { url: 'https://x/v.mp4' } }]), true);
+    assert.equal(hasVideoInput([{ role: 'reference_video', url: 'https://x/v.mp4' }]), true);
 });
 
-test('AUTO_DURATION is the value the API documents, and a valid one for us', async () => {
-    const { DURATIONS } = await import('../lib/seedance/constants.js');
-    assert.ok(DURATIONS.includes(-1), 'the picker already offers "model decides"');
+test('an image-only or text-only request keeps the chosen duration', () => {
+    assert.equal(hasVideoInput([{ type: 'text', text: 'a cube' }]), false);
+    assert.equal(hasVideoInput([{ type: 'image_url', image_url: { url: 'https://x/i.png' } }]), false);
+    assert.equal(hasVideoInput(undefined), false, 'a missing content array must not trigger it');
+    assert.equal(hasVideoInput('not-an-array'), false);
+});
+
+test('AUTO_DURATION is -1 and is a tier every model accepts', async () => {
     assert.match(SOURCE, /const AUTO_DURATION = -1;/);
+    const { durationValidFor } = await import('../lib/seedance/constants.js');
+    for (const m of MODELS) assert.equal(durationValidFor(m.id, -1), true, `${m.name} must accept Auto`);
 });
