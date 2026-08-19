@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getDb } from '../../../../lib/db/neon.js';
 import { sweep } from '../../../../lib/gateway/sweep.mjs';
 import { cleanupOldAssets } from '../../../../lib/byteplus/assetsServer.js';
+import { backfillTeamsCards } from '../../../../lib/notify/teamsBackfill.mjs';
 
 // The single daily Vercel cron (Hobby plan allows 1/day): materializes
 // yesterday's billing events into usage_rollups_daily and runs a forced
@@ -55,5 +56,13 @@ export async function GET(request) {
     const sweptAssets = await cleanupOldAssets({ maxAgeHours: 1 })
         .catch((error) => { console.error('[assets] cron sweep failed:', error.message); return 0; });
 
-    return NextResponse.json({ ok: true, rolledUp: rows.length, sweptAssets });
+    // Approval cards are posted once, at request time, best-effort — so a
+    // Microsoft outage used to lose one permanently and the request stayed
+    // invisible to admins working from Teams. This is the retry. Riding this job
+    // because vercel.json is on the Hobby one-cron-per-day limit; the latency is
+    // poor for an approval, but the alternative was never.
+    const teamsCards = await backfillTeamsCards({ sql })
+        .catch((error) => { console.error('[teams] cron backfill failed:', error.message); return null; });
+
+    return NextResponse.json({ ok: true, rolledUp: rows.length, sweptAssets, teamsCards });
 }
