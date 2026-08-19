@@ -20,6 +20,7 @@ import { mediaItemFromUpload } from '../../lib/seedance/mediaItem.mjs';
 import { savePromptRecord, fetchPromptRecords, setLikeRecord, setBinRecord, deletePromptRecord } from '../../lib/seedance/promptsClient.js';
 import { uploadToCdn } from '../../lib/seedance/upload.js';
 import { validateMediaFile } from '../../lib/seedance/inspectMedia.js';
+import { seedance25Constraints, editClipWarning } from '../../lib/seedance/constraints25.mjs';
 import { fitImageToLimits } from '../../lib/seedance/downscaleImage.js';
 import { loadJobs, saveJobs, newJob, loadPrompts, savePrompt, removePrompt } from '../../lib/seedance/jobs.js';
 import { archiveKeyForTask } from '../../lib/seedance/archiveKey.mjs';
@@ -378,6 +379,36 @@ export default function SeedanceStudio() {
             && (r !== '4k' || selectedModel?.supports4k)),
         [selectedModel],
     );
+
+    // Seedance 2.5 task-type lock: with a video attached (any mode) the task
+    // may run as an edit/extension, and first-frame modes always follow the
+    // image — both only accept adaptive ratio (edits also demand Auto
+    // duration). Computed here, enforced by the clamp effect below and shown
+    // as disabled options in the PromptBar pills.
+    const hasVideoInput = useMemo(
+        () => mode.media.some((s) => s.kind === 'video' && (mediaByRole[s.role] || []).length > 0),
+        [mode, mediaByRole],
+    );
+    const lock25 = useMemo(
+        () => seedance25Constraints({
+            modelKind: selectedModel?.kind,
+            hasVideoInput,
+            hasFirstFrame: mode.media.some((s) => s.role === 'first_frame'),
+        }),
+        [selectedModel, mode, hasVideoInput],
+    );
+
+    // Attaching a video (or switching model/mode) can strand a ratio/duration
+    // the locked task type rejects — snap them to the required values so the
+    // request that leaves this app can never trip TaskTypeConstraint.
+    useEffect(() => {
+        if (!lock25) return;
+        setOptions((o) => {
+            const ratio = o.ratio === lock25.ratio ? o.ratio : lock25.ratio;
+            const duration = lock25.duration === null || o.duration === lock25.duration ? o.duration : lock25.duration;
+            return ratio === o.ratio && duration === o.duration ? o : { ...o, ratio, duration };
+        });
+    }, [lock25]);
 
     // Quality upgrades already parked with the admin for THIS project — the
     // locked tier shows "requested" instead of re-offering the modal's ask.
@@ -780,6 +811,13 @@ export default function SeedanceStudio() {
             const f = kind === 'image' ? await fitImageToLimits(file) : file;
             const { error: invalid, meta } = await validateMediaFile(kind, f);
             if (invalid) { setError(invalid); continue; }
+            // A clip an editing prompt would reject (2.5 edits need 4–30s) is
+            // still a valid reference — attach it, but say so up front instead
+            // of letting the task fail asynchronously after it's been priced.
+            if (kind === 'video') {
+                const warn = editClipWarning(selectedModel?.kind, meta?.durationSec, f.name);
+                if (warn) setNotice(warn);
+            }
             used[slot.role] += 1;
             onUploadFile(slot, f, meta);
         }
@@ -1458,6 +1496,7 @@ export default function SeedanceStudio() {
                 tierCaps={tierCaps}
                 pendingTiers={pendingTiers}
                 selectedModel={selectedModel}
+                lock25={lock25}
                 error={error}
                 notice={notice}
                 setNotice={setNotice}

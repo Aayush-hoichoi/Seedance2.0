@@ -76,7 +76,7 @@ function Popover({ children }) {
     );
 }
 
-function PillSelect({ id, openKey, setOpenKey, badge, display, label, options, value, onSelect, disabled }) {
+function PillSelect({ id, openKey, setOpenKey, badge, display, label, note, options, value, onSelect, disabled }) {
     const open = openKey === id;
     return (
         <div className="relative">
@@ -93,13 +93,16 @@ function PillSelect({ id, openKey, setOpenKey, badge, display, label, options, v
             {open && (
                 <Popover>
                     {label && <div className="px-2 pb-1.5 text-[10px] font-bold uppercase tracking-wide text-white/50">{label}</div>}
+                    {note && <div className="px-2 pb-1.5 max-w-[240px] text-[10px] leading-relaxed text-warn/90">{note}</div>}
                     <div className="flex flex-col gap-0.5">
                         {options.map((opt) => (
                             <button
                                 key={String(opt.value)}
                                 type="button"
-                                onClick={() => { onSelect(opt.value); setOpenKey(null); }}
-                                className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${opt.value === value ? 'bg-primary/15 text-primary font-semibold' : 'text-white/70 hover:bg-white/[0.06] hover:text-white'}`}
+                                disabled={opt.disabled}
+                                title={opt.disabled && opt.disabledTitle ? opt.disabledTitle : undefined}
+                                onClick={() => { if (opt.disabled) return; onSelect(opt.value); setOpenKey(null); }}
+                                className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${opt.disabled ? 'text-white/25 cursor-not-allowed' : opt.value === value ? 'bg-primary/15 text-primary font-semibold' : 'text-white/70 hover:bg-white/[0.06] hover:text-white'}`}
                             >{opt.label}</button>
                         ))}
                     </div>
@@ -205,7 +208,7 @@ function MediaTypeToggle({ value, onChange }) {
 // model decide. The ceiling is per model — 2.5 reaches 30s, every other tier
 // stops at 15 (live-probed, see constants.js). Hardcoding 15 here is what hid
 // half of what 2.5 can do.
-function DurationControl({ openKey, setOpenKey, duration, setDuration, maxDuration = 15 }) {
+function DurationControl({ openKey, setOpenKey, duration, setDuration, maxDuration = 15, locked = false, lockReason = '' }) {
     const open = openKey === 'dur';
     const isAuto = duration === -1;
     const [text, setText] = useState(isAuto ? '' : String(duration));
@@ -216,6 +219,26 @@ function DurationControl({ openKey, setOpenKey, duration, setDuration, maxDurati
         if (text !== '' && Number.isFinite(n)) setDuration(Math.max(4, Math.min(maxDuration, Math.round(n))));
         else setText(isAuto ? '' : String(duration));
     };
+
+    // Locked (Seedance 2.5 edit/extend rules): the pill still opens, but the
+    // popover explains WHY the value is pinned instead of offering the slider.
+    if (locked) {
+        return (
+            <div className="relative">
+                <button type="button" onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : 'dur'); }} className={`${PILL} ${open ? PILL_ON : PILL_IDLE}`}>
+                    <span className={open ? 'text-primary' : 'text-white/65'}><ClockIcon /></span>
+                    <span className={`text-xs font-semibold ${open ? 'text-primary' : 'text-white/90 group-hover:text-primary'}`}>Auto</span>
+                    <Lock size={11} className="text-white/45" />
+                </button>
+                {open && (
+                    <Popover>
+                        <div className="px-2 pb-1.5 text-[10px] font-bold uppercase tracking-wide text-white/50">Duration · Auto</div>
+                        <p className="px-2 pb-1 max-w-[240px] text-[10px] leading-relaxed text-warn/90">{lockReason}</p>
+                    </Popover>
+                )}
+            </div>
+        );
+    }
 
     return (
         <div className="relative">
@@ -444,7 +467,7 @@ const BATCH_OPTIONS = [1, 2 /* , 4 — capped at ×2 for now; uncomment to bring
 
 export default function PromptBar({
     mode, onChangeMode, prompt, onPromptChange, options, setOpt,
-    mediaByRole, setMediaByRole, models, allowedModelIds, projectId, resolutions, selectedModel, tierCaps = {}, pendingTiers = {},
+    mediaByRole, setMediaByRole, models, allowedModelIds, projectId, resolutions, selectedModel, lock25 = null, tierCaps = {}, pendingTiers = {},
     error, notice, setNotice, onGenerate, enhancing = false, batch = 1, setBatch,
     onMediaError, onUploadFiles, tags, sidebarLeft = '',
     mediaType = 'video', onChangeMediaType, imageModels = [],
@@ -810,7 +833,10 @@ export default function PromptBar({
                             id="model" openKey={openKey} setOpenKey={setOpenKey}                            display={selectedModel?.name || 'Model'} label="Model" value={options.model}
                             options={models.map((m) => {
                                 const locked = m.gated && allowedModelIds && !allowedModelIds.includes(m.id);
-                                return { value: m.id, label: locked ? withLock(m.name) : m.name, disabled: locked };
+                                // Locked models stay CLICKABLE — onSelect routes the click to
+                                // the access-request modal instead of selecting the model, so
+                                // marking them disabled would kill the request affordance.
+                                return { value: m.id, label: locked ? withLock(m.name) : m.name };
                             })}
                             onSelect={(v) => {
                                 const m = models.find((x) => x.id === v);
@@ -826,8 +852,10 @@ export default function PromptBar({
                             }}
                         />
                         <PillSelect
-                            id="ar" openKey={openKey} setOpenKey={setOpenKey}                            badge={<AspectIcon />} display={options.ratio} label="Aspect Ratio" value={options.ratio}
-                            options={RATIOS.map((r) => ({ value: r, label: r }))} onSelect={(v) => setOpt('ratio', v)}
+                            id="ar" openKey={openKey} setOpenKey={setOpenKey}                            badge={<AspectIcon />} display={lock25 ? withLock(options.ratio) : options.ratio} label="Aspect Ratio" value={options.ratio}
+                            note={lock25?.reason}
+                            options={RATIOS.map((r) => ({ value: r, label: r, disabled: !!lock25 && r !== lock25.ratio, disabledTitle: lock25?.reason }))}
+                            onSelect={(v) => setOpt('ratio', v)}
                         />
                         <PillSelect
                             id="res" openKey={openKey} setOpenKey={setOpenKey}                            badge={<ResIcon />} display={options.resolution} label="Resolution" value={options.resolution}
@@ -845,7 +873,7 @@ export default function PromptBar({
                                 setOpt('resolution', v);
                             }}
                         />
-                        <DurationControl openKey={openKey} setOpenKey={setOpenKey} duration={options.duration} setDuration={(v) => setOpt('duration', v)} maxDuration={durationMaxFor(options.model)} />
+                        <DurationControl openKey={openKey} setOpenKey={setOpenKey} duration={options.duration} setDuration={(v) => setOpt('duration', v)} maxDuration={durationMaxFor(options.model)} locked={lock25?.duration != null} lockReason={lock25?.reason} />
                         <SeedControl openKey={openKey} setOpenKey={setOpenKey} seed={options.seed} setSeed={(v) => setOpt('seed', v)} />
                     </div>
                     <div className="flex items-center gap-1.5">
