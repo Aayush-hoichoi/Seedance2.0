@@ -105,3 +105,22 @@ test('garbage, an unknown version, or nothing stored restores nothing', () => {
     assert.equal(unpackSettings('nope', CATALOG), null);
     assert.equal(unpackSettings({ ...packSettings(videoSetup()), v: SETTINGS_VERSION + 1 }, CATALOG), null);
 });
+
+test('a remembered duration above 15s survives when the model allows it', () => {
+    // The regression: without modelDurationMax the sanitize used the
+    // conservative 15s range, so a remembered 30s on a 30s-capable model
+    // (Seedance 2.5) reset to the default on every reload.
+    const stored = packSettings(videoSetup({ duration: 30 }));
+    const withCeiling = unpackSettings(stored, { ...CATALOG, modelDurationMax: (id) => (id === 'pro' ? 30 : 15) });
+    assert.equal(withCeiling.options.duration, 30);
+    // Same entry through a catalog without the ceiling keeps the old
+    // conservative behavior: out-of-range falls back to the default alone.
+    const withoutCeiling = unpackSettings(stored, CATALOG);
+    assert.equal(withoutCeiling.options.duration, DEFAULTS.duration);
+    // The ceiling is per MODEL: 30s on a 15s-capped model still falls back.
+    const capped = unpackSettings(
+        packSettings(videoSetup({ model: 'mini', duration: 30 })),
+        { ...CATALOG, modelDurationMax: (id) => (id === 'pro' ? 30 : 15) },
+    );
+    assert.equal(capped.options.duration, DEFAULTS.duration);
+});

@@ -1230,6 +1230,7 @@ export default function SeedanceStudio() {
         resolutions: RESOLUTIONS,
         modelSupports1080p: (id) => !!MODELS.find((m) => m.id === id)?.supports1080p,
         modelSupports4k: (id) => !!MODELS.find((m) => m.id === id)?.supports4k,
+        modelDurationMax: (id) => durationMaxFor(id),
         imageModelIds: IMAGE_MODELS.map((m) => m.id),
         imageRatios: IMAGE_RATIOS,
         imageResolutions: IMAGE_RESOLUTIONS,
