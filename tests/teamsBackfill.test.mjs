@@ -31,9 +31,9 @@ function deps(overrides = {}) {
         opts: {
             isConfigured: () => true,
             loadAccess: async (id) => ({ id, userEmail: 'u@example.com' }),
-            sendAccess: async ({ requestId }) => { sent.access.push(requestId); },
+            sendAccess: async ({ requestId }) => { sent.access.push(requestId); return { sent: 1, total: 1 }; },
             loadBudget: async (id) => ({ id, userEmail: 'u@example.com' }),
-            sendBudget: async ({ requestId }) => { sent.budget.push(requestId); },
+            sendBudget: async ({ requestId }) => { sent.budget.push(requestId); return { sent: 1, total: 1 }; },
             ...overrides,
         },
     };
@@ -46,7 +46,9 @@ test('a pending request with no card gets one', async () => {
 
     assert.deepEqual(sent.access, [176, 180]);
     assert.deepEqual(sent.budget, ['abc']);
-    assert.deepEqual(result, { access: 2, budget: 1, skipped: false });
+    assert.deepEqual(result, {
+        access: { sent: 2, undelivered: 0 }, budget: { sent: 1, undelivered: 0 }, skipped: false,
+    });
 });
 
 test('only PENDING requests are swept — a decided one must not resurface', async () => {
@@ -88,6 +90,7 @@ test('one failed send does not strand the rest of the batch', async () => {
         sendAccess: async ({ requestId }) => {
             if (requestId === 2) throw new Error('Teams unreachable');
             sent.access.push(requestId);
+            return { sent: 1, total: 1 };
         },
     });
     const saved = console.error;
@@ -95,7 +98,8 @@ test('one failed send does not strand the rest of the batch', async () => {
     try {
         const result = await backfillTeamsCards({ sql, ...opts });
         assert.deepEqual(sent.access, [1, 3], 'the failure must not abort the sweep');
-        assert.equal(result.access, 2, 'and must not be counted as sent');
+        assert.deepEqual(result.access, { sent: 2, undelivered: 1 },
+            'a throw is undelivered, never counted as sent');
     } finally { console.error = saved; }
 });
 
@@ -104,7 +108,7 @@ test('a request decided between the query and the send is skipped, not sent', as
     const { sent, opts } = deps({ loadAccess: async () => null });
     const result = await backfillTeamsCards({ sql, ...opts });
     assert.deepEqual(sent.access, []);
-    assert.equal(result.access, 0);
+    assert.deepEqual(result.access, { sent: 0, undelivered: 0 }, 'skipped, not a failed delivery');
 });
 
 test('with Teams unconfigured it does no work at all', async () => {
@@ -120,4 +124,33 @@ test('with Teams unconfigured it does no work at all', async () => {
 test('no sql client is a no-op rather than a crash in the cron', async () => {
     const { opts } = deps();
     assert.deepEqual(await backfillTeamsCards({ sql: null, ...opts }), { access: 0, budget: 0, skipped: true });
+});
+
+// The bug this run exposed in production: the senders swallow their own
+// failures by design and return normally, so counting loop iterations reported
+// "10 access + 1 budget sent" for a run that delivered NOTHING — the exact
+// false-success this sweep exists to correct, reintroduced one layer up.
+test('a sender that delivers nothing is counted as undelivered, not sent', async () => {
+    const sql = fakeSql([[{ id: 1 }, { id: 2 }], [{ target_id: 'x' }]]);
+    const { opts } = deps({
+        // What notifyTeams*Requested really returns when no approver resolves.
+        sendAccess: async () => ({ sent: 0, total: 1 }),
+        sendBudget: async () => null,
+    });
+    const saved = console.error;
+    console.error = () => {};
+    try {
+        const result = await backfillTeamsCards({ sql, ...opts });
+        assert.deepEqual(result.access, { sent: 0, undelivered: 2 });
+        assert.deepEqual(result.budget, { sent: 0, undelivered: 1 },
+            'a null return means the notifier bailed before sending');
+    } finally { console.error = saved; }
+});
+
+test('partial delivery counts only the cards that landed', async () => {
+    const sql = fakeSql([[{ id: 1 }], []]);
+    const { opts } = deps({ sendAccess: async () => ({ sent: 1, total: 3 }) });
+    const result = await backfillTeamsCards({ sql, ...opts });
+    assert.deepEqual(result.access, { sent: 1, undelivered: 0 },
+        'one approver of three reached is still a delivered card');
 });
