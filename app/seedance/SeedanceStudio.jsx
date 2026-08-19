@@ -20,6 +20,7 @@ import { mediaItemFromUpload } from '../../lib/seedance/mediaItem.mjs';
 import { savePromptRecord, fetchPromptRecords, setLikeRecord, setBinRecord, deletePromptRecord } from '../../lib/seedance/promptsClient.js';
 import { uploadToCdn } from '../../lib/seedance/upload.js';
 import { validateMediaFile } from '../../lib/seedance/inspectMedia.js';
+import { seedance25Constraints, editClipWarning } from '../../lib/seedance/constraints25.mjs';
 import { fitImageToLimits } from '../../lib/seedance/downscaleImage.js';
 import { loadJobs, saveJobs, newJob, loadPrompts, savePrompt, removePrompt } from '../../lib/seedance/jobs.js';
 import { packSettings, unpackSettings, loadSettings, saveSettings } from '../../lib/seedance/settingsMemory.mjs';
@@ -144,6 +145,14 @@ export default function SeedanceStudio() {
     // null = still loading; then string[]. Gated models the user lacks are locked
     // in the picker with a "request access" action.
     const [allowedModelIds, setAllowedModelIds] = useState(null);
+    // Which authority produced allowedModelIds: null = the global
+    // /api/access/me list (legacy per-user approvals), a project id = that
+    // project's /api/models answer (grants + overrides — what the picker
+    // actually honors). The lock guard below must only clamp against the
+    // CURRENT project's list: the global one can miss a project-scoped grant,
+    // and clamping on it resets a legitimately remembered model on every
+    // reload — then the settings save persists the damage.
+    const allowedScopeRef = useRef(null);
     // Video `kind`s present in the ACTIVE gateway catalog — allowed or not. The
     // picker renders from the constants list, so without this a model that is
     // seeded but deactivated (a tier awaiting activation at the provider) would
@@ -177,7 +186,15 @@ export default function SeedanceStudio() {
         let alive = true;
         fetch('/api/access/me')
             .then((r) => (r.ok ? r.json() : null))
-            .then((d) => { if (alive && d) { setAllowedModelIds(d.allowedModelIds); setIsAdmin(!!d.isAdmin); if (Array.isArray(d.requests)) setAccessRequests(d.requests); } })
+            .then((d) => {
+                if (!alive || !d) return;
+                // Global fallback only — never clobber a project-scoped answer
+                // that already landed (this fetch has no project dependency, so
+                // it can finish before OR after /api/models).
+                if (allowedScopeRef.current == null) setAllowedModelIds(d.allowedModelIds);
+                setIsAdmin(!!d.isAdmin);
+                if (Array.isArray(d.requests)) setAccessRequests(d.requests);
+            })
             .catch(() => {});
         fetch('/api/projects')
             .then((r) => (r.ok ? r.json() : null))
@@ -247,6 +264,7 @@ export default function SeedanceStudio() {
                 setCatalogVideoKinds(videoKinds.length ? new Set(videoKinds) : null);
                 const videoIds = MODELS.filter((m) => allowedKinds.has(m.kind)).map((m) => m.id);
                 const imageIds = allowed.filter((m) => m.category === 'image').map((m) => m.id);
+                allowedScopeRef.current = projectId; // authoritative for this project
                 setAllowedModelIds([...videoIds, ...imageIds]);
                 // Quality caps ride the same payload; bridge video via kind
                 // (same mapping as above), image keys are the item id already.
@@ -269,6 +287,11 @@ export default function SeedanceStudio() {
     // own toggle, so leave it alone.
     useEffect(() => {
         if (!allowedModelIds) return;
+        // Inside a project, only that project's /api/models answer may clamp.
+        // Acting on the interim global list resets a remembered model that IS
+        // granted here (project grants/overrides are invisible to
+        // /api/access/me) — and the settings save then persists the reset.
+        if (projectId && allowedScopeRef.current !== projectId) return;
         const list = mediaType === 'image' ? IMAGE_MODELS : MODELS;
         if (mediaType === 'image' && options.imageStudio) return;
         const cur = list.find((m) => m.id === options.model);
@@ -276,7 +299,7 @@ export default function SeedanceStudio() {
         if (!locked) return;
         const avail = list.find((m) => !m.gated || allowedModelIds.includes(m.id));
         if (avail && avail.id !== options.model) setOpt('model', avail.id);
-    }, [allowedModelIds, mediaType, options.model, options.imageStudio]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [allowedModelIds, projectId, mediaType, options.model, options.imageStudio]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Live governance: revokes/expiries flip the picker instantly; budget
     // alerts surface as the studio's notice banner.
@@ -382,6 +405,40 @@ export default function SeedanceStudio() {
             && (r !== '4k' || selectedModel?.supports4k)),
         [selectedModel],
     );
+
+    // Seedance 2.5 task-type lock: with a video attached (any mode) the task
+    // may run as an edit/extension, and first-frame modes always follow the
+    // image — both only accept adaptive ratio (edits also demand Auto
+    // duration). Computed here, enforced by the clamp effect below and shown
+    // as disabled options in the PromptBar pills.
+    const hasVideoInput = useMemo(
+        () => mode.media.some((s) => s.kind === 'video' && (mediaByRole[s.role] || []).length > 0),
+        [mode, mediaByRole],
+    );
+    const lock25 = useMemo(
+        () => seedance25Constraints({
+            modelKind: selectedModel?.kind,
+            hasVideoInput,
+            // Attached media, not the mode's slots: the ratio pill hides on the
+            // same signal (ratioIsInherited), so the clamp and the picker must
+            // agree — a visible pill whose choice gets snapped back is worse
+            // than either behavior alone.
+            hasFirstFrame: mode.media.some((s) => (s.role === 'first_frame' || s.role === 'last_frame') && (mediaByRole[s.role] || []).length > 0),
+        }),
+        [selectedModel, mode, hasVideoInput, mediaByRole],
+    );
+
+    // Attaching a video (or switching model/mode) can strand a ratio/duration
+    // the locked task type rejects — snap them to the required values so the
+    // request that leaves this app can never trip TaskTypeConstraint.
+    useEffect(() => {
+        if (!lock25) return;
+        setOptions((o) => {
+            const ratio = o.ratio === lock25.ratio ? o.ratio : lock25.ratio;
+            const duration = lock25.duration === null || o.duration === lock25.duration ? o.duration : lock25.duration;
+            return ratio === o.ratio && duration === o.duration ? o : { ...o, ratio, duration };
+        });
+    }, [lock25]);
 
     // Quality upgrades already parked with the admin for THIS project — the
     // locked tier shows "requested" instead of re-offering the modal's ask.
@@ -794,6 +851,13 @@ export default function SeedanceStudio() {
             const f = kind === 'image' ? await fitImageToLimits(file) : file;
             const { error: invalid, meta } = await validateMediaFile(kind, f, MODELS.find((m) => m.id === options.model)?.kind ?? null);
             if (invalid) { setError(invalid); continue; }
+            // A clip an editing prompt would reject (2.5 edits need 4–30s) is
+            // still a valid reference — attach it, but say so up front instead
+            // of letting the task fail asynchronously after it's been priced.
+            if (kind === 'video') {
+                const warn = editClipWarning(selectedModel?.kind, meta?.durationSec, f.name);
+                if (warn) setNotice(warn);
+            }
             used[slot.role] += 1;
             onUploadFile(slot, f, meta);
         }
@@ -1173,6 +1237,7 @@ export default function SeedanceStudio() {
         resolutions: RESOLUTIONS,
         modelSupports1080p: (id) => !!MODELS.find((m) => m.id === id)?.supports1080p,
         modelSupports4k: (id) => !!MODELS.find((m) => m.id === id)?.supports4k,
+        modelDurationMax: (id) => durationMaxFor(id),
         imageModelIds: IMAGE_MODELS.map((m) => m.id),
         imageRatios: IMAGE_RATIOS,
         imageResolutions: IMAGE_RESOLUTIONS,
@@ -1520,6 +1585,7 @@ export default function SeedanceStudio() {
                 tierCaps={tierCaps}
                 pendingTiers={pendingTiers}
                 selectedModel={selectedModel}
+                lock25={lock25}
                 error={error}
                 notice={notice}
                 setNotice={setNotice}
