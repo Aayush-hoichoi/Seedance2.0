@@ -6,7 +6,7 @@
 
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { Lock } from 'lucide-react';
-import { MODES, RATIOS, RESOLUTIONS, IMAGE_RATIOS, IMAGE_STUDIO_ID, modeAllowedForModel, resolutionWithinTier, imageRefMax } from '../../lib/seedance/constants.js';
+import { MODES, RATIOS, RESOLUTIONS, IMAGE_RATIOS, IMAGE_STUDIO_ID, modeAllowedForModel, resolutionWithinTier, imageRefMax, durationMaxFor } from '../../lib/seedance/constants.js';
 import { estimateCost } from '../../lib/seedance/pricing.mjs';
 import { imageCost } from '../../lib/gateway/imagePricing.mjs';
 import { summarize as summarizeCinematic } from '../../lib/seedance/cinematic.mjs';
@@ -201,8 +201,11 @@ function MediaTypeToggle({ value, onChange }) {
 }
 
 // Duration as a slider + number box (matches the ModelArk playground):
-// integer 4–15 s, or Auto (-1) to let the model decide.
-function DurationControl({ openKey, setOpenKey, duration, setDuration }) {
+// Integer seconds up to the SELECTED MODEL's ceiling, or Auto (-1) to let the
+// model decide. The ceiling is per model — 2.5 reaches 30s, every other tier
+// stops at 15 (live-probed, see constants.js). Hardcoding 15 here is what hid
+// half of what 2.5 can do.
+function DurationControl({ openKey, setOpenKey, duration, setDuration, maxDuration = 15 }) {
     const open = openKey === 'dur';
     const isAuto = duration === -1;
     const [text, setText] = useState(isAuto ? '' : String(duration));
@@ -210,7 +213,7 @@ function DurationControl({ openKey, setOpenKey, duration, setDuration }) {
 
     const commit = () => {
         const n = Number(text);
-        if (text !== '' && Number.isFinite(n)) setDuration(Math.max(4, Math.min(15, Math.round(n))));
+        if (text !== '' && Number.isFinite(n)) setDuration(Math.max(4, Math.min(maxDuration, Math.round(n))));
         else setText(isAuto ? '' : String(duration));
     };
 
@@ -223,12 +226,12 @@ function DurationControl({ openKey, setOpenKey, duration, setDuration }) {
             </button>
             {open && (
                 <Popover>
-                    <div className="px-2 pb-1.5 text-[10px] font-bold uppercase tracking-wide text-white/50">Duration · 4–15s</div>
+                    <div className="px-2 pb-1.5 text-[10px] font-bold uppercase tracking-wide text-white/50">{`Duration · 4–${maxDuration}s`}</div>
                     <div className="flex items-center gap-3 w-72 px-2 pb-1.5">
                         <input
                             type="range"
                             min={4}
-                            max={15}
+                            max={maxDuration}
                             step={1}
                             value={isAuto ? 5 : duration}
                             onChange={(e) => setDuration(Number(e.target.value))}
@@ -238,7 +241,7 @@ function DurationControl({ openKey, setOpenKey, duration, setDuration }) {
                             <input
                                 type="number"
                                 min={4}
-                                max={15}
+                                max={maxDuration}
                                 value={text}
                                 placeholder="–"
                                 onChange={(e) => setText(e.target.value)}
@@ -842,7 +845,7 @@ export default function PromptBar({
                                 setOpt('resolution', v);
                             }}
                         />
-                        <DurationControl openKey={openKey} setOpenKey={setOpenKey} duration={options.duration} setDuration={(v) => setOpt('duration', v)} />
+                        <DurationControl openKey={openKey} setOpenKey={setOpenKey} duration={options.duration} setDuration={(v) => setOpt('duration', v)} maxDuration={durationMaxFor(options.model)} />
                         <SeedControl openKey={openKey} setOpenKey={setOpenKey} seed={options.seed} setSeed={(v) => setOpt('seed', v)} />
                     </div>
                     <div className="flex items-center gap-1.5">
