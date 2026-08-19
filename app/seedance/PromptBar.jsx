@@ -6,7 +6,7 @@
 
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { Lock } from 'lucide-react';
-import { MODES, RATIOS, RESOLUTIONS, IMAGE_RATIOS, IMAGE_STUDIO_ID, modeAllowedForModel, resolutionWithinTier, imageRefMax, durationMaxFor } from '../../lib/seedance/constants.js';
+import { MODES, RATIOS, RESOLUTIONS, IMAGE_RATIOS, IMAGE_STUDIO_ID, modeAllowedForModel, resolutionWithinTier, imageRefMax, durationMaxFor, ratioIsInherited } from '../../lib/seedance/constants.js';
 import { estimateCost } from '../../lib/seedance/pricing.mjs';
 import { imageCost } from '../../lib/gateway/imagePricing.mjs';
 import { summarize as summarizeCinematic } from '../../lib/seedance/cinematic.mjs';
@@ -453,6 +453,15 @@ export default function PromptBar({
     cinematic = null, onOpenCinematic,
 }) {
     const isImage = mediaType === 'image';
+    // Editing, extension and first/last-frame tasks take the output ratio from
+    // an input — the API accepts only `adaptive` — so the picker is hidden
+    // rather than shown with a value that gets discarded. Any attached video
+    // counts: the model decides edit vs generate while it renders.
+    const ratioInherited = !isImage && ratioIsInherited({
+        modelId: options.model,
+        hasVideoRef: (mode?.media || []).some((slot) => slot.kind === 'video' && (mediaByRole[slot.role] || []).length > 0),
+        hasFirstFrame: (mode?.media || []).some((slot) => (slot.role === 'first_frame' || slot.role === 'last_frame') && (mediaByRole[slot.role] || []).length > 0),
+    });
     const selectedImageModel = imageModels.find((m) => m.id === options.model);
     // The image picker has three entries: the two real models plus Cinematic
     // Studio (Nano Banana Pro under the hood). Studio's picker value is distinct
@@ -825,10 +834,17 @@ export default function PromptBar({
                                 }
                             }}
                         />
-                        <PillSelect
-                            id="ar" openKey={openKey} setOpenKey={setOpenKey}                            badge={<AspectIcon />} display={options.ratio} label="Aspect Ratio" value={options.ratio}
-                            options={RATIOS.map((r) => ({ value: r, label: r }))} onSelect={(v) => setOpt('ratio', v)}
-                        />
+                        {/* Hidden, not disabled, when the output ratio comes from an
+                            input: editing, extension and first-frame tasks accept only
+                            `adaptive`, and whatever the user picked is discarded. A
+                            picker whose value never reaches the model is worse than no
+                            picker — this is the same reason the duration is forced. */}
+                        {!ratioInherited && (
+                            <PillSelect
+                                id="ar" openKey={openKey} setOpenKey={setOpenKey}                            badge={<AspectIcon />} display={options.ratio} label="Aspect Ratio" value={options.ratio}
+                                options={RATIOS.map((r) => ({ value: r, label: r }))} onSelect={(v) => setOpt('ratio', v)}
+                            />
+                        )}
                         <PillSelect
                             id="res" openKey={openKey} setOpenKey={setOpenKey}                            badge={<ResIcon />} display={options.resolution} label="Resolution" value={options.resolution}
                             options={resolutions.map((r) => {

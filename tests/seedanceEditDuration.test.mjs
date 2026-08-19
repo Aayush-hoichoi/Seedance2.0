@@ -25,10 +25,12 @@ test('the dead synchronous retry is gone, not left as decoration', () => {
 });
 
 test('a video reference on 2.5 sends duration=-1 instead of the picked value', () => {
-    assert.match(SOURCE, /const inheritsSourceDuration = MODELS\.find\(\(m\) => m\.id === modelId\)\?\.kind === 'full_2_5'/);
-    assert.match(SOURCE, /&& hasVideoInput\(lowered\?\.content\)/);
-    assert.match(SOURCE, /\{ \.\.\.lowered, duration: AUTO_DURATION \}/,
-        'only the duration changes — prompt, refs, ratio and resolution survive');
+    assert.match(SOURCE, /kind === 'full_2_5'/, 'scoped to the tier where it was observed');
+    assert.match(SOURCE, /hasVideoInput\(lowered\?\.content\)/, 'triggered by an attached video');
+    assert.match(SOURCE, /duration: AUTO_DURATION/, 'and it sends -1');
+    // The payload is rebuilt by spreading `lowered`, so everything not named
+    // here survives: prompt, refs, resolution, seed, watermark.
+    assert.match(SOURCE, /\.\.\.lowered,/);
 });
 
 test('it is scoped to 2.5, so 2.0 keeps its fixed duration with a reference video', () => {
