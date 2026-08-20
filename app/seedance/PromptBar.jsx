@@ -860,17 +860,18 @@ export default function PromptBar({
                                 }
                             }}
                         />
-                        {/* Hidden, not disabled, when the output ratio comes from an
+                        {/* LOCKED, not hidden, when the output ratio comes from an
                             input: editing, extension and first-frame tasks accept only
-                            `adaptive`, and whatever the user picked is discarded. A
-                            picker whose value never reaches the model is worse than no
-                            picker — this is the same reason the duration is forced. */}
-                        {!ratioInherited && (
-                            <PillSelect
-                                id="ar" openKey={openKey} setOpenKey={setOpenKey}                            badge={<AspectIcon />} display={options.ratio} label="Aspect Ratio" value={options.ratio}
-                                options={RATIOS.map((r) => ({ value: r, label: r }))} onSelect={(v) => setOpt('ratio', v)}
-                            />
-                        )}
+                            `adaptive`. The pill stays in place (a vanishing control
+                            reads as a bug) showing adaptive with a lock glyph; the
+                            other ratios are visible but disabled, and the popover
+                            explains why — same treatment as the duration pill. */}
+                        <PillSelect
+                            id="ar" openKey={openKey} setOpenKey={setOpenKey}                            badge={<AspectIcon />} display={ratioInherited ? withLock(options.ratio) : options.ratio} label="Aspect Ratio" value={options.ratio}
+                            note={ratioInherited ? (lock25?.reason || 'This task takes its aspect ratio from the attached input — only Adaptive is accepted.') : null}
+                            options={RATIOS.map((r) => ({ value: r, label: r, disabled: ratioInherited && r !== 'adaptive', disabledTitle: lock25?.reason }))}
+                            onSelect={(v) => setOpt('ratio', v)}
+                        />
                         <PillSelect
                             id="res" openKey={openKey} setOpenKey={setOpenKey}                            badge={<ResIcon />} display={options.resolution} label="Resolution" value={options.resolution}
                             options={resolutions.map((r) => {
