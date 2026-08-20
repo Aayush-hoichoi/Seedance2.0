@@ -8,8 +8,11 @@ import { ratioIsInherited, INHERITED_RATIO, MODELS } from '../lib/seedance/const
 // follows the selected input. Sending 16:9 fails the task: it was one of the
 // three parameters production job 7002 was rejected on.
 //
-// So the picker is hidden for those tasks. A control whose value is discarded
-// is worse than no control: it tells the user they chose something.
+// So the picker LOCKS for those tasks: the pill stays in the bar showing
+// adaptive with a lock glyph, the other ratios are visible but disabled, and
+// the popover explains why — matching the duration pill's locked treatment.
+// (It was hidden at first; product call reversed that — a vanishing control
+// reads as a bug and teaches the user nothing.)
 
 const id = (kind) => MODELS.find((m) => m.kind === kind).id;
 
@@ -53,9 +56,16 @@ test('the server sends adaptive rather than the picked ratio', () => {
         'an already-adaptive request must not be needlessly rewritten');
 });
 
-test('the picker is hidden, not merely disabled, when the ratio is inherited', () => {
+test('the picker is locked and visible, not hidden, when the ratio is inherited', () => {
     const src = readFileSync(new URL('../app/seedance/PromptBar.jsx', import.meta.url), 'utf8');
-    assert.match(src, /\{!ratioInherited && \(/, 'the Aspect Ratio pill is conditionally rendered');
+    assert.doesNotMatch(src, /\{!ratioInherited && \(/,
+        'the Aspect Ratio pill must not be conditionally rendered — it locks in place');
+    assert.match(src, /display=\{ratioInherited \? withLock\(options\.ratio\)/,
+        'the locked pill shows the inherited value with a lock glyph');
+    assert.match(src, /disabled: ratioInherited && r !== 'adaptive'/,
+        'every ratio except adaptive is visible but disabled while inherited');
+    assert.match(src, /note=\{ratioInherited \?/,
+        'the popover carries the explanation for WHY the ratio is locked');
     assert.match(src, /const ratioInherited = !isImage && ratioIsInherited\(\{/,
         'image mode has its own ratio control and must be unaffected');
 });
