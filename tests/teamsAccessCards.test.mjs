@@ -6,7 +6,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildAccessRequestCard, buildAccessDecidedCard, teamsConfigured, approverEmails } from '../lib/notify/teamsAccess.mjs';
+import { buildAccessRequestCard, buildAccessDecidedCard, teamsConfigured, approverIds } from '../lib/notify/teamsAccess.mjs';
 
 const REQUEST = {
     userEmail: 'shinji.nandy@example.com',
@@ -19,7 +19,6 @@ const REQUEST = {
 
 const UPGRADE_REQUEST = { ...REQUEST, maxResolution: '720p', pendingMaxResolution: '1080p' };
 
-const LINKS = { approveUrl: 'https://app.example/approve?token=a', denyUrl: 'https://app.example/deny?token=d' };
 
 const walk = (node, out = []) => {
     if (Array.isArray(node)) { node.forEach((n) => walk(n, out)); return out; }
@@ -34,7 +33,7 @@ const factTitles = (card) => walk(card).filter((n) => n.type === 'FactSet').flat
 const inputNodes = (card) => walk(card).filter((n) => String(n.type || '').startsWith('Input.'));
 
 test('a plain request card shows user, project, model and requested quality', () => {
-    const card = buildAccessRequestCard(REQUEST, 'req-1', LINKS);
+    const card = buildAccessRequestCard(REQUEST, 'req-1');
     const titles = factTitles(card);
     for (const t of ['User', 'Project', 'Model', 'Requested quality']) {
         assert.ok(titles.includes(t), `card must show "${t}"`);
@@ -48,7 +47,7 @@ test('a plain request card shows user, project, model and requested quality', ()
 });
 
 test('an upgrade request shows current → wanted quality under one "Quality" fact, not two', () => {
-    const card = buildAccessRequestCard(UPGRADE_REQUEST, 'req-1', LINKS);
+    const card = buildAccessRequestCard(UPGRADE_REQUEST, 'req-1');
     const titles = factTitles(card);
     assert.ok(titles.includes('Quality'), 'an upgrade uses "Quality", not "Requested quality"');
     assert.ok(!titles.includes('Requested quality'));
@@ -56,20 +55,22 @@ test('an upgrade request shows current → wanted quality under one "Quality" fa
     assert.match(textOf(card), /Quality upgrade request/);
 });
 
-test('approve and deny are plain links, and their labels differ for an upgrade', () => {
-    const plain = buildAccessRequestCard(REQUEST, 'req-1', LINKS);
-    assert.deepEqual(inputNodes(plain), [], 'nothing to fill in');
-    assert.ok(plain.actions.find((a) => a.title === 'Approve' && a.type === 'Action.OpenUrl' && a.url === LINKS.approveUrl));
-    assert.ok(plain.actions.find((a) => a.title === 'Deny' && a.url === LINKS.denyUrl));
-
-    const upgrade = buildAccessRequestCard(UPGRADE_REQUEST, 'req-1', LINKS);
-    assert.ok(upgrade.actions.find((a) => a.title === 'Approve upgrade'), 'an upgrade card must not just say "Approve" — it is not a fresh grant');
-    assert.ok(upgrade.actions.find((a) => a.title === 'Deny upgrade'), 'denying an upgrade must read differently from denying a fresh request');
+// Same rule as the budget card: notify only. A decision URL in a chat message
+// gets fetched by link scanners, which is how requests ended up decided by
+// nobody — so neither card type may carry one.
+test('neither a plain nor an upgrade card carries a decision action', () => {
+    for (const card of [buildAccessRequestCard(REQUEST, 'req-1'), buildAccessRequestCard(UPGRADE_REQUEST, 'req-1')]) {
+        assert.deepEqual(inputNodes(card), [], 'nothing to fill in');
+        assert.deepEqual(card.actions.filter((a) => /approve|deny/i.test(a.title)), []);
+    }
 });
 
-test('a card built with no links renders safely with no decision buttons', () => {
-    const card = buildAccessRequestCard(REQUEST, 'req-1');
-    assert.equal(card.actions.filter((a) => /approve|deny/i.test(a.title)).length, 0);
+test('its only action opens the console, and no card URL points at an API route', () => {
+    process.env.APP_URL = 'https://app.example';
+    const card = buildAccessRequestCard(UPGRADE_REQUEST, 'req-1');
+    assert.equal(card.actions.length, 1);
+    assert.equal(card.actions[0].type, 'Action.OpenUrl');
+    assert.doesNotMatch(card.actions[0].url, /\/api\//, 'a card URL must be safe to fetch');
 });
 
 test('an approved decided card shows the granted tier and expiry, no inputs, no actions left', () => {
@@ -97,7 +98,13 @@ test('an upgrade-declined decided card reads distinctly from a plain denial', ()
 
 // --- configuration is a hard gate, shared with the budget feature ------------
 
-test('teamsConfigured and approverEmails are the shared config surface, not duplicated per feature', () => {
+test('teamsConfigured and approverIds are the shared config surface, not duplicated per feature', async () => {
     assert.equal(typeof teamsConfigured, 'function');
-    assert.equal(typeof approverEmails, 'function');
+    assert.equal(typeof approverIds, 'function');
+    // Both features must read the SAME recipient list. Two lists is how one of
+    // them ends up notifying nobody without anyone noticing.
+    const bot = await import('../lib/teams/bot.mjs');
+    const budget = await import('../lib/notify/teams.mjs');
+    assert.equal(approverIds, bot.approverIds);
+    assert.equal(budget.approverIds, bot.approverIds);
 });

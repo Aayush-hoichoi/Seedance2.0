@@ -6,13 +6,19 @@
 // re-validates against the one-shot guard in decideBudgetRequest. These tests
 // pin the parts that are pure — the card contract and the configuration gate.
 //
-// Approve/Deny are plain `Action.OpenUrl` links, not `Action.Execute` — there
-// is no inbound Bot Framework endpoint in this design, so a card must never
-// depend on one to be actionable.
+// Approve/Deny are `Action.Execute`, never `Action.OpenUrl`. An Execute action
+// is an invoke activity signed by the Teams client and verified before it acts;
+// a URL is decided by whoever fetches it, and while these buttons were briefly
+// links, Defender Safe Links and preview crawlers decided seven production
+// requests within ~1s of delivery. Hence the standing rule pinned below: no
+// card URL may point into /api/.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildBudgetRequestCard, buildDecidedCard, teamsConfigured, approverEmails } from '../lib/notify/teams.mjs';
+import { buildBudgetRequestCard, buildDecidedCard, teamsConfigured, approverIds } from '../lib/notify/teams.mjs';
+
+const AAD_A = '2b436b3a-cf2d-470b-b6ca-817d7c026ca3';
+const AAD_B = 'fcb5fba0-8ff1-4a55-9d0e-3c2b7a1e6d94';
 
 const REQUEST = {
     projectName: 'Launch Campaign',
@@ -25,8 +31,6 @@ const REQUEST = {
     increaseAmount: 5,
     reason: 'Final launch renders',
 };
-
-const LINKS = { approveUrl: 'https://app.example/approve?token=a', denyUrl: 'https://app.example/deny?token=d' };
 
 const walk = (node, out = []) => {
     if (Array.isArray(node)) { node.forEach((n) => walk(n, out)); return out; }
@@ -47,7 +51,7 @@ const inputNodes = (card) => walk(card).filter((n) => String(n.type || '').start
 // they were allotted — have to be on the card itself.
 
 test('the request card shows user, project, model, spend and total allotted', () => {
-    const card = buildBudgetRequestCard(REQUEST, 'req-1', LINKS);
+    const card = buildBudgetRequestCard(REQUEST, 'req-1');
     const titles = factTitles(card);
     for (const t of ['User', 'Project', 'Model', 'Spent this month', 'Total allotted']) {
         assert.ok(titles.includes(t), `card must show "${t}"`);
@@ -63,27 +67,55 @@ test('the request card shows user, project, model, spend and total allotted', ()
 });
 
 test('an absent cap reads as "No personal limit", not $0.00', () => {
-    const card = buildBudgetRequestCard({ ...REQUEST, currentLimit: null }, 'req-1', LINKS);
+    const card = buildBudgetRequestCard({ ...REQUEST, currentLimit: null }, 'req-1');
     assert.match(textOf(card), /No personal limit/);
     assert.doesNotMatch(textOf(card), /Total allotted \| \$0\.00/);
 });
 
-// --- deciding is a one-tap link, not a form ----------------------------------
+// --- the card decides in place, over an authenticated channel ----------------
 
-test('approve and deny are plain links, not embedded form inputs', () => {
-    const card = buildBudgetRequestCard(REQUEST, 'req-1', LINKS);
-    assert.deepEqual(inputNodes(card), [], 'nothing to fill in — no Action.Execute round-trip exists to receive it');
+test('approve and deny are Action.Execute, carrying the request id', () => {
+    const card = buildBudgetRequestCard(REQUEST, 'req-1');
     const approve = card.actions.find((a) => a.title === 'Approve');
     const deny = card.actions.find((a) => a.title === 'Deny');
-    assert.equal(approve.type, 'Action.OpenUrl');
-    assert.equal(approve.url, LINKS.approveUrl);
-    assert.equal(deny.type, 'Action.OpenUrl');
-    assert.equal(deny.url, LINKS.denyUrl);
+    assert.equal(approve.type, 'Action.Execute');
+    assert.equal(approve.verb, 'budget_approve');
+    assert.deepEqual(approve.data, { requestId: 'req-1' });
+    assert.equal(deny.type, 'Action.Execute');
+    assert.equal(deny.verb, 'budget_deny');
 });
 
-test('a card built with no links renders safely with no decision buttons', () => {
+test('the amount, limit behaviour and note are editable on the card', () => {
     const card = buildBudgetRequestCard(REQUEST, 'req-1');
-    assert.equal(card.actions.filter((a) => a.title === 'Approve' || a.title === 'Deny').length, 0);
+    const byId = Object.fromEntries(inputNodes(card).map((n) => [n.id, n]));
+    assert.equal(byId.approvedAmount.type, 'Input.Number');
+    assert.equal(byId.approvedAmount.value, REQUEST.increaseAmount, 'prefilled with what was asked for');
+    assert.deepEqual(byId.policy.choices.map((c) => c.value), ['hard', 'soft']);
+    assert.equal(byId.reason.type, 'Input.Text');
+});
+
+// THE regression guard. Execute actions are safe; URLs are not, because
+// everything in a mail/chat stack fetches URLs it finds. /console/* is a page
+// behind a session; /api/* is what turned a notification into 7 decisions
+// nobody made. No card URL may ever point into the API again.
+test('no card URL points at an API route', () => {
+    process.env.APP_URL = 'https://app.example';
+    for (const card of [
+        buildBudgetRequestCard(REQUEST, 'req-1'),
+        buildDecidedCard(REQUEST, { status: 'approved', approvedIncrease: 3, decidedBy: 'Rachit' }),
+    ]) {
+        for (const action of card.actions || []) {
+            assert.doesNotMatch(action.url || '', /\/api\//, `${action.title} must not link into the API`);
+            if (action.type === 'Action.OpenUrl') assert.doesNotMatch(action.title, /approve|deny/i, 'a decision must never be a link');
+        }
+    }
+});
+
+test('the console link is still there alongside the decision actions', () => {
+    process.env.APP_URL = 'https://app.example';
+    const card = buildBudgetRequestCard(REQUEST, 'req-1');
+    const console_ = card.actions.find((a) => a.type === 'Action.OpenUrl');
+    assert.equal(console_.url, 'https://app.example/console/budget-requests');
 });
 
 // --- the decided card is terminal --------------------------------------------
@@ -124,69 +156,82 @@ test('teamsConfigured requires all four values', async (t) => {
     const saved = { ...process.env };
     t.after(() => { process.env = saved; });
     const set = (o) => Object.assign(process.env, {
-        TEAMS_APP_ID: '', TEAMS_APP_PASSWORD: '', TEAMS_TENANT_ID: '', TEAMS_ADMIN_EMAILS: '', ...o,
+        TEAMS_APP_ID: '', TEAMS_APP_PASSWORD: '', TEAMS_TENANT_ID: '', TEAMS_ADMIN_AAD_IDS: '', ...o,
     });
     set({});
     assert.equal(teamsConfigured(), false, 'unset means inert');
     set({ TEAMS_APP_ID: 'a', TEAMS_APP_PASSWORD: 'b', TEAMS_TENANT_ID: 'c' });
     assert.equal(teamsConfigured(), false, 'no recipients means nothing to send');
-    set({ TEAMS_APP_ID: 'a', TEAMS_APP_PASSWORD: 'b', TEAMS_TENANT_ID: 'c', TEAMS_ADMIN_EMAILS: 'mandar@hoichoi.tv' });
+    set({ TEAMS_APP_ID: 'a', TEAMS_APP_PASSWORD: 'b', TEAMS_TENANT_ID: 'c', TEAMS_ADMIN_AAD_IDS: AAD_A });
     assert.equal(teamsConfigured(), true);
 });
 
-test('approverEmails parses a comma list, tolerates spacing, and lowercases', async (t) => {
-    const saved = process.env.TEAMS_ADMIN_EMAILS;
-    t.after(() => { process.env.TEAMS_ADMIN_EMAILS = saved; });
-    process.env.TEAMS_ADMIN_EMAILS = ' Mandar@Hoichoi.tv , aayush@hoichoi.tv ,, ';
-    assert.deepEqual(approverEmails(), ['mandar@hoichoi.tv', 'aayush@hoichoi.tv']);
+test('approverIds parses a comma list and tolerates spacing and empties', async (t) => {
+    const saved = process.env.TEAMS_ADMIN_AAD_IDS;
+    t.after(() => { process.env.TEAMS_ADMIN_AAD_IDS = saved; });
+    process.env.TEAMS_ADMIN_AAD_IDS = ` ${AAD_A} , ${AAD_B} ,, `;
+    assert.deepEqual(approverIds(), [AAD_A, AAD_B]);
 });
 
-// TEAMS_ADMIN_EMAILS held work addresses (aayush@hoichoi.tv) while users.email
-// holds the account people actually sign in with (aayushkumarhigh@gmail.com).
-// Requiring one string to be both silently delivered ZERO cards for a day: every
-// lookup missed, every send skipped, and the only trace was a log line.
-test('a recipient entry separates the Teams address from the app admin account', async (t) => {
-    const { approverRecipients } = await import('../lib/teams/bot.mjs');
-    const saved = process.env.TEAMS_ADMIN_EMAILS;
-    t.after(() => { process.env.TEAMS_ADMIN_EMAILS = saved; });
-
-    process.env.TEAMS_ADMIN_EMAILS = ' Aayush@Hoichoi.TV = AayushKumarHigh@gmail.com , mandar.banerjee@hoichoi.tv ';
-    assert.deepEqual(approverRecipients(), [
-        { teamsEmail: 'aayush@hoichoi.tv', appEmail: 'aayushkumarhigh@gmail.com' },
-        { teamsEmail: 'mandar.banerjee@hoichoi.tv', appEmail: 'mandar.banerjee@hoichoi.tv' },
-    ], 'mapped entries split; a bare entry uses the same address for both');
+// An AAD object id is case-sensitive as an address, unlike an email — lowercasing
+// it (as the email list did) would hand Microsoft an id it does not recognise.
+test('ids are passed through verbatim, never case-folded', async (t) => {
+    const saved = process.env.TEAMS_ADMIN_AAD_IDS;
+    t.after(() => { process.env.TEAMS_ADMIN_AAD_IDS = saved; });
+    const mixed = '2B436b3A-CF2d-470B-b6CA-817d7c026CA3';
+    process.env.TEAMS_ADMIN_AAD_IDS = mixed;
+    assert.deepEqual(approverIds(), [mixed]);
 });
 
-test('a bare list still works — the mapping is opt-in, not a migration', async (t) => {
-    const { approverRecipients, approverEmails } = await import('../lib/teams/bot.mjs');
-    const saved = process.env.TEAMS_ADMIN_EMAILS;
-    t.after(() => { process.env.TEAMS_ADMIN_EMAILS = saved; });
+// The failure this exists to prevent: recipients configured under a variable
+// nothing reads any more. Credentials present with an empty list is a BROKEN
+// config, not a disabled feature, and must be distinguishable from "Teams off".
+test('credentials with no recipients reads as misconfigured, not as switched off', async (t) => {
+    const { teamsMisconfigured } = await import('../lib/teams/bot.mjs');
+    const saved = { ...process.env };
+    t.after(() => { process.env = saved; });
+    const set = (o) => Object.assign(process.env, {
+        TEAMS_APP_ID: '', TEAMS_APP_PASSWORD: '', TEAMS_TENANT_ID: '', TEAMS_ADMIN_AAD_IDS: '', ...o,
+    });
 
-    process.env.TEAMS_ADMIN_EMAILS = 'mandar@hoichoi.tv, aayush@hoichoi.tv';
-    assert.deepEqual(approverRecipients().map((r) => r.appEmail), ['mandar@hoichoi.tv', 'aayush@hoichoi.tv']);
-    assert.deepEqual(approverEmails(), ['mandar@hoichoi.tv', 'aayush@hoichoi.tv'],
-        'the delivery-address view is unchanged for existing callers');
+    set({});
+    assert.equal(teamsMisconfigured(), false, 'nothing configured at all is simply off');
+    set({ TEAMS_APP_ID: 'a', TEAMS_APP_PASSWORD: 'b', TEAMS_TENANT_ID: 'c' });
+    assert.equal(teamsMisconfigured(), true, 'a bot with nobody to notify is broken and must say so');
+    set({ TEAMS_APP_ID: 'a', TEAMS_APP_PASSWORD: 'b', TEAMS_TENANT_ID: 'c', TEAMS_ADMIN_AAD_IDS: AAD_A });
+    assert.equal(teamsMisconfigured(), false);
 });
 
-test('a malformed entry cannot produce a recipient with no delivery address', async (t) => {
-    const { approverRecipients } = await import('../lib/teams/bot.mjs');
-    const saved = process.env.TEAMS_ADMIN_EMAILS;
-    t.after(() => { process.env.TEAMS_ADMIN_EMAILS = saved; });
+// Best-effort delivery used to make every failure look like a success from the
+// outside, which is how a recipient can stop receiving cards with nothing in the
+// logs. reportDelivery counts only what actually landed and names what did not.
+test('reportDelivery counts only delivered cards and names every failure', async (t) => {
+    const { reportDelivery } = await import('../lib/teams/bot.mjs');
+    const errors = [];
+    const realError = console.error;
+    console.error = (...a) => errors.push(a.join(' '));
+    t.after(() => { console.error = realError; });
 
-    process.env.TEAMS_ADMIN_EMAILS = ' , =orphan@x.com, ok@hoichoi.tv=admin@gmail.com,  ';
-    assert.deepEqual(approverRecipients(), [{ teamsEmail: 'orphan@x.com', appEmail: 'orphan@x.com' },
-        { teamsEmail: 'ok@hoichoi.tv', appEmail: 'admin@gmail.com' }],
-        'a leading = leaves one usable address rather than an empty chat target');
+    const sent = reportDelivery('budget request', [AAD_A, AAD_B], [
+        { status: 'fulfilled', value: 'activity-1' },
+        { status: 'rejected', reason: new Error('bot not installed') },
+    ]);
+    assert.equal(sent, 1, 'one of two landed');
+    assert.ok(errors.some((e) => e.includes(AAD_B) && e.includes('bot not installed')), 'the failing id is named');
+
+    errors.length = 0;
+    assert.equal(reportDelivery('budget request', [AAD_A], [{ status: 'rejected', reason: new Error('x') }]), 0);
+    assert.ok(errors.some((e) => /NO admin received a card/.test(e)), 'a total blackout is called out on its own');
 });
 
-// A card with no links is deliberate, not a degraded failure: the recipient is
-// told about the request, but the decision stays attributable to a real admin.
-test('a card built without links still renders, carrying only the console action', () => {
+// A sparse request must still produce a usable card: the recipient may be the
+// only person who can unblock the user, and a card that fails to render because
+// a field was null helps nobody.
+test('a request missing optional fields still renders an actionable card', () => {
     const card = buildBudgetRequestCard(
-        { projectName: 'P', userEmail: 'u@x.com', modelName: 'M', increaseAmount: 10 }, 'req-1', {},
+        { projectName: 'P', userEmail: 'u@x.com', modelName: 'M', increaseAmount: 10 }, 'req-1',
     );
     assert.ok(Array.isArray(card.actions));
-    const titles = card.actions.map((a) => a.title);
-    assert.ok(!titles.some((t) => /approve|deny/i.test(t)),
-        'no approve/deny without an admin to sign them as');
+    assert.ok(card.actions.some((a) => a.type === 'Action.Execute' && a.verb === 'budget_approve'));
+    assert.equal(inputNodes(card).find((n) => n.id === 'approvedAmount').value, 10);
 });
