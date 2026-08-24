@@ -178,6 +178,7 @@ export default function SeedanceStudio() {
     const [projectId, setProjectId] = useState(null);
     const [projectsLoaded, setProjectsLoaded] = useState(false); // false → don't render the rail yet
     const [canManageProjects, setCanManageProjects] = useState(false); // admins/managers may create projects
+    const [spendRank, setSpendRank] = useState(null); // workspace-wide current-month leaderboard position
     const [permsVersion, setPermsVersion] = useState(0); // bump → refetch access
     const [budgetVersion, setBudgetVersion] = useState(0); // settlement/release → refresh remaining balance
     const [budgetRequestOpen, setBudgetRequestOpen] = useState(false);
@@ -216,6 +217,19 @@ export default function SeedanceStudio() {
             .catch(() => { if (alive) setProjectsLoaded(true); });
         return () => { alive = false; };
     }, []);
+
+    // The dollar amount in MySpend remains scoped to the selected project. Its
+    // small rank marker is intentionally workspace-wide, matching the
+    // console's default current-month Top users leaderboard. Refresh on job
+    // completion so a newly settled generation can move the position.
+    useEffect(() => {
+        let alive = true;
+        fetch('/api/access/me/spend-rank')
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => { if (alive) setSpendRank(d); })
+            .catch(() => { /* ranking is supplemental; keep the spend visible */ });
+        return () => { alive = false; };
+    }, [budgetVersion]);
 
     // The spend on the project chip is captured at mount, so it would sit
     // frozen while the user kept generating. Refresh it on the same signal the
@@ -1519,7 +1533,7 @@ export default function SeedanceStudio() {
                     )}
                 </div>
                 <div className="flex items-center gap-2">
-                    <MySpend project={projects.find((p) => p.id === projectId) ?? null} />
+                    <MySpend project={projects.find((p) => p.id === projectId) ?? null} spendRank={spendRank} />
                     {isAdmin && (
                         <Link href="/console" title="Console" className="grid h-7 w-7 place-items-center rounded-md border border-line bg-paper-2 text-warn/80 transition-colors hover:text-warn">
                             <ShieldCheck size={14} />
