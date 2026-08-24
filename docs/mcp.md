@@ -94,14 +94,24 @@ user (e.g. their own projects/generations).
 | `create_project` | Create a project; you're added as an `admin` member automatically. Re-creating an archived project's name un-archives it (`ON CONFLICT ... SET archived_at = NULL`) — this is also the **restore** path | admin or manager |
 | `update_project` | Rename, pause/resume, or archive a project. Gating is split per field to mirror the console exactly: rename/pause require `project.manage` (admin/owner only — managers don't hold this permission); archive allows admin **or** manager. `archived: false` is rejected outright — restore only via `create_project` with the same name. The `Default` project can't be archived | `project.manage` for rename/pause; admin or manager for archive |
 
-### Generation (`lib/mcp/tools/generate.js`)
+### Generation and media (`lib/mcp/tools/generate.js`, `lib/mcp/tools/media.js`)
 
 | Tool | Purpose | Permission / scope |
 |---|---|---|
-| `create_video` | Generate a video (Seedance family) through the extracted governed path (`lib/gateway/videoCreate.mjs`). Returns `{ taskId, jobId }` — poll with `get_job_status`. Reference media resolves via `assetId` or a direct `url` | `generation.create` + model grant + quota |
+| `create_video` | Generate a video (Seedance family) through the extracted governed path (`lib/gateway/videoCreate.mjs`). Returns `{ taskId, jobId }`; use the gateway `jobId` with the wait/display tools. Reference media resolves via `assetId` or a direct `url` | `generation.create` + model grant + quota |
 | `create_image` | Generate image(s) (Nano Banana 2 / Nano Banana Pro / Seedream 5.0 Pro / Cinematic Studio) through the governed enqueue path. Reference images are fetched server-side and inlined as base64 parts (≤3 refs, ~4MB total). Returns `{ generationId, status: 'queued', estCostUsd }` | `generation.create` + model grant + quota |
-| `get_job_status` | Poll a generation. Pass `generationId` (gateway id, from `create_image` or the `jobId` from `create_video`) **or** `taskId` (ModelArk id, from `create_video`). Finished videos include a playable URL | own jobs, or project membership with `usage.view` for others' |
+| `wait_for_generations` | Long-poll 1–12 gateway generation IDs for 10–15 seconds. Returns normalized `structuredContent`; repeat when `allTerminal` is false, then call a display tool | own jobs, or project membership with `usage.view` for others' |
+| `display_generation` | Render one generation as an MCP App image/video player. A pending card polls automatically. Core-MCP fallback includes inline image blocks and Markdown media links | own jobs, or project membership with `usage.view` for others' |
+| `display_generations` | Render an exact batch of up to 60 generations as an MCP App gallery, with the same fallback behavior | own jobs, or project membership with `usage.view` for others' |
+| `get_job_status` | **App-only** status refresh used by the media widget. It is hidden from the model so Claude does not pause for permission on every poll | same scope as the display tools |
 | `cancel_job` | Cancel a queued/running generation by `generationId`. Creators cancel their own; managers/admins can cancel any job in their reach | own jobs, or manager/admin |
+
+The intended flow is `create_*` → `wait_for_generations` →
+`display_generation`/`display_generations`. Display results contain normalized
+media objects in `structuredContent`. Stored TOS keys are signed again on every
+tool call; the widget refreshes them shortly before expiry. Provider video URLs
+are never passed to the widget. Clients without MCP Apps support still receive
+the existing core MCP image blocks and Markdown video links.
 
 **Gated-model denial:** if `model` in `create_video` / `create_image` is
 gated and you don't hold an approved grant, the call fails with code
@@ -227,13 +237,22 @@ the deployed URL.
 | 2 | `ping` returns your userId | |
 | 3 | `list_projects` shows only YOUR projects for a member account; all projects for an admin | |
 | 4 | `create_video` with a non-granted gated model → friendly `MODEL_ACCESS_DENIED` pointing at `request_model_access` | |
-| 5 | `create_video` with `seedance-2.0-mini` (cheap, non-gated) → taskId; `get_job_status` polls to a playable URL; a `jobs` row + usage/billing events exist for the right user + project | |
-| 6 | `create_image` with `nano-banana-2` → generationId → `get_job_status` returns image result | |
-| 7 | Claude Code: `claude mcp add --transport http logline https://<your-production-domain>/api/mcp/mcp` → `create_upload_url` → `curl -T photo.jpg` → `register_asset` → use as `first_frame` ref in `create_video` | |
-| 8 | Member account calling `set_quota` → permission denial | |
-| 9 | Usage dashboard shows the MCP-generated rows | |
+| 5 | `create_video` with `seedance-2.0-mini` (cheap, non-gated) → jobId → `wait_for_generations` → `display_generation` renders a video player; a `jobs` row + usage/billing events exist for the right user + project | |
+| 6 | `create_image` with `nano-banana-2` → generationId → wait → `display_generation` renders the image in chat | |
+| 7 | `display_generations` with mixed finished image/video IDs renders a gallery; a pending ID updates without another Claude permission prompt | |
+| 8 | Claude Code (no MCP Apps UI): display tools still return inline image blocks and Markdown video links | |
+| 9 | Claude Code: `claude mcp add --transport http logline https://<your-production-domain>/api/mcp/mcp` → `create_upload_url` → `curl -T photo.jpg` → `register_asset` → use as `first_frame` ref in `create_video` | |
+| 10 | Member account calling `set_quota` → permission denial | |
+| 11 | Usage dashboard shows the MCP-generated rows | |
 
 ## Troubleshooting
+
+- **Claude still shows the old status tool or no media widget after deploy** —
+  refresh/reconnect the custom connector so Claude reloads `tools/list` and the
+  `ui://` resource metadata. Existing chats may retain the old tool snapshot.
+- **No widget in a client that does not support MCP Apps** — this is expected;
+  use the inline image block or Markdown video link returned by the same display
+  tool. Do not make the model poll the app-only `get_job_status` tool.
 
 - **401 loop / sign-in never completes, no tool list appears** — Dynamic
   Client Registration is not enabled on the Clerk instance. Go back to
