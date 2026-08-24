@@ -11,6 +11,9 @@ test('every generation/asset tool requires generation.create; usage tools requir
     assert.equal(TOOL_PERMISSIONS.resolve_access_request, 'model.grant');
     assert.equal(TOOL_PERMISSIONS.set_quota, 'quota.manage');
     assert.equal(TOOL_PERMISSIONS.view_audit, 'audit.view');
+    for (const t of ['wait_for_generations', 'display_generation', 'display_generations', 'get_job_status']) {
+        assert.equal(TOOL_PERMISSIONS[t], null, t);
+    }
 });
 
 test('create_video shape validates refs and rejects junk', () => {

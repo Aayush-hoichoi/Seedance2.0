@@ -6,6 +6,8 @@ import { registerProjectTools } from '../../../../lib/mcp/tools/projects.js';
 import { registerHistoryTools } from '../../../../lib/mcp/tools/history.js';
 import { registerAssetTools } from '../../../../lib/mcp/tools/assets.js';
 import { registerGenerateTools } from '../../../../lib/mcp/tools/generate.js';
+import { registerMediaTools } from '../../../../lib/mcp/tools/media.js';
+import { registerMediaAppResource } from '../../../../lib/mcp/mediaAppResource.mjs';
 import { registerAdminTools } from '../../../../lib/mcp/tools/admin.js';
 
 export const runtime = 'nodejs';
@@ -21,6 +23,8 @@ const handler = createMcpHandler(
         registerHistoryTools(server);
         registerAssetTools(server);
         registerGenerateTools(server);
+        registerMediaTools(server);
+        registerMediaAppResource(server);
         registerAdminTools(server);
     },
     {},
