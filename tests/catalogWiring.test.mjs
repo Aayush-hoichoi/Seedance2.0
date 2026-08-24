@@ -12,11 +12,13 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MODELS, supportedResolutionsFor } from '../lib/seedance/constants.js';
+import { MODELS, IMAGE_MODELS, supportedResolutionsFor } from '../lib/seedance/constants.js';
 import { catalog } from '../lib/db/seeds.mjs';
 import { estimateCost, unitPrice } from '../lib/seedance/pricing.mjs';
+import { imageRate } from '../lib/gateway/imagePricing.mjs';
 
 const videoCatalog = catalog().filter((m) => m.category === 'video');
+const imageCatalog = catalog().filter((m) => m.category === 'image');
 
 test('every catalogued video kind is offered by the studio picker', () => {
     const studioKinds = new Set(MODELS.map((m) => m.kind));
@@ -43,6 +45,63 @@ test('a catalogued tier resolves its quality ladder from either alias or provide
         assert.ok(Array.isArray(byAlias) && byAlias.length,
             `${entry.id} has no resolution ladder — admins would have nothing to grant`);
     }
+});
+
+// --- the same three joins, for image models -----------------------------------
+//
+// Image models join on the ALIAS (not the kind, as video does): the studio, the
+// catalog and the access-request flow all key on lib/seedance/constants.js
+// IMAGE_MODELS[].id === seeds catalog().id. An alias present in one and absent
+// from the other produces the same silent nothing described at the top of this
+// file — the model seeds, /api/models returns it as allowed, and the picker
+// never renders it.
+
+test('every catalogued image model is offered by the studio picker', () => {
+    const studioIds = new Set(IMAGE_MODELS.map((m) => m.id));
+    for (const entry of imageCatalog) {
+        assert.ok(studioIds.has(entry.id),
+            `${entry.id} is catalogued but has no IMAGE_MODELS entry — it would never render`);
+    }
+});
+
+test('the studio and the catalog agree on each image model kind', () => {
+    for (const entry of imageCatalog) {
+        const model = IMAGE_MODELS.find((m) => m.id === entry.id);
+        assert.equal(model.kind, entry.kind,
+            `${entry.id}: picker kind '${model.kind}' vs catalogued '${entry.kind}' — pricing keys off this`);
+    }
+});
+
+test('every image kind is priced at every tier it offers — an unpriced tier escapes budget enforcement', () => {
+    for (const model of IMAGE_MODELS) {
+        for (const tier of model.resolutions ?? [null]) {
+            const rate = imageRate(model.kind, 'interactive', tier);
+            assert.ok(typeof rate === 'number' && rate > 0,
+                `${model.name} (kind '${model.kind}') has no rate at ${tier ?? 'default'} — no reservation would be taken`);
+        }
+    }
+});
+
+test('a catalogued image model resolves the quality ladder admins grant against', () => {
+    for (const entry of imageCatalog) {
+        const ladder = supportedResolutionsFor(entry.id);
+        assert.ok(Array.isArray(ladder) && ladder.length,
+            `${entry.id} has no resolution ladder — admins would have nothing to grant`);
+    }
+});
+
+// --- ChatGPT Image 2 specifically ---------------------------------------------
+
+test('ChatGPT Image 2 ships gated: catalogued and active, but never an org default', () => {
+    const entry = catalog().find((m) => m.id === 'chatgpt-image-2');
+    assert.ok(entry, 'chatgpt-image-2 must be in the catalog');
+    assert.equal(entry.isDefault, false, 'an org default would bypass the approval flow entirely');
+    assert.equal(entry.provider, 'kie');
+    assert.equal(entry.category, 'image');
+    // The catalog holds kie's TEXT-TO-IMAGE slug; the adapter derives the
+    // image-to-image sibling from it, so the suffix is load-bearing.
+    assert.equal(entry.providerModelId.endsWith('-text-to-image'), true);
+    assert.equal(entry.route.timeoutSeconds, 900, 'kie tasks outlive the 300s image-class default');
 });
 
 // --- Seedance 2.5 specifically ------------------------------------------------

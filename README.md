@@ -463,6 +463,31 @@ and is not gated.
 To rotate the BytePlus ModelArk key, replace `ARK_API_KEY` in `.env.local` and in
 the deployment environment, then restart the app. No code change is required.
 
+#### Provider keys (gateway)
+
+Every model routes through a provider adapter, and each provider resolves its key
+project-scoped → workspace-wide → env fallback:
+
+| Provider | Models | Env fallback |
+| --- | --- | --- |
+| `byteplus` | Seedance video, Seedream image | `ARK_API_KEY` |
+| `google` | Nano Banana Pro / 2, Cinematic Studio | `GOOGLE_API_KEY` |
+| `kie` | ChatGPT Image 2 (OpenAI GPT Image 2) | `KIE_API_KEY` |
+
+Prefer storing keys in the console (**Keys → provider**), which encrypts them at
+rest with `KEY_ENCRYPTION_KEY`; the env fallback exists for local development.
+
+Adding ChatGPT Image 2 to an already-seeded database is a one-off:
+
+```bash
+node --env-file=.env.local scripts/insert-chatgpt-image-2.mjs
+```
+
+It is gated, so nobody can use it until an admin grants it to a project (console)
+or approves an access request from Slack/Teams. One catalog entry covers both of
+kie's slugs: prompt-only generations go to `gpt-image-2-text-to-image`, and a
+prompt with reference images goes to `gpt-image-2-image-to-image`.
+
 ### Desktop App Build
 
 Build native desktop apps with Electron:

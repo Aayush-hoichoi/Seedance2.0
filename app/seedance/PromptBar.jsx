@@ -6,7 +6,7 @@
 
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { Lock } from 'lucide-react';
-import { MODES, RATIOS, RESOLUTIONS, IMAGE_RATIOS, IMAGE_STUDIO_ID, modeAllowedForModel, resolutionWithinTier, imageRefMax, durationMaxFor, ratioIsInherited } from '../../lib/seedance/constants.js';
+import { MODES, RATIOS, RESOLUTIONS, IMAGE_RATIOS, IMAGE_STUDIO_ID, modeAllowedForModel, resolutionWithinTier, imageRefMax, durationMaxFor, ratioIsInherited, imageResolutionsFor } from '../../lib/seedance/constants.js';
 import { estimateCost } from '../../lib/seedance/pricing.mjs';
 import { imageCost } from '../../lib/gateway/imagePricing.mjs';
 import { summarize as summarizeCinematic } from '../../lib/seedance/cinematic.mjs';
@@ -509,6 +509,7 @@ export default function PromptBar({
         { value: 'nano-banana-pro', label: lockName('nano-banana-pro', 'Nano Banana Pro') },
         { value: 'nano-banana-2', label: lockName('nano-banana-2', 'Nano Banana 2') },
         { value: 'seedream-5.0-pro', label: lockName('seedream-5.0-pro', 'Seedream 5.0 Pro') },
+        { value: 'chatgpt-image-2', label: lockName('chatgpt-image-2', 'ChatGPT Image 2') },
         { value: IMAGE_STUDIO_ID, label: lockName(IMAGE_STUDIO_ID, 'Cinematic Studio') },
     ];
     const imageModeValue = imageStudio ? IMAGE_STUDIO_ID : options.model;
@@ -799,11 +800,23 @@ export default function PromptBar({
                             badge={<AspectIcon />} display={options.imageRatio} label="Aspect ratio" value={options.imageRatio}
                             options={IMAGE_RATIOS.map((r) => ({ value: r, label: r }))} onSelect={(v) => setOpt('imageRatio', v)}
                         />
-                        {selectedImageModel?.resolutions && (
+                        {selectedImageModel?.resolutions && (() => {
+                            // Tiers the CURRENT aspect ratio can actually be rendered
+                            // at. GPT Image 2 refuses 4K at 1:1 (and anything above 1K
+                            // with no explicit ratio) at task-creation time, so those
+                            // tiers are shown DISABLED with the reason rather than
+                            // dropped — a control that changes length as you change a
+                            // neighbouring pill reads as a bug.
+                            const ratioTiers = imageResolutionsFor(selectedImageModel.id, options.imageRatio) ?? selectedImageModel.resolutions;
+                            const ratioBlocks = (r) => !ratioTiers.some((t) => t.toLowerCase() === r.toLowerCase());
+                            const blockedNote = `${selectedImageModel.name} can't render every resolution at ${options.imageRatio} — pick another aspect ratio for the greyed-out tiers.`;
+                            return (
                             <PillSelect
                                 id="ires" openKey={openKey} setOpenKey={setOpenKey}
                                 badge={<ResIcon />} display={options.imageResolution} label="Resolution" value={options.imageResolution}
+                                note={selectedImageModel.resolutions.some(ratioBlocks) ? blockedNote : null}
                                 options={selectedImageModel.resolutions.map((r) => {
+                                    if (ratioBlocks(r)) return { value: r, label: r, disabled: true, disabledTitle: blockedNote };
                                     // Above the granted cap: locked, and picking it asks for an upgrade.
                                     const locked = !resolutionWithinTier(r, tierCaps[selectedImageModel.id] ?? null, selectedImageModel.resolutions);
                                     if (!locked) return { value: r, label: r };
@@ -811,13 +824,15 @@ export default function PromptBar({
                                     return { value: r, label: withLock(requested ? `${r} · requested` : r) };
                                 })}
                                 onSelect={(v) => {
+                                    if (ratioBlocks(v)) return;
                                     if (!resolutionWithinTier(v, tierCaps[selectedImageModel.id] ?? null, selectedImageModel.resolutions)) {
                                         requestTierUpgrade(selectedImageModel.id, v); return;
                                     }
                                     setOpt('imageResolution', v);
                                 }}
                             />
-                        )}
+                            );
+                        })()}
                         <span className="hidden sm:inline text-[11px] text-white/35">Batch queue · the image lands in your history</span>
                     </div>
                     ) : (
