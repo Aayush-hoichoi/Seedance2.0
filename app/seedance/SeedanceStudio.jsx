@@ -6,7 +6,7 @@
 // in-flight tasks are resumed after a reload by re-polling their ModelArk id.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MODELS, MODES, RATIOS, RESOLUTIONS, DEFAULT_OPTIONS, IMAGE_MODELS, IMAGE_DEFAULT_MODEL_ID, IMAGE_RATIOS, IMAGE_RESOLUTIONS, IMAGE_STUDIO_ID, IMAGE_STUDIO_MODEL_ID, modeAllowedForModel, resolutionWithinTier, imageRefMax, durationMaxFor } from '../../lib/seedance/constants.js';
+import { MODELS, MODES, RATIOS, RESOLUTIONS, DEFAULT_OPTIONS, IMAGE_MODELS, IMAGE_DEFAULT_MODEL_ID, IMAGE_RATIOS, IMAGE_RESOLUTIONS, IMAGE_STUDIO_ID, IMAGE_STUDIO_MODEL_ID, modeAllowedForModel, resolutionWithinTier, imageRefMax, durationMaxFor, imageResolutionsFor } from '../../lib/seedance/constants.js';
 import { sanitizeOptions } from '../../lib/seedance/options.mjs';
 import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js';
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
@@ -464,15 +464,18 @@ export default function SeedanceStudio() {
             }
             const im = IMAGE_MODELS.find((x) => x.id === o.model);
             if (im?.resolutions) {
-                // Must be a tier the model still OFFERS and within the grant cap —
-                // a persisted 4K selection can't linger on a model that dropped it.
-                const okI = (r) => im.resolutions.some((t) => t.toLowerCase() === String(r).toLowerCase())
+                // Must be a tier the model still OFFERS **at the selected aspect
+                // ratio** and within the grant cap — a persisted 4K selection can't
+                // linger on a model that dropped it, nor survive a ratio switch to
+                // one the provider won't render at 4K (GPT Image 2 at 1:1).
+                const offered = imageResolutionsFor(im.id, o.imageRatio) ?? im.resolutions;
+                const okI = (r) => offered.some((t) => t.toLowerCase() === String(r).toLowerCase())
                     && resolutionWithinTier(r, tierCaps[im.id] ?? null, im.resolutions);
-                if (!okI(next.imageResolution)) next.imageResolution = [...im.resolutions].reverse().find(okI) || im.resolutions[0];
+                if (!okI(next.imageResolution)) next.imageResolution = [...offered].reverse().find(okI) || offered[0];
             }
             return next.resolution === o.resolution && next.imageResolution === o.imageResolution ? o : next;
         });
-    }, [tierCaps, options.model]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [tierCaps, options.model, options.imageRatio]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const setOpt = (k, v) => setOptions((o) => {
         const next = { ...o, [k]: v };
