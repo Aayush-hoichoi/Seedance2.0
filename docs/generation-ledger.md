@@ -207,6 +207,18 @@ since the generations that used them. Building the list from the rows means
 every option returns at least one row, and history keeps the name it was
 generated under.
 
+**Timeline order** is a fourth dropdown: `?sort=newest` (the default) or
+`?sort=oldest`. The value is resolved through `LEDGER_SORTS` in
+`lib/ledger/filters.mjs` and anything unrecognised falls back to the default,
+so the ORDER BY fragment can only ever come from that map and never from the
+request. Both orderings carry the `row_key` tiebreaker in the *same* direction
+as the timestamp — submitted_at ties during a retry burst, and an unstable
+tiebreaker would let a row appear on two pages, or on none, while paging.
+
+The export stays chronological regardless of this setting: the workbooks are
+defined as a history, and re-ordering them would break the thing the export
+exists to reproduce.
+
 Two details worth knowing:
 
 - **The user filter matches `User Email`, not `User Name`.** Two people can

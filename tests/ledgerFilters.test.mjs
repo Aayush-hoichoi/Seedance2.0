@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import { PGlite } from '@electric-sql/pglite';
 import {
     readFilters, ledgerPredicates, ledgerQuery, facetQuery, FILTER_COLUMNS,
+    readSort, orderBy, LEDGER_SORTS, DEFAULT_SORT,
 } from '../lib/ledger/filters.mjs';
 
 function neonLike(db) {
@@ -189,4 +190,70 @@ test('a media-scoped facet never offers a value that would return nothing', asyn
 
 test('facetQuery refuses a column that is not filterable', () => {
     assert.throws(() => facetQuery('prompt'), /Not a filterable column/);
+});
+
+test('the sort key resolves through a fixed map, so a request cannot inject SQL', () => {
+    const hostile = new URLSearchParams("sort=submitted_at; DROP TABLE ledger_rows--");
+    assert.equal(readSort(hostile), DEFAULT_SORT, 'an unknown sort must fall back, not pass through');
+    assert.equal(readSort(new URLSearchParams('sort=oldest')), 'oldest');
+    assert.equal(readSort(new URLSearchParams('')), DEFAULT_SORT);
+
+    // Prototype keys must not resolve either — Object.hasOwn, not `in`.
+    assert.equal(readSort(new URLSearchParams('sort=constructor')), DEFAULT_SORT);
+    assert.equal(readSort(new URLSearchParams('sort=toString')), DEFAULT_SORT);
+
+    // orderBy never returns anything but one of ours.
+    const known = Object.values(LEDGER_SORTS).map((s) => s.sql);
+    assert.ok(known.includes(orderBy('nonsense')));
+    assert.ok(known.includes(orderBy(undefined)));
+});
+
+test('newest and oldest really do reverse the table', async () => {
+    const { sql } = await freshDb();
+    for (let i = 0; i < 4; i += 1) {
+        await seed(sql, { model: 'm1', user: 'a@b.tv', project: 'P' });
+    }
+    // Explicit, distinct timestamps. Relying on four now() calls landing on
+    // four different instants is how a test starts flaking on a fast machine.
+    const keys = (await sql.query('SELECT row_key FROM ledger_rows ORDER BY row_key')).map((r) => r.row_key);
+    for (let i = 0; i < keys.length; i += 1) {
+        await sql.query(
+            `UPDATE ledger_rows SET submitted_at = $1::timestamptz WHERE row_key = $2`,
+            [`2026-08-01 0${i}:00:00+00`, keys[i]],
+        );
+    }
+
+    const read = async (sort) => (await sql.query(
+        `SELECT submitted_at FROM ledger_rows ORDER BY ${orderBy(sort)}`,
+    )).map((r) => new Date(r.submitted_at).getTime());
+
+    const newest = await read('newest');
+    const oldest = await read('oldest');
+    assert.deepEqual(newest, [...oldest].reverse());
+    assert.ok(newest[0] > newest[3], 'newest first really is descending');
+    assert.ok(oldest[0] < oldest[3], 'oldest first really is ascending');
+});
+
+test('rows sharing a timestamp page without repeating or skipping one', async () => {
+    // A retry burst can put several rows on one instant. If the row_key
+    // tiebreaker did not run the SAME direction as the timestamp, a row could
+    // land on two pages, or on none, as the admin pages through.
+    const { sql } = await freshDb();
+    const at = '2026-08-01 00:00:00+00';
+    for (let i = 0; i < 6; i += 1) {
+        await seed(sql, { model: 'm1', user: 'a@b.tv', project: 'P' });
+    }
+    await sql.query('UPDATE ledger_rows SET submitted_at = $1::timestamptz', [at]);
+
+    for (const sort of ['newest', 'oldest']) {
+        const seen = [];
+        for (let offset = 0; offset < 6; offset += 2) {
+            const page = await sql.query(
+                `SELECT row_key FROM ledger_rows ORDER BY ${orderBy(sort)} LIMIT 2 OFFSET ${offset}`,
+            );
+            seen.push(...page.map((r) => r.row_key));
+        }
+        assert.equal(seen.length, 6, `${sort}: every row appears`);
+        assert.equal(new Set(seen).size, 6, `${sort}: and none appears twice`);
+    }
 });

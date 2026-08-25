@@ -78,6 +78,14 @@ const FILTERS = [
     { key: 'project', all: 'All projects' },
 ];
 
+// Timeline order. Mirrors LEDGER_SORTS in lib/ledger/filters.mjs — the server
+// resolves the key through its own map and ignores anything it does not know,
+// so a stale option here degrades to the default rather than erroring.
+const SORTS = [
+    { key: 'newest', label: 'Newest first' },
+    { key: 'oldest', label: 'Oldest first' },
+];
+
 function orderColumns(columns) {
     if (!columns?.length) return [];
     const lead = LEAD.filter((c) => columns.includes(c));
@@ -103,6 +111,7 @@ export default function LedgerClient() {
     const [query, setQuery] = useState('');
     const [search, setSearch] = useState('');
     const [picked, setPicked] = useState({ model: '', user: '', project: '' });
+    const [sort, setSort] = useState('newest');
     const [page, setPage] = useState(0);
 
     const spec = WORKBOOKS[workbook];
@@ -116,6 +125,7 @@ export default function LedgerClient() {
     if (scoped) params.set('media', scoped);
     if (search) params.set('q', search);
     for (const { key } of FILTERS) if (picked[key]) params.set(key, picked[key]);
+    if (sort !== 'newest') params.set('sort', sort);
 
     // The dropdown values follow the workbook and media scope, so the video
     // view never offers an image-only model — but not the other filters, which
@@ -149,6 +159,11 @@ export default function LedgerClient() {
 
     function choose(key, value) {
         setPicked((p) => ({ ...p, [key]: value }));
+        setPage(0);
+    }
+
+    function reorder(value) {
+        setSort(value);
         setPage(0);
     }
 
@@ -298,6 +313,9 @@ export default function LedgerClient() {
                         </Select>
                     );
                 })}
+                <Select title="Timeline order" value={sort} onChange={(e) => reorder(e.target.value)}>
+                    {SORTS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+                </Select>
                 {active ? (
                     <Button variant="ghost" size="xs" onClick={clearAll}>
                         Clear {active} filter{active === 1 ? '' : 's'}

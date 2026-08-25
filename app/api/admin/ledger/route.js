@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { gatewayContext } from '../../../../lib/gateway/authz.js';
 import { MASTER_COLUMNS, VIDEO_COLUMNS, projectRow } from '../../../../lib/ledger/columns.mjs';
 import { ACCEPTANCE_BASIS } from '../../../../lib/ledger/sessions.mjs';
-import { readFilters, ledgerQuery } from '../../../../lib/ledger/filters.mjs';
+import { readFilters, ledgerQuery, readSort, orderBy } from '../../../../lib/ledger/filters.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,6 +18,7 @@ export const dynamic = 'force-dynamic';
 //
 //   GET /api/admin/ledger?workbook=video&media=Video&limit=200&offset=0&q=text
 //   GET /api/admin/ledger?model=seedance-2.0&user=a@b.tv&project=Hooliganism
+//   GET /api/admin/ledger?sort=oldest
 //
 // `q` is free text across every column; model / user / project are exact
 // matches on one column each, and the values come from
@@ -47,6 +48,7 @@ export async function GET(request) {
 
     const q = (params.get('q') || '').trim() || null;
     const filters = readFilters(params);
+    const sort = readSort(params);
     const limit = Math.min(MAX_LIMIT, Math.max(1, Number(params.get('limit')) || DEFAULT_LIMIT));
     const offset = Math.max(0, Number(params.get('offset')) || 0);
 
@@ -67,10 +69,12 @@ export async function GET(request) {
         countValues,
     );
 
+    // orderBy() resolves through a fixed map, so nothing from the request is
+    // ever interpolated here.
     const rows = await sql.query(
         `SELECT cells FROM ledger_rows
          ${rowsWhere}
-         ORDER BY submitted_at DESC NULLS LAST, row_key DESC
+         ORDER BY ${orderBy(sort)}
          LIMIT ${bind(limit)} OFFSET ${bind(offset)}`,
         values,
     );
@@ -91,6 +95,7 @@ export async function GET(request) {
         // Echoed back so the client can render "filtered by …" from the
         // response it actually got, rather than from what it hoped it sent.
         filters,
+        sort,
         limit,
         offset,
         rows: projected,
