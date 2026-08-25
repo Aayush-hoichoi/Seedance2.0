@@ -3,9 +3,14 @@ import { NextResponse } from 'next/server';
 
 // Reachable without a session: the public landing page (app/page.js sends
 // signed-in visitors on to /projects itself), the auth pages, the Clerk
-// webhook (called server-to-server by Clerk with a Svix signature), and the
-// Vercel cron endpoints (authenticated by CRON_SECRET inside the route).
-const isPublicRoute = createRouteMatcher(['/', '/sign-in(.*)', '/sign-up(.*)', '/api/webhooks(.*)', '/api/cron(.*)', '/api/mcp(.*)', '/.well-known(.*)']);
+// webhook (called server-to-server by Clerk with a Svix signature), the
+// Vercel cron endpoints, and the ledger feed a Power Automate flow polls —
+// the last two are authenticated by CRON_SECRET inside the route, fail-closed.
+// The two ledger paths are listed EXACTLY, not as /api/ledger(.*): a prefix
+// match would silently make any future route under that path public, and the
+// ledger carries every prompt, cost and user email on the platform. The
+// console's own ledger views live under /api/admin/ledger and stay gated.
+const isPublicRoute = createRouteMatcher(['/', '/sign-in(.*)', '/sign-up(.*)', '/api/webhooks(.*)', '/api/cron(.*)', '/api/ledger/pending', '/api/ledger/ack', '/api/mcp(.*)', '/.well-known(.*)']);
 
 export default clerkMiddleware(async (auth, request) => {
     const { pathname, search } = request.nextUrl;
