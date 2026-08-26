@@ -101,7 +101,26 @@ function Cell({ column, value }) {
     if (column === 'DOWNLOADED?' && value === 'YES') return <Badge tone="blue">YES</Badge>;
 
     const text = String(value);
-    if (text.length > 55) return <span title={text}>{`${text.slice(0, 55)}…`}</span>;
+    const short = text.length > 55 ? `${text.slice(0, 55)}…` : text;
+
+    // Any cell holding a URL is clickable — OUTPUT LINK, the six Ref links and
+    // Full Storage URL all carry a bare http(s) string, so one rule here beats
+    // a per-column list that goes stale the next time a column is added.
+    if (/^https?:\/\//.test(text)) {
+        return (
+            <a
+                href={text}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={text}
+                className="text-accent-hi underline decoration-dotted underline-offset-2 hover:decoration-solid"
+            >
+                {short}
+            </a>
+        );
+    }
+
+    if (text.length > 55) return <span title={text}>{short}</span>;
     return <span>{text}</span>;
 }
 
