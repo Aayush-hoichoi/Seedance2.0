@@ -39,6 +39,10 @@ test('5xx/timeout/network errors retry; 4xx policy errors do not', () => {
     assert.equal(isRetryable({ status: 503 }), true);
     assert.equal(isRetryable({ code: 'ETIMEDOUT' }), true);
     assert.equal(isRetryable({ code: 'ECONNRESET' }), true);
+    // Transport faults from undici: "fetch failed" must retry, not die at attempt 1.
+    assert.equal(isRetryable({ code: 'ENETWORK' }), true);
+    assert.equal(isRetryable({ code: 'UND_ERR_SOCKET' }), true);
+    assert.equal(isRetryable({ code: 'UND_ERR_HEADERS_TIMEOUT' }), true);
     assert.equal(isRetryable({ status: 400 }), false);
     assert.equal(isRetryable({ status: 403 }), false);
     assert.equal(isRetryable({ status: 429 }), true); // provider rate limit: retry later
