@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     backoffDelayMs, isRetryable, timeoutSecondsFor, pickNextJob, MAX_ATTEMPTS,
-    PROJECT_CONCURRENCY, MODEL_CONCURRENCY, isStalledClaim,
+    PROJECT_CONCURRENCY, MODEL_CONCURRENCY, isStalledClaim, maxAttemptsFor,
+    MAX_ATTEMPTS_NO_HANDLE, BACKOFF_CAP_MS,
 } from '../lib/gateway/queueLogic.mjs';
 
 const NOW = new Date('2026-07-11T12:00:00Z');
@@ -15,8 +16,22 @@ test('exponential backoff grows per attempt', () => {
     assert.equal(backoffDelayMs(3), 160_000);
 });
 
+test('backoff is capped so tail attempts stay a sane wait', () => {
+    assert.equal(backoffDelayMs(4), BACKOFF_CAP_MS);
+    assert.equal(backoffDelayMs(9), BACKOFF_CAP_MS);
+});
+
 test('MAX_ATTEMPTS is 3 per the PRD', () => {
     assert.equal(MAX_ATTEMPTS, 3);
+});
+
+// A Google 503 "high demand" spike outlasts 3 attempts. Nothing billable ran
+// when there is no provider handle, so those jobs ride the spike out longer.
+test('jobs with no provider handle get the longer retry ride-out', () => {
+    assert.equal(maxAttemptsFor({}), MAX_ATTEMPTS_NO_HANDLE);
+    assert.equal(maxAttemptsFor({ provider_task_id: 'kie-123' }), MAX_ATTEMPTS);
+    assert.equal(maxAttemptsFor({ batch_job_name: 'batches/abc' }), MAX_ATTEMPTS);
+    assert.ok(MAX_ATTEMPTS_NO_HANDLE > MAX_ATTEMPTS);
 });
 
 test('5xx/timeout/network errors retry; 4xx policy errors do not', () => {
