@@ -12,7 +12,12 @@ const TYPES = [
     'job.status_changed', 'budget.threshold_crossed',
     'budget.requested', 'budget.request.approved', 'budget.request.denied',
     'project.paused', 'project.resumed',
+    'issue.reported', 'issue.decided',
 ];
+// EventSource delivers ONLY named events that have a listener registered, so a
+// type missing from this list is silently dropped — the server sends it, the
+// browser drops it, and nothing anywhere logs a thing. Any new event type must
+// be added here or its handlers will never run.
 
 let source = null;
 let refs = 0;
