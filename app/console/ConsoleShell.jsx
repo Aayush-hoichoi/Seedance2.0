@@ -12,7 +12,7 @@ import clsx from 'clsx';
 import {
     LayoutDashboard, FolderKanban, Boxes, ListOrdered, BarChart3,
     Wallet, ScrollText, Users, Clapperboard, PanelLeftClose, PanelLeftOpen, Radio, BellRing,
-    Table2,
+    Table2, Bug,
 } from 'lucide-react';
 import { useEvents } from '../hooks/useEvents.js';
 import { useApi } from './lib.js';
@@ -28,6 +28,7 @@ const NAV = [
     { href: '/console/usage', label: 'Usage', icon: BarChart3 },
     { href: '/console/budgets', label: 'Budgets', icon: Wallet },
     { href: '/console/budget-requests', label: 'Budget requests', icon: BellRing },
+    { href: '/console/issues', label: 'Issues', icon: Bug },
     { href: '/console/audit', label: 'Audit', icon: ScrollText },
     { href: '/console/users', label: 'Users', icon: Users },
 ];
@@ -45,6 +46,8 @@ const REVALIDATE = {
     'budget.request.denied': ['/api/admin/budget-requests'],
     'project.paused': ['/api/projects'],
     'project.resumed': ['/api/projects'],
+    'issue.reported': ['/api/admin/issues'],
+    'issue.decided': ['/api/admin/issues'],
 };
 
 export default function ConsoleShell({ children }) {
@@ -58,6 +61,8 @@ export default function ConsoleShell({ children }) {
     const isAdmin = me?.role === 'admin';
     const { data: budgetRequests } = useApi(isAdmin ? '/api/admin/budget-requests' : null);
     const pendingBudgetRequests = (budgetRequests?.requests ?? []).filter((request) => request.status === 'pending').length;
+    const { data: issues } = useApi(isAdmin ? '/api/admin/issues' : null);
+    const openIssues = (issues?.issues ?? []).filter((issue) => issue.status === 'open').length;
     const nav = isAdmin ? NAV : NAV.filter((n) => n.managerOk);
     // A manager who reaches an admin-only console route by URL is bounced to
     // Projects (the APIs already deny the data; this hides the empty shell).
@@ -81,6 +86,9 @@ export default function ConsoleShell({ children }) {
         if (type === 'budget.requested') {
             toast(`${data?.userName || 'A user'} requested ${Number(data?.increaseAmount || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' })} for ${data?.modelName || 'models'} in ${data?.projectName || 'a project'}.`, { icon: '🔔', duration: 7000 });
         }
+        if (type === 'issue.reported') {
+            toast(`${data?.userName || 'A user'} hit an issue on ${data?.modelName || 'a model'} in ${data?.projectName || 'a project'} — ${data?.errorSummary || 'generation failed'}`, { icon: '🐞', duration: 7000 });
+        }
         if (type === 'access.revoked') toast(`Access revoked: ${data?.modelId}`, { icon: '🔒' });
         if (type === 'project.paused') toast('Project paused by an admin', { icon: '⏸️' });
     });
@@ -103,11 +111,15 @@ export default function ConsoleShell({ children }) {
                                 {active && <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-accent" />}
                                 <Icon size={16} className="shrink-0" />
                                 {!collapsed && <span className="min-w-0 flex-1 truncate">{label}</span>}
-                                {label === 'Budget requests' && pendingBudgetRequests > 0 ? (
-                                    <span className="grid min-w-5 place-items-center rounded-full bg-warn/15 px-1 text-[10px] font-semibold text-warn">
-                                        {pendingBudgetRequests > 99 ? '99+' : pendingBudgetRequests}
-                                    </span>
-                                ) : null}
+                                {(() => {
+                                    const badge = label === 'Budget requests' ? pendingBudgetRequests
+                                        : label === 'Issues' ? openIssues : 0;
+                                    return badge > 0 ? (
+                                        <span className="grid min-w-5 place-items-center rounded-full bg-warn/15 px-1 text-[10px] font-semibold text-warn">
+                                            {badge > 99 ? '99+' : badge}
+                                        </span>
+                                    ) : null;
+                                })()}
                             </Link>
                         );
                     })}

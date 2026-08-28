@@ -34,8 +34,9 @@ import ProjectSelect from './ProjectSelect.jsx';
 import BudgetRemaining from './BudgetRemaining.jsx';
 import MySpend from './MySpend.jsx';
 import BudgetRequestModal from './BudgetRequestModal.jsx';
+import IssueReportModal from './IssueReportModal.jsx';
 import Link from 'next/link';
-import { ArrowLeft, ShieldCheck, WalletCards } from 'lucide-react';
+import { ArrowLeft, Bug, ShieldCheck, WalletCards } from 'lucide-react';
 import AssetsPanel from './AssetsPanel.jsx';
 import CinematicPanel from './CinematicPanel.jsx';
 import { cinematicToPayload, sanitizeSetup, DEFAULT_SETUP } from '../../lib/seedance/cinematic.mjs';
@@ -182,6 +183,7 @@ export default function SeedanceStudio() {
     const [permsVersion, setPermsVersion] = useState(0); // bump → refetch access
     const [budgetVersion, setBudgetVersion] = useState(0); // settlement/release → refresh remaining balance
     const [budgetRequestOpen, setBudgetRequestOpen] = useState(false);
+    const [issueJob, setIssueJob] = useState(null); // the failed job being reported to an admin
 
     useEffect(() => {
         let alive = true;
@@ -343,6 +345,14 @@ export default function SeedanceStudio() {
         }
         if (type === 'access.request.denied') {
             setNotice(`Access request ${data?.upgradeDeclined ? 'for a higher quality tier ' : ''}denied for ${data?.modelId || 'the requested model'}${data?.reason ? ` — ${data.reason}` : '.'}`);
+        }
+        // Closing the loop on a report. The event is scoped to the reporter's
+        // user id, so this only ever fires for the person who filed it. The
+        // admin's note is the only thing that says WHY it was closed — Dismiss
+        // is the single closing action, so "fixed" and "not a bug" look
+        // identical without it.
+        if (type === 'issue.decided') {
+            setNotice(`An admin closed your issue report${data?.note ? ` — ${data.note}` : '.'}`);
         }
         if (type === 'job.status_changed' && ['succeeded', 'failed', 'cancelled', 'timed_out'].includes(data?.status)) {
             setBudgetVersion((v) => v + 1);
@@ -955,7 +965,10 @@ export default function SeedanceStudio() {
                     refs: creation.refs ?? null,
                     projectId,
                 });
-                patchJob(job.id, { taskId, status: 'queued' });
+                // submitAttempts survives on the job so an issue report filed
+                // later can say how many submit retries this cost, not just how
+                // many times the user pressed Generate.
+                patchJob(job.id, { taskId, status: 'queued', submitAttempts: attempt });
                 watchJob(job.id, taskId);
                 return;
             } catch (e) {
@@ -964,7 +977,7 @@ export default function SeedanceStudio() {
                     await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
                     continue;
                 }
-                patchJob(job.id, { status: 'error', error: e.message });
+                patchJob(job.id, { status: 'error', error: e.message, submitAttempts: attempt });
                 return;
             }
         }
@@ -1557,6 +1570,23 @@ export default function SeedanceStudio() {
                 />
             ) : null}
 
+            {issueJob ? (
+                <IssueReportModal
+                    job={issueJob}
+                    projectName={projects.find((p) => p.id === issueJob.projectId)?.name}
+                    // How many times the user actually pressed Generate for this
+                    // prompt on this model — what a person means by "I tried 4 times".
+                    userRetries={visibleJobs.filter((j) => j.prompt === issueJob.prompt && j.model === issueJob.model).length}
+                    onClose={() => setIssueJob(null)}
+                    onSent={(result) => {
+                        setIssueJob(null);
+                        setNotice(result?.duplicate
+                            ? 'You already reported this generation — an admin has it.'
+                            : 'Issue reported — an admin has the error log and will take a look.');
+                    }}
+                />
+            ) : null}
+
 
             {/* Center stage: hero when empty, else the selected job plays big.
                 Finished generations live in the right-side history rail. */}
@@ -1569,6 +1599,7 @@ export default function SeedanceStudio() {
                         onFullscreen={() => selectedJob.videoUrl && setFullscreen(selectedJob.videoUrl)}
                         onReuse={onReuseRefs}
                         onRefresh={() => refreshVideoUrl(selectedJob, { fromError: true })}
+                        onReportIssue={() => setIssueJob(selectedJob)}
                     />
                 ) : (
                     <Hero />
@@ -1670,7 +1701,7 @@ export default function SeedanceStudio() {
 
 // The selected generation, big in the center (higgsfield-style stage):
 // video when done, live progress while rendering, error otherwise.
-function BigStage({ job, onCancel, onFullscreen, onReuse, onRefresh }) {
+function BigStage({ job, onCancel, onFullscreen, onReuse, onRefresh, onReportIssue }) {
     const active = ACTIVE_STATUSES.includes(job.status);
     // The stored link expired and neither the archived copy nor the live task
     // record could revive it — a clean dead-end card instead of a player
@@ -1792,6 +1823,15 @@ function BigStage({ job, onCancel, onFullscreen, onReuse, onRefresh }) {
     return (
         <div className="max-w-md text-center animate-fade-in-up">
             <p className="px-4 py-3 rounded-xl bg-danger/10 border border-danger/20 text-sm text-danger leading-relaxed">{friendlyError(job.error) || 'Generation failed.'}</p>
+            {/* The only escalation path that carries the actual error. A rail
+                click selects an older failure onto this stage, so five-minute-old
+                failures are reportable from here too — no button on the tiles. */}
+            {onReportIssue && (
+                <button type="button" onClick={onReportIssue}
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-semibold text-white/70 transition-colors hover:border-danger/40 hover:text-danger">
+                    <Bug size={13} /> Report issue
+                </button>
+            )}
             <p className="mt-3 text-xs text-white/30 truncate" title={job.prompt}>{job.prompt}</p>
         </div>
     );
