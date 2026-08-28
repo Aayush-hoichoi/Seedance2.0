@@ -13,12 +13,20 @@ const NOW = new Date('2026-07-11T12:00:00Z');
 test('exponential backoff grows per attempt', () => {
     assert.equal(backoffDelayMs(1), 10_000);
     assert.equal(backoffDelayMs(2), 40_000);
-    assert.equal(backoffDelayMs(3), 160_000);
 });
 
 test('backoff is capped so tail attempts stay a sane wait', () => {
-    assert.equal(backoffDelayMs(4), BACKOFF_CAP_MS);
+    assert.equal(backoffDelayMs(3), BACKOFF_CAP_MS);
     assert.equal(backoffDelayMs(9), BACKOFF_CAP_MS);
+});
+
+// The whole point of the 4-attempt cap: a user must hear back well inside the
+// 15 min the studio waits before it gives up with "Timed out waiting for the
+// image". Bumping either the attempts or the backoff cap breaks this.
+test('the no-handle ride-out stays inside its ~2 min backoff budget', () => {
+    let total = 0;
+    for (let a = 1; a < MAX_ATTEMPTS_NO_HANDLE; a += 1) total += backoffDelayMs(a);
+    assert.ok(total <= 120_000, `retry backoff totals ${total}ms`);
 });
 
 test('MAX_ATTEMPTS is 3 per the PRD', () => {
