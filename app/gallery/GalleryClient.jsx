@@ -19,6 +19,7 @@ export default function GalleryClient() {
     const [items, setItems] = useState(null); // null = loading
     const [lightbox, setLightbox] = useState(null); // item
     const [error, setError] = useState(null);
+    const [query, setQuery] = useState('');
 
     useEffect(() => {
         let alive = true;
@@ -51,6 +52,14 @@ export default function GalleryClient() {
     }, [selected]);
 
     const creator = useMemo(() => creators?.find((c) => c.id === selected) || null, [creators, selected]);
+
+    // Same list, same order — just narrowed. Name or email, whichever the
+    // person searching happens to know.
+    const shown = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        if (!q || !creators) return creators;
+        return creators.filter((c) => `${c.name || ''} ${c.email || ''}`.toLowerCase().includes(q));
+    }, [creators, query]);
 
     return (
         <div className="relative min-h-screen w-full bg-app-bg text-white">
@@ -86,22 +95,40 @@ export default function GalleryClient() {
                 {/* Creators sidebar (desktop) / top strip (mobile) */}
                 <aside className="hidden md:flex w-72 shrink-0 flex-col border-r border-white/[0.06] px-3 py-4 gap-1 overflow-y-auto custom-scrollbar sticky top-[4.2rem] h-[calc(100vh-4.2rem)]">
                     <p className="px-2 pb-2 text-[10px] font-bold uppercase tracking-wider text-white/30">
-                        Creators{creators ? ` · ${creators.length}` : ''}
+                        Creators{shown ? ` · ${shown.length}` : ''}
                     </p>
+                    <input
+                        type="search"
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder="Search creators…"
+                        aria-label="Search creators by name or email"
+                        className="mb-2 w-full px-2.5 py-1.5 rounded-lg border border-white/10 bg-white/[0.03] text-xs text-white placeholder:text-white/25 outline-none focus:border-primary/50 focus:bg-white/[0.05] transition-colors"
+                    />
                     {creators === null && [...Array(5)].map((_, i) => (
                         <div key={i} className="h-14 rounded-xl bg-white/[0.03] animate-pulse" />
                     ))}
-                    {creators?.map((c) => (
+                    {shown?.map((c) => (
                         <CreatorCard key={c.id} c={c} me={me} selected={c.id === selected} onClick={() => setSelected(c.id)} />
                     ))}
-                    {creators?.length === 0 && <p className="px-2 text-xs text-white/35">No creators yet.</p>}
+                    {shown?.length === 0 && (
+                        <p className="px-2 text-xs text-white/35">{query.trim() ? 'No creator matches that.' : 'No creators yet.'}</p>
+                    )}
                 </aside>
 
                 {/* Main pane */}
                 <main className="flex-1 min-w-0 px-4 sm:px-6 py-4">
-                    {/* Mobile creator strip */}
+                    {/* Mobile creator search + strip */}
+                    <input
+                        type="search"
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder="Search creators…"
+                        aria-label="Search creators by name or email"
+                        className="md:hidden mb-2 w-full px-2.5 py-2 rounded-lg border border-white/10 bg-white/[0.03] text-xs text-white placeholder:text-white/25 outline-none focus:border-primary/50"
+                    />
                     <div className="md:hidden flex gap-2 overflow-x-auto pb-3 -mx-4 px-4">
-                        {creators?.map((c) => (
+                        {shown?.map((c) => (
                             <button
                                 key={c.id}
                                 type="button"
