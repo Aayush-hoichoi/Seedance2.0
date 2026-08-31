@@ -15,7 +15,7 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <ClerkProvider afterSignOutUrl="/sign-in">
-      <html lang="en">
+      <html lang="en" suppressHydrationWarning>
         <body className={`${display.variable} ${body.variable} ${mono.variable}`}>
           {/* Apply the saved accent theme before first paint (no flash of the
               default violet). Mirrors lib/theme/themeClient.js applyThemeVars. */}
