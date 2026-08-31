@@ -185,6 +185,22 @@ export default function SeedanceStudio() {
     const [budgetRequestOpen, setBudgetRequestOpen] = useState(false);
     const [issueJob, setIssueJob] = useState(null); // the failed job being reported to an admin
 
+    // The prompt bar is fixed to the bottom and its height swings wildly — one
+    // line on a desktop, five wrapped control rows on a phone, plus the home
+    // indicator inset. Measure it instead of guessing: --bar-h drives how far
+    // the stage pads and where the history rail sits on small screens.
+    // Callback ref, not useRef: the bar swaps between its docked and expanded
+    // roots, and this re-observes the new node when it does.
+    const [barEl, setBarEl] = useState(null);
+    const [barHeight, setBarHeight] = useState(null);
+    useEffect(() => {
+        if (!barEl || typeof ResizeObserver === 'undefined') return undefined;
+        const ro = new ResizeObserver(([entry]) => setBarHeight(entry.target.offsetHeight));
+        ro.observe(barEl);
+        setBarHeight(barEl.offsetHeight);
+        return () => ro.disconnect();
+    }, [barEl]);
+
     useEffect(() => {
         let alive = true;
         fetch('/api/access/me')
@@ -1524,16 +1540,28 @@ export default function SeedanceStudio() {
     }
 
     return (
-        <div className="relative min-h-screen w-full bg-app-bg text-white">
+        <div
+            className="relative min-h-screen w-full bg-app-bg text-white"
+            style={{
+                // Keep these values shared by the prompt and everything that
+                // docks around it. Omitting --bar-h until the first measure is
+                // deliberate: consumers then use their 20rem CSS fallback
+                // instead of briefly laying out against 0px.
+                ...(barHeight != null ? { '--bar-h': `${barHeight}px` } : {}),
+                '--bar-bottom': 'max(1rem, env(safe-area-inset-bottom))',
+            }}
+        >
             {/* Slim top bar (all sizes) — the nav rail lives on /projects now;
-                the studio keeps just the project scope + essentials. */}
+                the studio keeps just the project scope + essentials. Below sm
+                the wordmark and the budget/spend chips move out of this row
+                (see BudgetRemaining / MySpend) so it fits a phone. */}
             <div className="fixed inset-x-3 top-3 z-40 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                    <button type="button" onClick={() => setSelectedId(null)} title="Home" className="flex items-center gap-1.5 rounded-md border border-line bg-paper-2 px-2.5 py-1.5 text-xs font-semibold text-ink-2">
+                <div className="flex min-w-0 items-center gap-2">
+                    <button type="button" onClick={() => setSelectedId(null)} title="Home" className="flex shrink-0 items-center gap-1.5 rounded-md border border-line bg-paper-2 px-2 py-1.5 text-xs font-semibold text-ink-2 sm:px-2.5">
                         <span className="grid h-4 w-4 place-items-center rounded bg-accent font-display text-[10px] font-bold text-accent-ink">L</span>
-                        LoglineAI{activeCount > 0 && <span className="ml-0.5 text-accent-hi">· {activeCount}</span>}
+                        <span className="hidden sm:inline">LoglineAI</span>{activeCount > 0 && <span className="ml-0.5 text-accent-hi">· {activeCount}</span>}
                     </button>
-                    <Link href="/projects" title="Back to projects" className="grid h-7 w-7 place-items-center rounded-md border border-line bg-paper-2 text-ink-3 transition-colors hover:text-ink">
+                    <Link href="/projects" title="Back to projects" className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-line bg-paper-2 text-ink-3 transition-colors hover:text-ink">
                         <ArrowLeft size={14} />
                     </Link>
                     {projects.length > 0 && <ProjectSelect projects={projects} value={projectId} onChange={selectProject} />}
@@ -1590,7 +1618,10 @@ export default function SeedanceStudio() {
 
             {/* Center stage: hero when empty, else the selected job plays big.
                 Finished generations live in the right-side history rail. */}
-            <div className={`relative z-10 flex min-h-screen flex-col items-center justify-center px-4 pt-16 pb-[24rem] ${selectedJob ? 'sm:pb-24' : 'sm:pb-56'} ${visibleJobs.length > 0 ? 'sm:pr-52' : ''}`}>
+            {/* justify-start below sm on purpose: a centred flex box whose
+                content is taller than it overflows BOTH ways, which puts the
+                stage back under the bar the padding just reserved room for. */}
+            <div className={`relative z-10 flex min-h-screen flex-col items-center justify-start px-4 pt-24 sm:justify-center sm:pt-16 ${visibleJobs.length > 0 ? 'pb-[calc(var(--bar-h,20rem)+6rem)]' : 'pb-[calc(var(--bar-h,20rem)+1.5rem)]'} ${selectedJob ? 'sm:pb-24' : 'sm:pb-56'} ${visibleJobs.length > 0 ? 'sm:pr-52' : ''}`}>
                 {selectedJob && !viewerJob ? (
                     <BigStage
                         key={selectedJob.id} /* remount on job switch → PromptTabs resets to the default tab */
@@ -1618,6 +1649,7 @@ export default function SeedanceStudio() {
             )}
 
             <PromptBar
+                barRef={setBarEl}
                 mode={mode}
                 onChangeMode={changeMode}
                 prompt={prompt}
@@ -2056,16 +2088,22 @@ function HistoryRail({ jobs, selectedId, onSelect, onRemove, onToggleLike, onRef
     // never mount at once.
     const [visibleCount, setVisibleCount] = useState(24);
     const shown = jobs.slice(0, visibleCount);
+    // Same "near the end → grow the window" rule for both orientations: the
+    // rail scrolls vertically from sm and horizontally on phones.
     const onScroll = (e) => {
         const el = e.currentTarget;
-        if (el.scrollHeight - el.scrollTop - el.clientHeight < 260) {
-            setVisibleCount((c) => (c < jobs.length ? c + 24 : c));
-        }
+        const remaining = el.scrollWidth > el.clientWidth
+            ? el.scrollWidth - el.scrollLeft - el.clientWidth
+            : el.scrollHeight - el.scrollTop - el.clientHeight;
+        if (remaining < 260) setVisibleCount((c) => (c < jobs.length ? c + 24 : c));
     };
+    // Below sm there is no room for a side rail, and hiding it would leave no
+    // way to reopen a past generation at all — so it becomes a horizontal
+    // strip sitting directly on top of the (measured) prompt bar.
     return (
-        <div className="fixed right-3 top-14 bottom-40 z-20 hidden sm:flex w-44 flex-col">
-            <p className="px-1 pb-2 text-[10px] font-bold uppercase tracking-wider text-white/30">History · {jobs.length}</p>
-            <div onScroll={onScroll} className="flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col gap-2 pr-0.5">
+        <div className="fixed z-20 flex flex-col inset-x-3 bottom-[calc(var(--bar-h,20rem)+var(--bar-bottom,1rem)+0.25rem)] sm:inset-x-auto sm:right-3 sm:top-14 sm:bottom-40 sm:w-44">
+            <p className="px-1 pb-1.5 text-[10px] font-bold uppercase tracking-wider text-white/30 sm:pb-2">History · {jobs.length}</p>
+            <div onScroll={onScroll} className="flex min-h-0 flex-1 gap-2 overflow-x-auto overflow-y-hidden custom-scrollbar pb-1 sm:flex-col sm:overflow-x-hidden sm:overflow-y-auto sm:pb-0 sm:pr-0.5">
                 {shown.map((job) => {
                     const active = ACTIVE_STATUSES.includes(job.status);
                     const selected = job.id === selectedId;
@@ -2077,7 +2115,7 @@ function HistoryRail({ jobs, selectedId, onSelect, onRemove, onToggleLike, onRef
                             onClick={() => onSelect(job.id)}
                             onKeyDown={(e) => { if (e.key === 'Enter') onSelect(job.id); }}
                             title={job.prompt || job.meta || job.taskId}
-                            className={`group relative shrink-0 aspect-video rounded-lg overflow-hidden border cursor-pointer transition-all ${selected ? 'border-primary/70 ring-1 ring-primary/40' : 'border-white/10 hover:border-white/30'}`}
+                            className={`group relative w-24 shrink-0 aspect-video rounded-lg overflow-hidden border cursor-pointer transition-all sm:w-auto ${selected ? 'border-primary/70 ring-1 ring-primary/40' : 'border-white/10 hover:border-white/30'}`}
                         >
                             {job.status === 'done' && job.imageUrl ? (
                                 <img src={job.imageUrl} alt="" loading="lazy" className="w-full h-full object-cover bg-black" />
@@ -2125,13 +2163,13 @@ function HistoryRail({ jobs, selectedId, onSelect, onRemove, onToggleLike, onRef
                     <button
                         type="button"
                         onClick={() => setVisibleCount((c) => Math.min(jobs.length, c + 24))}
-                        className="shrink-0 rounded-lg border border-line py-2 text-[10px] font-semibold text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink-2"
+                        className="shrink-0 self-center rounded-lg border border-line px-3 py-2 text-[10px] font-semibold text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink-2 sm:self-auto sm:px-0"
                     >
                         Load {Math.min(24, jobs.length - visibleCount)} more
                     </button>
                 )}
             </div>
-            <p className="pt-2 px-1 text-[9px] leading-relaxed text-white/20">Synced to your account · videos auto-archived to team storage</p>
+            <p className="hidden pt-2 px-1 text-[9px] leading-relaxed text-white/20 sm:block">Synced to your account · videos auto-archived to team storage</p>
         </div>
     );
 }
@@ -2139,10 +2177,10 @@ function HistoryRail({ jobs, selectedId, onSelect, onRemove, onToggleLike, onRef
 // Glass icon tile with cyan camera glyph + sparkle — the muapi studio signature.
 function IconTile({ pulse }) {
     return (
-        <div className="mb-10 relative group">
+        <div className="mb-4 sm:mb-10 relative group">
             <div className={`absolute inset-0 bg-primary/10 blur-[120px] rounded-full transition-opacity duration-1000 ${pulse ? 'opacity-60 animate-pulse' : 'opacity-30 group-hover:opacity-60'}`} />
-            <div className="relative w-24 h-24 md:w-32 md:h-32 bg-white/[0.02] rounded-[2rem] flex items-center justify-center border border-white/[0.05] overflow-hidden backdrop-blur-sm">
-                <div className={`w-16 h-16 bg-primary/5 rounded-2xl flex items-center justify-center border border-primary/10 relative z-10 transition-transform duration-500 ${pulse ? 'animate-pulse' : 'group-hover:scale-110'}`}>
+            <div className="relative w-16 h-16 sm:w-24 sm:h-24 md:w-32 md:h-32 bg-white/[0.02] rounded-[1.25rem] sm:rounded-[2rem] flex items-center justify-center border border-white/[0.05] overflow-hidden backdrop-blur-sm">
+                <div className={`w-10 h-10 sm:w-16 sm:h-16 bg-primary/5 rounded-xl sm:rounded-2xl flex items-center justify-center border border-primary/10 relative z-10 transition-transform duration-500 ${pulse ? 'animate-pulse' : 'group-hover:scale-110'}`}>
                     <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-primary opacity-80">
                         <polygon points="23 7 16 12 23 17 23 7" />
                         <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
@@ -2158,11 +2196,13 @@ function Hero() {
     return (
         <div className="flex flex-col items-center justify-center animate-fade-in-up">
             <IconTile />
-            <h1 className="text-3xl sm:text-5xl md:text-6xl font-extrabold font-display text-white tracking-tight mb-4 text-center px-4 leading-[1.05]">
+            <h1 className="text-2xl sm:text-5xl md:text-6xl font-extrabold font-display text-white tracking-tight mb-3 sm:mb-4 text-center px-4 leading-[1.05]">
                 <span className="text-white/40 font-medium">START CREATING WITH</span><br />
                 <span className="text-white">LOGLINEAI STUDIO</span>
             </h1>
-            <p className="text-white/40 text-sm md:text-base font-medium tracking-wide text-center max-w-lg leading-relaxed">
+            {/* Decorative copy only — on a phone the prompt bar and the history
+                strip own the screen, so this sits out below sm. */}
+            <p className="hidden sm:block text-white/40 text-sm md:text-base font-medium tracking-wide text-center max-w-lg leading-relaxed">
                 Turn text, images, or references into cinematic AI video — governed, budgeted, and shared with your team.
             </p>
         </div>

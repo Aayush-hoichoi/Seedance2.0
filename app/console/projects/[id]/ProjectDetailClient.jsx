@@ -64,7 +64,7 @@ export default function ProjectDetailClient({ projectId }) {
             </PageHeader>
 
             <Tabs.Root defaultValue="members">
-                <Tabs.List className="mb-4 flex gap-1 border-b border-line pb-2">
+                <Tabs.List className="mb-4 flex gap-1 overflow-x-auto scrollbar-none border-b border-line pb-2 [&>*]:shrink-0">
                     <Tabs.Trigger value="members" className={TAB}>Members</Tabs.Trigger>
                     {isAdmin && <Tabs.Trigger value="models" className={TAB}>Models</Tabs.Trigger>}
                     {isAdmin && <Tabs.Trigger value="overrides" className={TAB}>Overrides</Tabs.Trigger>}

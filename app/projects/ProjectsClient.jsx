@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { UserButton } from '@clerk/nextjs';
-import { Plus, Users, FolderKanban, ArrowUpRight, Trash2, Search, Clock } from 'lucide-react';
+import { Plus, Users, FolderKanban, ArrowUpRight, Trash2, Search, Clock, Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -111,12 +111,20 @@ export default function ProjectsClient() {
     const [error, setError] = useState(null);
     const [notice, setNotice] = useState(null); // "request sent" confirmation for members
     const [railCollapsed, setRailCollapsed] = useState(false); // left nav rail (desktop)
+    const [railOpen, setRailOpen] = useState(false); // same rail as an off-canvas drawer (mobile)
     const [createOpen, setCreateOpen] = useState(false);
     const [name, setName] = useState('');
     const [saving, setSaving] = useState(false);
     const [toArchive, setToArchive] = useState(null); // project pending archive confirmation
     const [archiving, setArchiving] = useState(false);
     const [query, setQuery] = useState('');
+
+    useEffect(() => {
+        if (!railOpen) return undefined;
+        const closeOnEscape = (event) => { if (event.key === 'Escape') setRailOpen(false); };
+        window.addEventListener('keydown', closeOnEscape);
+        return () => window.removeEventListener('keydown', closeOnEscape);
+    }, [railOpen]);
 
     const load = useCallback(() => {
         fetch('/api/projects')
@@ -190,13 +198,24 @@ export default function ProjectsClient() {
     return (
         <div className="min-h-screen w-full bg-app-bg text-ink">
             <WelcomeSplash />
-            <ProjectsSidebar isAdmin={isAdmin} collapsed={railCollapsed} onToggle={() => setRailCollapsed((v) => !v)} />
+            <ProjectsSidebar
+                isAdmin={isAdmin}
+                collapsed={railCollapsed}
+                onToggle={() => setRailCollapsed((v) => !v)}
+                open={railOpen}
+                onClose={() => setRailOpen(false)}
+            />
             <div className={railCollapsed ? 'sm:pl-14' : 'sm:pl-56'}>
-                <div className="mx-auto max-w-5xl px-5 py-10 sm:px-6 sm:py-12">
+                <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-12">
                     {/* ── Header ── */}
                     <header className="flex flex-wrap items-start justify-between gap-4">
                         <div className="min-w-0">
                             <div className="mb-2 inline-flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.16em] text-ink-3">
+                                <button type="button" onClick={() => setRailOpen(true)} aria-label="Open menu"
+                                    aria-controls="projects-navigation" aria-expanded={railOpen}
+                                    className="-ml-1 rounded-md p-1 text-ink-2 hover:bg-paper-2 sm:hidden">
+                                    <Menu size={16} />
+                                </button>
                                 <span className="h-1.5 w-1.5 rounded-full bg-accent" /> loglineAI Studio
                             </div>
                             <h1 className="font-display text-3xl font-semibold leading-none tracking-tight sm:text-4xl">Projects</h1>

@@ -12,7 +12,7 @@ import clsx from 'clsx';
 import {
     LayoutDashboard, FolderKanban, Boxes, ListOrdered, BarChart3,
     Wallet, ScrollText, Users, Clapperboard, PanelLeftClose, PanelLeftOpen, Radio, BellRing,
-    Table2, Bug,
+    Table2, Bug, Menu,
 } from 'lucide-react';
 import { useEvents } from '../hooks/useEvents.js';
 import { useApi } from './lib.js';
@@ -52,6 +52,7 @@ const REVALIDATE = {
 
 export default function ConsoleShell({ children }) {
     const [collapsed, setCollapsed] = useState(false);
+    const [navOpen, setNavOpen] = useState(false); // mobile drawer (below md the rail is off-canvas)
     const [live, setLive] = useState(false);
     const pathname = usePathname();
     const { mutate } = useSWRConfig();
@@ -67,6 +68,13 @@ export default function ConsoleShell({ children }) {
     // A manager who reaches an admin-only console route by URL is bounced to
     // Projects (the APIs already deny the data; this hides the empty shell).
     const router = useRouter();
+    useEffect(() => { setNavOpen(false); }, [pathname]); // navigating closes the mobile drawer
+    useEffect(() => {
+        if (!navOpen) return undefined;
+        const closeOnEscape = (event) => { if (event.key === 'Escape') setNavOpen(false); };
+        window.addEventListener('keydown', closeOnEscape);
+        return () => window.removeEventListener('keydown', closeOnEscape);
+    }, [navOpen]);
     useEffect(() => {
         if (me && !isAdmin) {
             const allowed = nav.some((n) => (n.exact ? pathname === n.href : pathname.startsWith(n.href)));
@@ -96,7 +104,15 @@ export default function ConsoleShell({ children }) {
     return (
         <div className="flex min-h-screen bg-app-bg text-ink">
             <Toaster position="bottom-right" toastOptions={{ style: { background: '#1A1A21', color: '#F4F3F7', border: '1px solid #2A2A34' } }} />
-            <aside className={clsx('sticky top-0 flex h-screen flex-col border-r border-line bg-paper-1 transition-all', collapsed ? 'w-14' : 'w-56')}>
+            {/* Below md the rail is an off-canvas drawer; from md it is the
+                sticky column it has always been (collapsible). */}
+            {navOpen && <button type="button" aria-label="Close menu" className="fixed inset-0 z-40 bg-black/60 md:hidden" onClick={() => setNavOpen(false)} />}
+            <aside id="console-navigation" className={clsx(
+                'fixed inset-y-0 left-0 z-50 flex w-56 flex-col border-r border-line bg-paper-1 transition-transform',
+                'md:sticky md:top-0 md:h-screen md:translate-x-0 md:transition-all',
+                navOpen ? 'visible translate-x-0' : 'invisible -translate-x-full md:visible',
+                collapsed ? 'md:w-14' : 'md:w-56',
+            )}>
                 <div className="flex items-center gap-2.5 px-3 py-4">
                     <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-accent font-display text-sm font-bold text-accent-ink">L</div>
                     {!collapsed && <div className="font-display text-sm font-semibold tracking-tight text-ink">loglineAI Studio</div>}
@@ -131,21 +147,26 @@ export default function ConsoleShell({ children }) {
                         {!collapsed && 'Studio'}
                     </Link>
                     <button onClick={() => setCollapsed(!collapsed)} title="Toggle sidebar"
-                        className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-ink-3 hover:bg-paper-2 hover:text-ink-2">
+                        className="hidden w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-ink-3 hover:bg-paper-2 hover:text-ink-2 md:flex">
                         {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
                         {!collapsed && 'Collapse'}
                     </button>
                 </div>
             </aside>
             <div className="flex min-w-0 flex-1 flex-col">
-                <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-line bg-app-bg/90 px-6 backdrop-blur">
-                    <div className="flex items-center gap-2 text-xs text-ink-3">
+                <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-2 border-b border-line bg-app-bg/90 px-4 backdrop-blur sm:px-6">
+                    <div className="flex min-w-0 items-center gap-2 text-xs text-ink-3">
+                        <button type="button" onClick={() => setNavOpen(true)} aria-label="Open menu"
+                            aria-controls="console-navigation" aria-expanded={navOpen}
+                            className="-ml-1 rounded-md p-1.5 text-ink-2 hover:bg-paper-2 md:hidden">
+                            <Menu size={18} />
+                        </button>
                         <Radio size={13} className={live ? 'text-ok' : 'text-ink-3'} />
-                        {live ? 'Live — governance events streaming' : 'Connecting…'}
+                        <span className="truncate">{live ? <><span className="hidden sm:inline">Live — governance events streaming</span><span className="sm:hidden">Live</span></> : 'Connecting…'}</span>
                     </div>
-                    <div className="rounded-full ring-1 ring-line"><UserButton afterSignOutUrl="/sign-in" /></div>
+                    <div className="shrink-0 rounded-full ring-1 ring-line"><UserButton afterSignOutUrl="/sign-in" /></div>
                 </header>
-                <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">{children}</main>
+                <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-5 sm:px-6 sm:py-6">{children}</main>
             </div>
         </div>
     );
