@@ -26,11 +26,13 @@ export default function MySpend({ project, spendRank }) {
         + `${total > 0 ? ` — ${share}% of the project's ${usd(total)}` : ''}`
         + `${leaderboard ? `. Your workspace spending rank this month is ${leaderboard.detail}` : ''}`;
 
+    // Below sm the top bar has no room for this, so it drops to its own row
+    // under the bar — the same treatment BudgetRemaining gets.
     return (
         <output
             aria-label={detail}
             title={detail}
-            className="inline-flex h-7 items-center whitespace-nowrap rounded-md border border-line bg-paper-2 px-2.5 font-mono text-[11px] font-semibold tabular-nums text-ink-2"
+            className="fixed right-3 top-12 z-40 inline-flex h-7 items-center whitespace-nowrap rounded-md border border-line bg-paper-2 px-2.5 font-mono text-[11px] font-semibold tabular-nums text-ink-2 sm:static"
         >
             <span className="inline-flex items-center gap-1.5">
                 <CircleUser size={13} aria-hidden="true" />

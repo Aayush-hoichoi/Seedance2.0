@@ -45,7 +45,8 @@ function renderChips(text, tags) {
 // File-input accept by media kind.
 const ACCEPT = { image: 'image/*', video: 'video/*', audio: 'audio/*' };
 
-const PILL = 'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border transition-all whitespace-nowrap group disabled:opacity-40';
+// py-2 below sm keeps the pills a thumb-sized tap target on phones.
+const PILL = 'flex items-center gap-1.5 px-2.5 py-2 sm:py-1.5 rounded-md border transition-all whitespace-nowrap group disabled:opacity-40';
 const PILL_IDLE = 'bg-white/[0.06] hover:bg-white/[0.1] border-white/[0.1]';
 const PILL_ON = 'bg-primary/10 border-primary/30';
 
@@ -69,7 +70,7 @@ function Popover({ children }) {
     return (
         <div
             onClick={(e) => e.stopPropagation()}
-            className="absolute bottom-[calc(100%+12px)] left-0 z-50 min-w-[170px] max-h-[min(60vh,22rem)] overflow-y-auto custom-scrollbar bg-paper-1 rounded-lg p-2 shadow-2xl border border-white/[0.05]"
+            className="absolute bottom-[calc(100%+12px)] left-0 z-50 min-w-[170px] max-w-[calc(100vw-3rem)] max-h-[min(60vh,22rem)] overflow-y-auto custom-scrollbar bg-paper-1 rounded-lg p-2 shadow-2xl border border-white/[0.05]"
         >
             {children}
         </div>
@@ -189,7 +190,7 @@ function MediaTypeToggle({ value, onChange }) {
         <button
             type="button"
             onClick={() => onChange?.(id)}
-            className={`flex w-full flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-3 py-2 text-[10px] font-bold transition-colors ${value === id ? 'bg-primary/15 text-primary' : 'text-white/45 hover:text-white/80'}`}
+            className={`flex w-full flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-2 text-[10px] font-bold transition-colors sm:px-3 ${value === id ? 'bg-primary/15 text-primary' : 'text-white/45 hover:text-white/80'}`}
         >
             {icon}
             {label}
@@ -469,7 +470,7 @@ export default function PromptBar({
     mode, onChangeMode, prompt, onPromptChange, options, setOpt,
     mediaByRole, setMediaByRole, models, allowedModelIds, projectId, resolutions, selectedModel, lock25 = null, tierCaps = {}, pendingTiers = {},
     error, notice, setNotice, onGenerate, enhancing = false, batch = 1, setBatch,
-    onMediaError, onUploadFiles, tags, sidebarLeft = '',
+    onMediaError, onUploadFiles, tags, sidebarLeft = '', barRef,
     mediaType = 'video', onChangeMediaType, imageModels = [],
     imageStudio = false, onChangeImageModel,
     imageRefs = [], onUploadImageRefs, removeImageRef, reorderImageRefs,
@@ -653,10 +654,14 @@ export default function PromptBar({
     // Docked: a slim pill that previews the prompt; clicking it scrolls back to
     // the bottom and the full bar re-expands (the parent keeps prompt/media
     // state, so nothing is lost across the swap).
+    //
+    // Deliberately NOT measured (no barRef): the stage padding is derived from
+    // the EXPANDED height. Reporting the docked pill's height would shrink the
+    // page, un-scroll it, undock the bar and oscillate.
     if (docked) {
         const attached = mode.media.reduce((n, s) => n + (mediaByRole[s.role] || []).length, 0);
         return (
-            <div className={`fixed bottom-4 left-0 right-0 ${sidebarLeft} mx-auto w-[95%] max-w-xl z-40 animate-fade-in-up`}>
+            <div className={`fixed bottom-[var(--bar-bottom,1rem)] left-0 right-0 ${sidebarLeft} mx-auto w-[95%] max-w-xl z-40 animate-fade-in-up`}>
                 <button
                     type="button"
                     onClick={undock}
@@ -677,11 +682,11 @@ export default function PromptBar({
     }
 
     return (
-        <div className={`fixed bottom-4 left-0 right-0 ${sidebarLeft} mx-auto w-[95%] max-w-4xl z-40 animate-fade-in-up`} style={{ animationDelay: '0.15s' }}>
+        <div ref={barRef} className={`fixed bottom-[var(--bar-bottom,1rem)] left-0 right-0 ${sidebarLeft} mx-auto w-[95%] max-w-4xl z-40 animate-fade-in-up`} style={{ animationDelay: '0.15s' }}>
             {/* Image/Video switch sits to the LEFT of the bar, matching its height. */}
-            <div className="flex items-stretch gap-2">
+            <div className="flex items-stretch gap-1.5 sm:gap-2">
             <MediaTypeToggle value={mediaType} onChange={onChangeMediaType} />
-            <div className="min-w-0 flex-1 bg-paper-1/80 backdrop-blur-3xl rounded-2xl border border-white/10 p-4 flex flex-col gap-2 shadow-2xl">
+            <div className="min-w-0 flex-1 bg-paper-1/80 backdrop-blur-3xl rounded-2xl border border-white/10 p-3 sm:p-4 flex flex-col gap-2 shadow-2xl">
                 {/* media + prompt */}
                 <div className="relative flex items-start gap-2 px-1">
                     {showMention && (
@@ -913,7 +918,7 @@ export default function PromptBar({
                     </div>
                     )}
 
-                    <div className="flex items-center justify-end gap-2">
+                    <div className="flex flex-wrap items-center justify-end gap-2">
                         {/* Cost transparency: the same estimate the gateway reserves against. */}
                         {(() => {
                             const est = isImage

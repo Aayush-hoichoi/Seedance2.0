@@ -20,14 +20,14 @@ export default function ProjectSelect({ projects, value, onChange, block }) {
         <Select.Root value={value != null ? String(value) : undefined} onValueChange={(v) => onChange(Number(v))}>
             <Select.Trigger
                 title="Project — model access and budgets are scoped per project"
-                className={`inline-flex items-center gap-1.5 rounded-md border border-line bg-paper-3 px-2.5 py-1.5 text-xs font-semibold text-ink-2 outline-none transition-colors hover:border-line-strong hover:text-ink focus-visible:ring-2 focus-visible:ring-accent data-[state=open]:border-accent ${block ? 'w-full justify-between' : ''}`}
+                className={`inline-flex min-w-0 max-w-[40vw] items-center gap-1.5 overflow-hidden rounded-md border border-line bg-paper-3 px-2.5 py-1.5 text-xs font-semibold text-ink-2 outline-none transition-colors hover:border-line-strong hover:text-ink focus-visible:ring-2 focus-visible:ring-accent data-[state=open]:border-accent sm:max-w-none ${block ? 'w-full justify-between' : ''}`}
             >
                 {/* Children override Radix's default (the selected ItemText) so
                     the spend can sit beside the name. Falls through to the
                     placeholder while projects are still loading. */}
-                <Select.Value placeholder="Project">
+                <Select.Value placeholder="Project" className="min-w-0 truncate">
                     {selected ? (
-                        <span className="inline-flex items-baseline gap-1.5">
+                        <span className="inline-flex min-w-0 items-baseline gap-1.5 truncate">
                             {selected.name}
                             <span className="font-mono text-[11px] font-semibold tabular-nums text-ink-3">
                                 {usd(selected.spent_usd)}

@@ -12,6 +12,15 @@ export const metadata = {
   description: 'Generate cinema-grade AI video and images with Seedance 2.0, Nano Banana and more — organised by project, reviewed by your team.',
 };
 
+// viewportFit: 'cover' is what makes env(safe-area-inset-*) non-zero on
+// notched phones — the fixed prompt bar and console drawer rely on it.
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  themeColor: '#0c0c10',
+};
+
 export default function RootLayout({ children }) {
   return (
     <ClerkProvider afterSignOutUrl="/sign-in">
