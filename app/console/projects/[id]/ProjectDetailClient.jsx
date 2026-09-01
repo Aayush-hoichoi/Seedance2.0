@@ -330,7 +330,7 @@ function EditBudgetModal({ quota, projectName, userName, onClose, onUpdated }) {
 }
 
 function AddBudgetCard({ project, members, models, modelsLoading, modelsError, onCreated }) {
-    const initialForm = { type: 'usd', window: 'monthly', addAmount: '', policy: 'hard', softOveragePct: 5, userId: '', modelId: '' };
+    const initialForm = { type: 'usd', window: 'lifetime', addAmount: '', policy: 'hard', softOveragePct: 5, userId: '', modelId: '' };
     const [open, setOpen] = useState(false);
     const [saving, setSaving] = useState(false);
     const [form, setForm] = useState(initialForm);
@@ -434,9 +434,7 @@ function AddBudgetCard({ project, members, models, modelsLoading, modelsError, o
                         </Select>
                     </Field>
                     <Field label="Window">
-                        <Select className="w-full" value={form.window} onChange={(e) => setForm({ ...form, window: e.target.value })}>
-                            <option value="daily">daily</option>
-                            <option value="monthly">monthly</option>
+                        <Select className="w-full" value={form.window} disabled>
                             <option value="lifetime">lifetime</option>
                         </Select>
                     </Field>

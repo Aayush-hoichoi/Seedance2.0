@@ -57,6 +57,9 @@ export async function POST(request) {
     if (['image_count', 'request_count'].includes(b.type) && !Number.isInteger(Number(b.hardLimit))) {
         return apiError('BAD_REQUEST', `${b.type} budgets require a whole-number cap.`);
     }
+    if (b.projectId != null && b.window !== 'lifetime') {
+        return apiError('BAD_REQUEST', 'Project budgets must use the lifetime window.');
+    }
     const modelId = typeof b.modelId === 'string' && b.modelId.trim() ? b.modelId.trim() : null;
     if (modelId) {
         const [model] = await sql`SELECT id FROM models WHERE id = ${modelId} AND active = true`;

@@ -109,7 +109,7 @@ async function integrationDb() {
             VALUES ('settlement', 'generation-1', 15, 'user-requester', 'seedance-2.0', 30);
         INSERT INTO quotas
             (project_id, user_id, model_id, type, "window", hard_limit, policy, created_by)
-            VALUES (15, 'user-requester', 'seedance-2.0', 'usd', 'monthly', 100, 'hard', 'user-admin');
+            VALUES (15, 'user-requester', 'seedance-2.0', 'usd', 'lifetime', 100, 'hard', 'user-admin');
     `);
     return { db, sql: neonLike(db) };
 }

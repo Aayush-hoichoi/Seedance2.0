@@ -117,7 +117,7 @@ export default function BudgetRequestModal({ projectId, onClose, onSent }) {
                         </div>
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                             <ReadOnly label="Spent this month" value={money(spent)} />
-                            <ReadOnly label="Current monthly limit" value={currentLimit == null ? 'No personal limit' : money(currentLimit)} />
+                            <ReadOnly label="Current lifetime limit" value={currentLimit == null ? 'No personal limit' : money(currentLimit)} />
                         </div>
                         <label className="block">
                             <Label>Required increase (USD)</Label>
