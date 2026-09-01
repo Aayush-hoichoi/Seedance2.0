@@ -4,7 +4,7 @@ import { useState } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
 import dynamic from 'next/dynamic';
 import toast from 'react-hot-toast';
-import { PageHeader, Card, Badge, Button, Modal, Field, Input, Select, DataTable, ProgressBar, EmptyState, DateTimePicker } from '../../ui.jsx';
+import { PageHeader, Card, Badge, Button, Modal, Field, Input, Select, DataTable, ProgressBar, EmptyState, DateRangePicker, DateTimePicker } from '../../ui.jsx';
 import { useApi, sendJson, fmtUsd, fmtInt, fmtDate, monthStartIso } from '../../lib.js';
 import { supportedResolutionsFor } from '../../../../lib/seedance/constants.js';
 import { PauseCircle, Pencil, PlayCircle, Plus, ShieldBan, ShieldCheck, Trash2, Wallet } from 'lucide-react';
@@ -20,16 +20,20 @@ const BUDGET_TYPES = [
 
 export default function ProjectDetailClient({ projectId }) {
     const [editingBudget, setEditingBudget] = useState(null);
+    const [lifetimeRange, setLifetimeRange] = useState({ from: '', to: '' });
     const detail = useApi(`/api/projects/${projectId}`);
     const models = useApi(`/api/models?projectId=${projectId}`);
     const usersApi = useApi('/api/admin/users');
     const viewerRole = detail.data?.role;
     const isAdmin = viewerRole === 'admin' || viewerRole === 'owner';
     const userUsageQuery = `group_by=user${isAdmin ? '&include_model_breakdown=1' : ''}`;
+    const lifetimeRangeQuery = lifetimeRange.from
+        ? `&from=${lifetimeRange.from}T00:00:00.000Z${lifetimeRange.to ? `&to=${lifetimeRange.to}T23:59:59.999Z` : ''}`
+        : '';
     const usageByModelCurrent = useApi(`/api/projects/${projectId}/usage?group_by=model&from=${monthStartIso()}`);
-    const usageByModelLifetime = useApi(`/api/projects/${projectId}/usage?group_by=model`);
+    const usageByModelLifetime = useApi(`/api/projects/${projectId}/usage?group_by=model${lifetimeRangeQuery}`);
     const usageCurrent = useApi(`/api/projects/${projectId}/usage?${userUsageQuery}&from=${monthStartIso()}`);
-    const usageLifetime = useApi(`/api/projects/${projectId}/usage?${userUsageQuery}`);
+    const usageLifetime = useApi(`/api/projects/${projectId}/usage?${userUsageQuery}${lifetimeRangeQuery}`);
     const budgetModels = useApi(isAdmin ? '/api/admin/models' : null);
     const quotas = useApi(isAdmin
         ? `/api/admin/quotas?withUsage=1&withModelBreakdown=1&projectId=${projectId}`
@@ -166,11 +170,19 @@ export default function ProjectDetailClient({ projectId }) {
                             usage={usageLifetime.data?.items ?? []}
                             usageByModel={usageByModelLifetime.data?.items ?? []}
                             detailed={isAdmin}
+                            controls={isAdmin ? (
+                                <DateRangePicker
+                                    from={lifetimeRange.from}
+                                    to={lifetimeRange.to}
+                                    onChange={setLifetimeRange}
+                                    className="w-full sm:w-auto"
+                                />
+                            ) : null}
                         />
                     </div>
                     <div className="mt-3 flex justify-end gap-3">
                         <a className="text-xs text-accent-hi hover:underline" href={`/api/projects/${projectId}/usage?${userUsageQuery}&from=${monthStartIso()}&format=csv`}>Export current month CSV</a>
-                        <a className="text-xs text-accent-hi hover:underline" href={`/api/projects/${projectId}/usage?${userUsageQuery}&format=csv`}>Export lifetime CSV</a>
+                        <a className="text-xs text-accent-hi hover:underline" href={`/api/projects/${projectId}/usage?${userUsageQuery}${lifetimeRangeQuery}&format=csv`}>Export lifetime CSV</a>
                     </div>
                 </Tabs.Content>
             </Tabs.Root>
@@ -178,10 +190,13 @@ export default function ProjectDetailClient({ projectId }) {
     );
 }
 
-function UsageBreakdown({ title, usage, usageByModel, detailed }) {
+function UsageBreakdown({ title, usage, usageByModel, detailed, controls = null }) {
     return (
         <section>
-            <h2 className="mb-3 text-sm font-semibold text-ink">{title}</h2>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-sm font-semibold text-ink">{title}</h2>
+                {controls}
+            </div>
             <div className="grid gap-4 lg:grid-cols-2">
                 <Card>
                     <div className="mb-2 text-sm font-medium text-ink-2">
