@@ -19,7 +19,7 @@ export async function GET(request) {
     const params = new URL(request.url).searchParams;
     const projectId = Number(params.get('projectId'));
     const type = params.get('type') || 'usd';
-    const window = params.get('window') || 'monthly';
+    const window = params.get('window') || 'lifetime';
     const userId = params.get('userId')?.trim() || null;
     const modelId = params.get('modelId')?.trim() || null;
 

@@ -19,7 +19,7 @@ export default function BudgetsClient() {
     const [open, setOpen] = useState(false);
     const [toRemove, setToRemove] = useState(null);
     const [removing, setRemoving] = useState(false);
-    const [form, setForm] = useState({ type: 'usd', window: 'monthly', hardLimit: '', policy: 'hard', softOveragePct: 5, projectId: '', userId: '', modelId: '' });
+    const [form, setForm] = useState({ type: 'usd', window: 'lifetime', hardLimit: '', policy: 'hard', softOveragePct: 5, projectId: '', userId: '', modelId: '' });
 
     async function create() {
         const r = await sendJson('/api/admin/quotas', 'POST', {
@@ -116,8 +116,11 @@ export default function BudgetsClient() {
                         </Select>
                     </Field>
                     <Field label="Window">
-                        <Select className="w-full" value={form.window} onChange={(e) => setForm({ ...form, window: e.target.value })}>
-                            <option value="daily">daily</option><option value="monthly">monthly</option><option value="lifetime">lifetime</option>
+                        <Select className="w-full" value={form.window} disabled={!!form.projectId}
+                            onChange={(e) => setForm({ ...form, window: e.target.value })}>
+                            {form.projectId
+                                ? <option value="lifetime">lifetime</option>
+                                : <><option value="daily">daily</option><option value="monthly">monthly</option><option value="lifetime">lifetime</option></>}
                         </Select>
                     </Field>
                     <Field label="Limit">
@@ -130,7 +133,8 @@ export default function BudgetsClient() {
                         </Select>
                     </Field>
                     <Field label="Project (blank = all projects)">
-                        <Select className="w-full" value={form.projectId} onChange={(e) => setForm({ ...form, projectId: e.target.value })}>
+                        <Select className="w-full" value={form.projectId}
+                            onChange={(e) => setForm({ ...form, projectId: e.target.value, window: e.target.value ? 'lifetime' : form.window })}>
                             <option value="">—</option>
                             {(projects.data?.items ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                         </Select>
