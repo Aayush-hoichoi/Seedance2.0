@@ -63,7 +63,14 @@ export async function GET(request) {
     const [counts] = await sql.query(
         `SELECT count(*) FILTER (WHERE ${mediaTest})::int             AS total,
                 count(*) FILTER (WHERE media = 'Image')::int AS images,
-                count(*) FILTER (WHERE media = 'Video')::int AS videos
+                count(*) FILTER (WHERE media = 'Video')::int AS videos,
+                count(*) FILTER (WHERE ${mediaTest} AND status = 'succeeded')::int AS succeeded,
+                count(*) FILTER (WHERE ${mediaTest} AND status = 'failed')::int AS failed,
+                count(*) FILTER (WHERE ${mediaTest} AND status = 'timed_out')::int AS timed_out,
+                count(*) FILTER (WHERE ${mediaTest} AND status = 'rejected')::int AS rejected,
+                count(*) FILTER (WHERE ${mediaTest} AND status = 'cancelled')::int AS cancelled,
+                count(*) FILTER (WHERE ${mediaTest} AND status = 'queued')::int AS queued,
+                count(*) FILTER (WHERE ${mediaTest} AND status = 'running')::int AS running
          FROM ledger_rows
          ${where}`,
         countValues,
@@ -91,7 +98,21 @@ export async function GET(request) {
     return NextResponse.json({
         workbook,
         columns,
-        counts: counts ?? { total: 0, images: 0, videos: 0 },
+        counts: {
+            ...(counts ?? { total: 0, images: 0, videos: 0 }),
+            // One aggregate SELECT already powers the visible total and media
+            // badges. Status counts extend that same response so Analytics can
+            // accurately cover every filtered row without loading all pages.
+            statuses: {
+                succeeded: counts?.succeeded ?? 0,
+                failed: counts?.failed ?? 0,
+                timed_out: counts?.timed_out ?? 0,
+                rejected: counts?.rejected ?? 0,
+                cancelled: counts?.cancelled ?? 0,
+                queued: counts?.queued ?? 0,
+                running: counts?.running ?? 0,
+            },
+        },
         // Echoed back so the client can render "filtered by …" from the
         // response it actually got, rather than from what it hoped it sent.
         filters,

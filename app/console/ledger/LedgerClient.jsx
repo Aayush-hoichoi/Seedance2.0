@@ -7,10 +7,14 @@
 // video one. Anything else and "export" becomes a second thing to reconcile,
 // which is the problem this replaced.
 
-import { useState } from 'react';
-import { Images, Video, Download, Layers, FileSpreadsheet } from 'lucide-react';
+import dynamic from 'next/dynamic';
+import { useMemo, useState } from 'react';
+import { Images, Video, Download, Layers, FileSpreadsheet, BarChart3, Table2 } from 'lucide-react';
 import { useApi, fmtInt } from '../lib.js';
-import { PageHeader, Card, Button, Input, Select, Badge, EmptyState } from '../ui.jsx';
+import { PageHeader, Card, Button, Input, Select, Badge, EmptyState, StatCard } from '../ui.jsx';
+import { buildLedgerStatusAnalytics, buildLedgerStatusAnalyticsFromCounts } from './ledgerAnalytics.mjs';
+
+const StatusDonut = dynamic(() => import('../charts.jsx').then((m) => m.StatusDonut), { ssr: false });
 
 const WORKBOOKS = {
     master: {
@@ -132,6 +136,7 @@ export default function LedgerClient() {
     const [picked, setPicked] = useState({ model: '', user: '', project: '' });
     const [sort, setSort] = useState('newest');
     const [page, setPage] = useState(0);
+    const [section, setSection] = useState('table');
 
     const spec = WORKBOOKS[workbook];
     const scoped = spec.media && media !== 'all' ? media : null;
@@ -167,6 +172,11 @@ export default function LedgerClient() {
     const columns = orderColumns(data?.columns);
     const rows = data?.rows ?? [];
     const total = data?.counts?.total ?? 0;
+    const analytics = useMemo(() => (
+        data?.counts?.statuses
+            ? buildLedgerStatusAnalyticsFromCounts(data.counts.statuses, total)
+            : buildLedgerStatusAnalytics(rows)
+    ), [data?.counts?.statuses, rows, total]);
     const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
     const active = FILTERS.filter(({ key }) => picked[key]).length + (search ? 1 : 0);
 
@@ -252,6 +262,27 @@ export default function LedgerClient() {
                         </span>
                     </button>
                 ))}
+            </div>
+
+            <div className="flex gap-1 rounded-lg border border-line bg-paper-1 p-1 w-fit">
+                <button
+                    type="button"
+                    onClick={() => setSection('table')}
+                    className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors ${
+                        section === 'table' ? 'bg-paper-3 font-medium text-ink' : 'text-ink-3 hover:text-ink-2'
+                    }`}
+                >
+                    <Table2 size={14} /> Table
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setSection('analytics')}
+                    className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors ${
+                        section === 'analytics' ? 'bg-paper-3 font-medium text-ink' : 'text-ink-3 hover:text-ink-2'
+                    }`}
+                >
+                    <BarChart3 size={14} /> Analytics
+                </button>
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -354,6 +385,8 @@ export default function LedgerClient() {
                 >
                     {active ? <Button variant="outline" onClick={clearAll}>Clear filters</Button> : null}
                 </EmptyState>
+            ) : section === 'analytics' ? (
+                <LedgerAnalytics analytics={analytics} total={total} />
             ) : (
                 <>
                     <div className="overflow-x-auto rounded-lg border border-line">
@@ -395,5 +428,68 @@ export default function LedgerClient() {
                 </>
             )}
         </div>
+    );
+}
+
+function LedgerAnalytics({ analytics, total }) {
+    const scope = `${fmtInt(analytics.total)} matching generation${analytics.total === 1 ? '' : 's'}`;
+
+    return (
+        <section className="space-y-4" aria-label="Ledger analytics">
+            <div>
+                <h2 className="text-base font-semibold text-ink">Generation outcomes</h2>
+                <p className="mt-1 text-xs text-ink-3">
+                    {scope}. Updated with the existing live Ledger refresh—no additional request or database schema change.
+                </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <StatCard label="Loaded rows" value={fmtInt(analytics.total)} />
+                <StatCard label="Succeeded" value={fmtInt(analytics.succeeded)} tone="green" />
+                <StatCard label="Failed" value={fmtInt(analytics.failed)} tone={analytics.failed ? 'red' : 'zinc'} />
+                <StatCard
+                    label="Success rate"
+                    value={analytics.successRate == null ? '—' : `${analytics.successRate.toFixed(1)}%`}
+                    hint={analytics.completed ? `${fmtInt(analytics.completed)} completed outcomes` : 'Waiting for a completed outcome'}
+                    tone={analytics.successRate == null ? 'zinc' : analytics.failed ? 'amber' : 'green'}
+                />
+            </div>
+
+            <Card>
+                <div className="grid items-center gap-5 lg:grid-cols-[minmax(18rem,0.9fr)_minmax(16rem,1fr)]">
+                    <div>
+                        <StatusDonut
+                            data={analytics.segments.map((segment) => ({ ...segment, total: analytics.total }))}
+                            successRate={analytics.successRate}
+                        />
+                    </div>
+                    <div>
+                        <div className="flex flex-wrap items-end justify-between gap-3">
+                            <div>
+                                <div className="text-sm font-medium text-ink-2">Status distribution</div>
+                                <div className="mt-1 text-xs text-ink-3">
+                                    A proportional view of all {fmtInt(analytics.total)} matching generations. Success rate excludes queued and running jobs.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="mt-5 grid gap-x-8 gap-y-3 sm:grid-cols-2">
+                            {analytics.segments.map((segment) => {
+                                const percent = analytics.total ? (segment.value / analytics.total) * 100 : 0;
+                                return (
+                                    <div key={segment.key} className="flex items-center justify-between gap-4 text-sm">
+                                        <span className="flex items-center gap-2 text-ink-2">
+                                            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: segment.color }} />
+                                            {segment.label}
+                                        </span>
+                                        <span className="font-mono tabular-nums text-ink">{fmtInt(segment.value)} <span className="text-xs text-ink-3">{percent.toFixed(1)}%</span></span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            </Card>
+        </section>
     );
 }

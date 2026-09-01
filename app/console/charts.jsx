@@ -5,7 +5,7 @@
 
 import {
     ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
-    PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, Legend,
+    PieChart, Pie, Cell, Label, BarChart, Bar, LineChart, Line, Legend,
 } from 'recharts';
 
 const PALETTE = ['#8B7CF6', '#A599F8'];
@@ -96,6 +96,56 @@ export function SpendDonut({ data, nameKey = 'key', valueKey = 'cost_usd', heigh
                     {data.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
                 </Pie>
                 <Tooltip {...TOOLTIP_STYLE} formatter={(v, n) => [`$${Number(v).toFixed(4)}`, n]} />
+            </PieChart>
+        </ResponsiveContainer>
+    );
+}
+
+function StatusDonutTooltip({ active, payload }) {
+    if (!active || !payload?.length) return null;
+    const row = payload[0]?.payload;
+    if (!row) return null;
+    const total = Number(row.total || 0);
+    const value = Number(row.value || 0);
+    const percent = total ? (value / total) * 100 : 0;
+    return (
+        <div style={TOOLTIP_STYLE.contentStyle} className="min-w-32 shadow-xl">
+            <div className="text-xs text-ink-2">{row.label}</div>
+            <div className="mt-1 font-mono text-sm tabular-nums text-ink">
+                {value.toLocaleString('en-US')} <span className="text-xs text-ink-3">({percent.toFixed(1)}%)</span>
+            </div>
+        </div>
+    );
+}
+
+function StatusDonutCenter({ viewBox, total, successRate }) {
+    const { cx, cy } = viewBox || {};
+    if (cx == null || cy == null) return null;
+    return (
+        <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central">
+            <tspan x={cx} dy="-1.1em" fill="#7C7A88" fontSize="10" fontWeight="600">TOTAL</tspan>
+            <tspan x={cx} dy="1.8em" fill="#F4F3F7" fontSize="26" fontWeight="700">
+                {Number(total || 0).toLocaleString('en-US')}
+            </tspan>
+            <tspan x={cx} dy="1.8em" fill="#7C7A88" fontSize="10">generations</tspan>
+            {successRate != null ? <tspan x={cx} dy="2em" fill="#4ADE80" fontSize="10" fontWeight="600">{successRate.toFixed(1)}% success</tspan> : null}
+        </text>
+    );
+}
+
+// Purpose-built for Ledger outcomes: separated, color-stable slices, useful
+// hover details and a centre total make seven statuses legible at a glance.
+export function StatusDonut({ data, height = 290, successRate = null }) {
+    const total = data.reduce((sum, row) => sum + Number(row.value || 0), 0);
+    return (
+        <ResponsiveContainer width="100%" height={height}>
+            <PieChart>
+                <Pie data={data} dataKey="value" nameKey="label" innerRadius="57%" outerRadius="87%"
+                    paddingAngle={3} cornerRadius={4} stroke="#1A1A21" strokeWidth={2}>
+                    {data.map((row) => <Cell key={row.key} fill={row.color} />)}
+                    <Label content={(props) => <StatusDonutCenter {...props} total={total} successRate={successRate} />} />
+                </Pie>
+                <Tooltip content={<StatusDonutTooltip />} />
             </PieChart>
         </ResponsiveContainer>
     );
