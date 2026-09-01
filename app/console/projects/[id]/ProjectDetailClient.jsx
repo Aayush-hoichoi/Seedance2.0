@@ -23,11 +23,14 @@ export default function ProjectDetailClient({ projectId }) {
     const detail = useApi(`/api/projects/${projectId}`);
     const models = useApi(`/api/models?projectId=${projectId}`);
     const usersApi = useApi('/api/admin/users');
-    const usageByModel = useApi(`/api/projects/${projectId}/usage?group_by=model&from=${monthStartIso()}`);
     const viewerRole = detail.data?.role;
     const isAdmin = viewerRole === 'admin' || viewerRole === 'owner';
+    const userUsageQuery = `group_by=user${isAdmin ? '&include_model_breakdown=1' : ''}`;
+    const usageByModelCurrent = useApi(`/api/projects/${projectId}/usage?group_by=model&from=${monthStartIso()}`);
+    const usageByModelLifetime = useApi(`/api/projects/${projectId}/usage?group_by=model`);
+    const usageCurrent = useApi(`/api/projects/${projectId}/usage?${userUsageQuery}&from=${monthStartIso()}`);
+    const usageLifetime = useApi(`/api/projects/${projectId}/usage?${userUsageQuery}`);
     const budgetModels = useApi(isAdmin ? '/api/admin/models' : null);
-    const usage = useApi(`/api/projects/${projectId}/usage?group_by=user${isAdmin ? '&include_model_breakdown=1' : ''}&from=${monthStartIso()}`);
     const quotas = useApi(isAdmin
         ? `/api/admin/quotas?withUsage=1&withModelBreakdown=1&projectId=${projectId}`
         : null);
@@ -151,27 +154,52 @@ export default function ProjectDetailClient({ projectId }) {
                     ) : null}
                 </Tabs.Content>
                 <Tabs.Content value="usage">
-                    <div className="grid gap-4 lg:grid-cols-2">
-                        <Card>
-                            <div className="mb-2 text-sm font-medium text-ink-2">
-                                Per-user spend (this month)
-                                {isAdmin ? <span className="ml-1 text-xs font-normal text-ink-3">· Hover a bar for model breakdown</span> : null}
-                            </div>
-                            {(usage.data?.items ?? []).length
-                                ? <TopBars data={usage.data.items} detailed={isAdmin} />
-                                : <div className="grid h-[200px] place-items-center text-xs text-ink-3">No usage yet</div>}
-                        </Card>
-                        <Card>
-                            <div className="mb-2 text-sm font-medium text-ink-2">Per-model spend (this month)</div>
-                            {(usageByModel.data?.items ?? []).length ? <SpendDonut data={usageByModel.data.items} /> : <div className="grid h-[200px] place-items-center text-xs text-ink-3">No usage yet</div>}
-                        </Card>
+                    <div className="space-y-6">
+                        <UsageBreakdown
+                            title="Current-month usage"
+                            usage={usageCurrent.data?.items ?? []}
+                            usageByModel={usageByModelCurrent.data?.items ?? []}
+                            detailed={isAdmin}
+                        />
+                        <UsageBreakdown
+                            title="Lifetime usage"
+                            usage={usageLifetime.data?.items ?? []}
+                            usageByModel={usageByModelLifetime.data?.items ?? []}
+                            detailed={isAdmin}
+                        />
                     </div>
-                    <div className="mt-3 text-right">
-                        <a className="text-xs text-accent-hi hover:underline" href={`/api/projects/${projectId}/usage?group_by=user&format=csv`}>Export CSV</a>
+                    <div className="mt-3 flex justify-end gap-3">
+                        <a className="text-xs text-accent-hi hover:underline" href={`/api/projects/${projectId}/usage?${userUsageQuery}&from=${monthStartIso()}&format=csv`}>Export current month CSV</a>
+                        <a className="text-xs text-accent-hi hover:underline" href={`/api/projects/${projectId}/usage?${userUsageQuery}&format=csv`}>Export lifetime CSV</a>
                     </div>
                 </Tabs.Content>
             </Tabs.Root>
         </div>
+    );
+}
+
+function UsageBreakdown({ title, usage, usageByModel, detailed }) {
+    return (
+        <section>
+            <h2 className="mb-3 text-sm font-semibold text-ink">{title}</h2>
+            <div className="grid gap-4 lg:grid-cols-2">
+                <Card>
+                    <div className="mb-2 text-sm font-medium text-ink-2">
+                        Per-user spend
+                        {detailed ? <span className="ml-1 text-xs font-normal text-ink-3">· Hover a bar for model breakdown</span> : null}
+                    </div>
+                    {usage.length
+                        ? <TopBars data={usage} detailed={detailed} />
+                        : <div className="grid h-[200px] place-items-center text-xs text-ink-3">No usage yet</div>}
+                </Card>
+                <Card>
+                    <div className="mb-2 text-sm font-medium text-ink-2">Per-model spend</div>
+                    {usageByModel.length
+                        ? <SpendDonut data={usageByModel} />
+                        : <div className="grid h-[200px] place-items-center text-xs text-ink-3">No usage yet</div>}
+                </Card>
+            </div>
+        </section>
     );
 }
 
