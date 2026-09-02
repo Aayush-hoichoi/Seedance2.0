@@ -116,6 +116,17 @@ const STALE_URL_MS = 20 * 60 * 60 * 1000;
 const isStaleUrl = (job) => !job.archiveKey
     && Date.now() - (job.urlRefreshedAt || job.createdAt || 0) > STALE_URL_MS;
 
+// Issue-decision ids this browser has already shown a banner for — the dedup
+// behind the replay-on-load effect below.
+function seenDecisions() {
+    try { return JSON.parse(localStorage.getItem('seedance:decisionsSeen')) || []; } catch { return []; }
+}
+function markDecisionsSeen(ids) {
+    try {
+        localStorage.setItem('seedance:decisionsSeen', JSON.stringify([...new Set([...seenDecisions(), ...ids])]));
+    } catch { /* private mode */ }
+}
+
 export default function SeedanceStudio() {
     // Default to Motion Capture — the studio's headline styled mode; the
     // classic t2v/i2v/reference modes stay below it in the menu.
@@ -233,6 +244,28 @@ export default function SeedanceStudio() {
                 setProjectsLoaded(true); // gate the history rail until the project is known
             })
             .catch(() => { if (alive) setProjectsLoaded(true); });
+        return () => { alive = false; };
+    }, []);
+
+    // The live event stream starts at "now" (app/api/events/route.js), so an
+    // issue decided while this tab was closed never arrives — replay it here.
+    // Shown once per browser: the seen-set lives in localStorage and is pruned
+    // to whatever the server still lists (a 30-day window).
+    useEffect(() => {
+        let alive = true;
+        fetch('/api/issues')
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => {
+                if (!alive || !Array.isArray(d?.decisions)) return;
+                const unseen = d.decisions.filter((item) => !seenDecisions().includes(item.id));
+                if (unseen.length) {
+                    const [latest] = unseen;
+                    const more = unseen.length > 1 ? ` (+${unseen.length - 1} more closed)` : '';
+                    setNotice(`While you were away, an admin closed your issue report on ${latest.modelName || 'a model'}${latest.note ? ` — ${latest.note}` : ''}${more}.`);
+                }
+                try { localStorage.setItem('seedance:decisionsSeen', JSON.stringify(d.decisions.map((item) => item.id))); } catch { /* private mode */ }
+            })
+            .catch(() => {});
         return () => { alive = false; };
     }, []);
 
@@ -369,6 +402,7 @@ export default function SeedanceStudio() {
         // identical without it.
         if (type === 'issue.decided') {
             setNotice(`An admin closed your issue report${data?.note ? ` — ${data.note}` : '.'}`);
+            if (data?.issueId) markDecisionsSeen([data.issueId]);
         }
         if (type === 'job.status_changed' && ['succeeded', 'failed', 'cancelled', 'timed_out'].includes(data?.status)) {
             setBudgetVersion((v) => v + 1);

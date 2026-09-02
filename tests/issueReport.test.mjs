@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PGlite } from '@electric-sql/pglite';
-import { createIssueDecisionRouteHandler, createIssueRouteHandler } from '../lib/http/issueHandlers.mjs';
-import { createIssueReport, decideIssueReport, listIssueReports } from '../lib/issueReports.mjs';
+import { createIssueDecisionRouteHandler, createIssueRouteHandler, createMyIssuesRouteHandler } from '../lib/http/issueHandlers.mjs';
+import { createIssueReport, decideIssueReport, listIssueReports, listMyIssueDecisions } from '../lib/issueReports.mjs';
 import { buildIssueCard } from '../lib/notify/teamsIssue.mjs';
 import { visibleEvents } from '../lib/gateway/eventAudience.mjs';
 
@@ -292,6 +292,34 @@ test('issue notifications reach admins and the reporter, never a teammate', asyn
     assert.deepEqual(await audience(admin, true), ['issue.decided', 'issue.reported']);
     assert.deepEqual(await audience(reporter, false), ['issue.decided', 'issue.reported']);
     assert.deepEqual(await audience(teammate, false), [], 'a colleague never sees another user’s failure');
+});
+
+test('a reporter can replay decisions on their own reports — scoped to them, note included', async (t) => {
+    const { db, sql } = await integrationDb();
+    t.after(() => db.close());
+    const created = await reportRoute(sql)(jsonRequest('http://local/api/issues', validReport()));
+    const { id } = await created.json();
+    await decisionRoute(sql)(jsonRequest('http://local/dismiss', { note: 'Known provider outage' }), {
+        params: Promise.resolve({ id, action: 'dismiss' }),
+    });
+
+    const mine = await listMyIssueDecisions({ userId: reporter.userId, sql });
+    assert.deepEqual(mine.map(({ decidedAt, ...rest }) => rest), [{
+        id, status: 'dismissed', note: 'Known provider outage', modelName: 'Seedance 2.0',
+    }]);
+    assert.deepEqual(await listMyIssueDecisions({ userId: teammate.userId, sql }), [],
+        'a teammate never replays someone else’s decisions');
+
+    const route = createMyIssuesRouteHandler({
+        authenticate: async () => reporter,
+        listDecisions: (args) => listMyIssueDecisions({ ...args, sql }),
+    });
+    const response = await route();
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).decisions.length, 1);
+
+    const anonymous = await createMyIssuesRouteHandler({ authenticate: async () => null, listDecisions: () => [] })();
+    assert.equal(anonymous.status, 401);
 });
 
 test('the Teams card carries the provider error, the attempt count and no decision action', async (t) => {
