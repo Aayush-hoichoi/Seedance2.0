@@ -1,9 +1,14 @@
 import { getUser } from '../../../lib/auth/user.js';
-import { createIssueReport } from '../../../lib/issueReports.mjs';
-import { createIssueRouteHandler } from '../../../lib/http/issueHandlers.mjs';
+import { createIssueReport, listMyIssueDecisions } from '../../../lib/issueReports.mjs';
+import { createIssueRouteHandler, createMyIssuesRouteHandler } from '../../../lib/http/issueHandlers.mjs';
 import { notifyTeamsIssueReported } from '../../../lib/notify/teamsIssue.mjs';
 
 export const runtime = 'nodejs';
+
+export const GET = createMyIssuesRouteHandler({
+    authenticate: getUser,
+    listDecisions: listMyIssueDecisions,
+});
 
 export const POST = createIssueRouteHandler({
     authenticate: getUser,
