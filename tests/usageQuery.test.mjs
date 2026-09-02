@@ -25,6 +25,19 @@ test('user_model usage groups each user spend by display model name', async () =
     assert.match(calls[0].query, /GROUP BY 1, 2/);
 });
 
+test('project usage keys by project name, never the raw id', async () => {
+    const calls = [];
+    const sql = { query: async (query, params) => { calls.push({ query, params }); return []; } };
+
+    await usageRollup(sql, { groupBy: 'project' });
+    assert.match(calls[0].query, /COALESCE\(p\.name, b\.project_id::text\) AS key/);
+    assert.match(calls[0].query, /LEFT JOIN projects p ON p\.id = b\.project_id/);
+
+    // The join is project-grouping only — other rollups must not pay for it.
+    await usageRollup(sql, { groupBy: 'model' });
+    assert.doesNotMatch(calls[1].query, /JOIN projects/);
+});
+
 test('userUsageWithModelBreakdown returns totals and nested model details together', async () => {
     const calls = [];
     const expected = [{

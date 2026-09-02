@@ -162,7 +162,7 @@ export default function DashboardClient() {
                     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                         {projects.map((p) => (
                             <div key={p.key} className="flex items-center justify-between rounded-lg border border-line px-3 py-2 text-sm">
-                                <span className="text-ink-2">Project #{p.key}</span>
+                                <span className="text-ink-2">{p.key}</span>
                                 <span className="font-mono tabular-nums text-ink">{fmtUsd(p.cost_usd)}</span>
                             </div>
                         ))}
