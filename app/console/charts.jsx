@@ -88,16 +88,64 @@ export function TaskCostLines({ data, height = 280 }) {
     );
 }
 
-export function SpendDonut({ data, nameKey = 'key', valueKey = 'cost_usd', height = 220 }) {
+// Fixed-order categorical hues (never cycled), validated colorblind-safe against
+// the #1A1A21 card surface. The tail beyond five models folds into a gray
+// 'Other' so the ring never carries more than six slices.
+const DONUT_PALETTE = ['#8B7CF6', '#0D9488', '#D97706', '#EC4899', '#3B82F6'];
+const DONUT_OTHER = '#7C7A88';
+const fmtDonutUsd = (v) => `$${Number(v).toFixed(Number(v) >= 1 ? 2 : 4)}`;
+
+function SpendDonutCenter({ viewBox, total }) {
+    const { cx, cy } = viewBox || {};
+    if (cx == null || cy == null) return null;
     return (
-        <ResponsiveContainer width="100%" height={height}>
-            <PieChart>
-                <Pie data={data} dataKey={valueKey} nameKey={nameKey} innerRadius="58%" outerRadius="85%" paddingAngle={2} stroke="none">
-                    {data.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
-                </Pie>
-                <Tooltip {...TOOLTIP_STYLE} formatter={(v, n) => [`$${Number(v).toFixed(4)}`, n]} />
-            </PieChart>
-        </ResponsiveContainer>
+        <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central">
+            <tspan x={cx} dy="-0.9em" fill="#7C7A88" fontSize="10" fontWeight="600">TOTAL</tspan>
+            <tspan x={cx} dy="1.7em" fill="#F4F3F7" fontSize="20" fontWeight="700">{fmtDonutUsd(total)}</tspan>
+        </text>
+    );
+}
+
+export function SpendDonut({ data, nameKey = 'key', valueKey = 'cost_usd', height = 220 }) {
+    const rows = data
+        .map((d) => ({ name: String(d[nameKey]), value: Number(d[valueKey] || 0) }))
+        .sort((a, b) => b.value - a.value);
+    const tail = rows.slice(DONUT_PALETTE.length);
+    const slices = rows.slice(0, DONUT_PALETTE.length).map((r, i) => ({ ...r, color: DONUT_PALETTE[i] }));
+    if (tail.length) {
+        slices.push({
+            name: tail.length === 1 ? tail[0].name : `Other (${tail.length} models)`,
+            value: tail.reduce((sum, r) => sum + r.value, 0),
+            color: DONUT_OTHER,
+        });
+    }
+    const total = slices.reduce((sum, r) => sum + r.value, 0);
+    return (
+        <div>
+            <ResponsiveContainer width="100%" height={height}>
+                <PieChart>
+                    <Pie data={slices} dataKey="value" nameKey="name" innerRadius="60%" outerRadius="88%"
+                        paddingAngle={2} cornerRadius={3} stroke="#1A1A21" strokeWidth={2}>
+                        {slices.map((s) => <Cell key={s.name} fill={s.color} />)}
+                        <Label content={(props) => <SpendDonutCenter {...props} total={total} />} />
+                    </Pie>
+                    <Tooltip {...TOOLTIP_STYLE}
+                        formatter={(v, n) => [`${fmtDonutUsd(v)} · ${total ? ((v / total) * 100).toFixed(1) : '0.0'}%`, n]} />
+                </PieChart>
+            </ResponsiveContainer>
+            <ul className="mt-3 space-y-1.5">
+                {slices.map((s) => (
+                    <li key={s.name} className="flex items-center gap-2 text-xs">
+                        <span aria-hidden className="h-2 w-2 shrink-0 rounded-[2px]" style={{ background: s.color }} />
+                        <span className="min-w-0 flex-1 truncate text-ink-2" title={s.name}>{s.name}</span>
+                        <span className="shrink-0 font-mono tabular-nums text-ink">{fmtDonutUsd(s.value)}</span>
+                        <span className="w-11 shrink-0 text-right font-mono tabular-nums text-ink-3">
+                            {total ? ((s.value / total) * 100).toFixed(1) : '0.0'}%
+                        </span>
+                    </li>
+                ))}
+            </ul>
+        </div>
     );
 }
 
