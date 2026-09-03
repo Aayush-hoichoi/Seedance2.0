@@ -28,6 +28,7 @@ export default function ModelsClient() {
         { accessorKey: 'displayName', header: 'Model', cell: ({ row }) => <span className="font-medium text-ink">{row.original.displayName}</span> },
         { accessorKey: 'id', header: 'Alias', cell: ({ getValue }) => <code className="rounded bg-paper-3 px-1.5 py-0.5 font-mono text-xs text-ink-2">{getValue()}</code> },
         { accessorKey: 'category', header: 'Category', cell: ({ getValue }) => <Badge tone={getValue() === 'video' ? 'violet' : 'blue'}>{getValue()}</Badge> },
+        { accessorKey: 'provider', header: 'Provider', cell: ({ getValue }) => (getValue() ? <span className="text-ink-2">{getValue()}</span> : <span className="text-ink-3">—</span>) },
         { accessorKey: 'kind', header: 'Pricing kind', cell: ({ getValue }) => <span className="text-ink-2">{getValue()}</span> },
         {
             accessorKey: 'isDefault', header: 'Org default',
