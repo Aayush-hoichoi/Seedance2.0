@@ -219,3 +219,27 @@ test('non-throttle asset errors still fail immediately', async () => {
         global.fetch = realFetch;
     }
 });
+
+// --- Sensitive Content raw-URL fallback ----------------------------------------
+//
+// On the Sensitive Content endpoint the studio wraps register: a clip the
+// Library's sensitive scan rejects resolves to { url: raw, assetId: null }
+// instead of throwing. Two contracts matter here: the item keeps its raw URL
+// (the endpoint's own moderation takes over), and a LATER submit reuses the
+// cached fallback verdict instead of re-paying the ~30s failing scan.
+
+test('an assetId-less register result keeps the raw URL and is reused without re-registering', async () => {
+    let calls = 0;
+    const fallbackRegister = async ({ url }) => { calls += 1; return { url, assetId: null }; };
+    const item = { kind: 'video', url: 'https://tos.example/gory.mp4?sig=1', role: 'reference_video' };
+
+    const [first] = await resolveMediaRefs([item], fallbackRegister);
+    assert.equal(first.url, item.url, 'the raw URL must survive to the payload');
+    assert.equal(calls, 1);
+
+    // Same clip, re-presigned (query differs) — cache keys on kind+url minus query.
+    const verify = async () => { throw new Error('must not verify: there is no asset'); };
+    const [again] = await resolveMediaRefs([{ ...item, url: 'https://tos.example/gory.mp4?sig=2' }], fallbackRegister, verify);
+    assert.equal(again.url, 'https://tos.example/gory.mp4?sig=2');
+    assert.equal(calls, 1, 'the cached fallback must not trigger a second registration');
+});
