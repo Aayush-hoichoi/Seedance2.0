@@ -1259,7 +1259,13 @@ export default function SeedanceStudio() {
         // ModelArk's input scan rejects real-person footage/portraits referenced
         // by raw URL, but the same file passes as a verified asset:// ref
         // (~10–30s verification each). Audio and asset:// refs pass through.
-        if (resolvedItems.some((m) => (m.kind === 'image' || m.kind === 'video') && /^https?:/i.test(String(m.url)))) {
+        // EXCEPT on the Sensitive Content endpoint (skipAssetLibrary): the
+        // Asset Library scan is ACCOUNT-level and would reject flagged media
+        // before the endpoint's own moderation config ever applies — raw TOS
+        // URLs go straight to the endpoint instead.
+        const skipAssetLibrary = !!MODELS.find((m) => m.id === options.model)?.skipAssetLibrary;
+        if (!skipAssetLibrary
+            && resolvedItems.some((m) => (m.kind === 'image' || m.kind === 'video') && /^https?:/i.test(String(m.url)))) {
             setEnhancing(true);
             setNotice('Verifying reference media (takes ~30s)…');
             try {
