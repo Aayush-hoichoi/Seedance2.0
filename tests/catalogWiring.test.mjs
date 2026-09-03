@@ -157,3 +157,22 @@ test('the catalog caps agree with the studio capability flags', () => {
     assert.equal(entry.caps.supports1080p, model.supports1080p);
     assert.equal(entry.caps.supports4k, model.supports4k);
 });
+
+// --- Sensitive Content specifically --------------------------------------------
+//
+// A dedicated ModelArk endpoint whose endpoint-level moderation accepts
+// production footage the shared model ids flag. The whole point of gating it is
+// that access is an explicit admin decision — so its posture must never drift
+// to open, and its kind must never collide with Seedance 2.0's (the studio
+// bridges grants via kind, so a shared kind would let a 2.0 grant unlock it).
+
+test('Sensitive Content is gated, never a default, and owns its kind', () => {
+    const entry = catalog().find((m) => m.id === 'seedance-2.0-sensitive');
+    assert.ok(entry, 'seedance-2.0-sensitive must be in the catalog');
+    assert.equal(entry.isDefault, false, 'a default would bypass the approval flow');
+    assert.equal(entry.providerModelId.startsWith('ep-'), true, 'must route to the dedicated endpoint');
+    const model = MODELS.find((m) => m.kind === entry.kind);
+    assert.equal(model.gated, true, 'ungated would open it to everyone');
+    assert.equal(model.skipAssetLibrary, true, 'refs must bypass the account-level Asset Library scan');
+    assert.equal(MODELS.filter((m) => m.kind === entry.kind).length, 1, 'a shared kind would leak grants across models');
+});
