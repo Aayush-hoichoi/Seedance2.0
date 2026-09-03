@@ -173,6 +173,6 @@ test('Sensitive Content is gated, never a default, and owns its kind', () => {
     assert.equal(entry.providerModelId.startsWith('ep-'), true, 'must route to the dedicated endpoint');
     const model = MODELS.find((m) => m.kind === entry.kind);
     assert.equal(model.gated, true, 'ungated would open it to everyone');
-    assert.equal(model.skipAssetLibrary, true, 'refs must bypass the account-level Asset Library scan');
+    assert.equal(model.rawUrlFallback, true, 'flagged refs must fall back to raw URLs past the account-level Library scan');
     assert.equal(MODELS.filter((m) => m.kind === entry.kind).length, 1, 'a shared kind would leak grants across models');
 });
