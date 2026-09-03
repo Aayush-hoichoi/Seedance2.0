@@ -1259,17 +1259,23 @@ export default function SeedanceStudio() {
         // ModelArk's input scan rejects real-person footage/portraits referenced
         // by raw URL, but the same file passes as a verified asset:// ref
         // (~10–30s verification each). Audio and asset:// refs pass through.
-        // EXCEPT on the Sensitive Content endpoint (skipAssetLibrary): the
-        // Asset Library scan is ACCOUNT-level and would reject flagged media
-        // before the endpoint's own moderation config ever applies — raw TOS
-        // URLs go straight to the endpoint instead.
-        const skipAssetLibrary = !!MODELS.find((m) => m.id === options.model)?.skipAssetLibrary;
-        if (!skipAssetLibrary
-            && resolvedItems.some((m) => (m.kind === 'image' || m.kind === 'video') && /^https?:/i.test(String(m.url)))) {
+        // The Sensitive Content endpoint (rawUrlFallback) is HYBRID: the Library
+        // still handles real-person footage (raw URLs trip the provider's
+        // person check — production job 11104), but a clip the Library's
+        // ACCOUNT-level scan flags as sensitive falls back to its raw TOS URL —
+        // the endpoint's own moderation accepts what the Library won't. Only a
+        // clip that is BOTH sensitive AND shows a person fails on every path.
+        const rawUrlFallback = !!MODELS.find((m) => m.id === options.model)?.rawUrlFallback;
+        if (resolvedItems.some((m) => (m.kind === 'image' || m.kind === 'video') && /^https?:/i.test(String(m.url)))) {
             setEnhancing(true);
             setNotice('Verifying reference media (takes ~30s)…');
+            const register = (a) => registerAssetFromUrl({ ...a, project: activeProject });
+            const registerWithFallback = (a) => register(a).catch((e) => (
+                /sensitive|didn.t pass verification/i.test(String(e.message))
+                    ? { url: a.url, assetId: null }
+                    : Promise.reject(e)));
             try {
-                resolvedItems = await resolveMediaRefs(resolvedItems, (a) => registerAssetFromUrl({ ...a, project: activeProject }));
+                resolvedItems = await resolveMediaRefs(resolvedItems, rawUrlFallback ? registerWithFallback : register);
             } catch (e) {
                 setError(`Reference verification failed — ${e.message}`);
                 return;
