@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { fitDims } from '../lib/seedance/downscaleImage.js';
-import { IMAGE_LIMITS } from '../lib/seedance/limits.js';
+import { fitDims, padDims } from '../lib/seedance/downscaleImage.js';
+import { IMAGE_LIMITS, validateImageDimensions } from '../lib/seedance/limits.js';
 
 const { maxDim } = IMAGE_LIMITS; // 6000
 
@@ -22,4 +22,20 @@ test('portrait orientation clamps the tall side', () => {
     const { width, height } = fitDims(2688, 6336, maxDim);
     assert.equal(height, 6000);
     assert.ok(Math.max(width, height) <= maxDim);
+});
+
+test("Shinjini's 1600×329 WhatsApp banner pads to a legal canvas", () => {
+    const { width, height } = padDims(1600, 329);
+    assert.equal(width, 1600);           // wide side untouched
+    assert.equal(height, 640);           // padded up to width / maxAspect
+    assert.equal(validateImageDimensions(width, height), null);
+});
+
+test('padDims fixes too-tall, too-small, and leaves legal images alone', () => {
+    // Too tall (aspect < 0.4): width pads out.
+    assert.equal(validateImageDimensions(...Object.values(padDims(329, 1600))), null);
+    // Under minDim on both sides.
+    assert.deepEqual(padDims(100, 100), { width: 300, height: 300 });
+    // Legal input is a no-op.
+    assert.deepEqual(padDims(1920, 1080), { width: 1920, height: 1080 });
 });

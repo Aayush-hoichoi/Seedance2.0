@@ -922,9 +922,9 @@ export default function SeedanceStudio() {
                 setError(kind ? `No open ${kind} slot left for ${file.name}.` : `${file.name}: unsupported file type.`);
                 continue;
             }
-            // Oversized images are auto-downscaled to fit the Seedance limits
-            // (longest side ≤ 6000px, ≤ 30MB) instead of being rejected. Aspect /
-            // min-dimension problems downscaling can't fix still error below.
+            // Out-of-limit images are auto-fixed instead of rejected: oversized
+            // ones downscale (longest side ≤ 6000px, ≤ 30MB), out-of-range aspect
+            // ratios / sub-300px sides get letterboxed onto a black canvas.
             const f = kind === 'image' ? await fitImageToLimits(file) : file;
             const { error: invalid, meta } = await validateMediaFile(kind, f, MODELS.find((m) => m.id === options.model)?.kind ?? null);
             if (invalid) { setError(invalid); continue; }
