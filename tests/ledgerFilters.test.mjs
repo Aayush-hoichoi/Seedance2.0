@@ -9,8 +9,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PGlite } from '@electric-sql/pglite';
 import {
-    readFilters, ledgerPredicates, ledgerQuery, facetQuery, FILTER_COLUMNS,
-    readSort, orderBy, LEDGER_SORTS, DEFAULT_SORT,
+    readFilters, readRange, ledgerPredicates, ledgerQuery, facetQuery, FILTER_COLUMNS,
+    readSort, orderBy, LEDGER_SORTS, DEFAULT_SORT, rowMatches,
 } from '../lib/ledger/filters.mjs';
 
 function neonLike(db) {
@@ -35,7 +35,7 @@ async function freshDb() {
 }
 
 let seq = 0;
-async function seed(sql, { media = 'Video', model, user, name, project, prompt = 'a train at dusk' }) {
+async function seed(sql, { media = 'Video', model, user, name, project, prompt = 'a train at dusk', date }) {
     seq += 1;
     const cells = {
         Model: model,
@@ -44,6 +44,7 @@ async function seed(sql, { media = 'Video', model, user, name, project, prompt =
         Project: project,
         'PROMPT (exact)': prompt,
         Media: media,
+        ...(date ? { 'Date (IST)': date } : {}),
     };
     await sql.query(
         `INSERT INTO ledger_rows (row_key, era, media, submitted_at, cells, source_at)
@@ -256,4 +257,32 @@ test('rows sharing a timestamp page without repeating or skipping one', async ()
         assert.equal(seen.length, 6, `${sort}: every row appears`);
         assert.equal(new Set(seen).size, 6, `${sort}: and none appears twice`);
     }
+});
+
+test('readRange keeps only full YYYY-MM-DD values', () => {
+    const params = new URLSearchParams('from=2026-09-01&to=garbage');
+    assert.deepEqual(readRange(params), { from: '2026-09-01' });
+    assert.deepEqual(readRange(new URLSearchParams('from=&to=')), {});
+});
+
+test('the date range is inclusive on both ends and drops undated rows', async () => {
+    const { sql } = await freshDb();
+    await seed(sql, { model: 'm', user: 'a@b.tv', project: 'P', date: '2026-08-31' });
+    await seed(sql, { model: 'm', user: 'a@b.tv', project: 'P', date: '2026-09-01' });
+    await seed(sql, { model: 'm', user: 'a@b.tv', project: 'P', date: '2026-09-03' });
+    await seed(sql, { model: 'm', user: 'a@b.tv', project: 'P', date: '2026-09-04' });
+    await seed(sql, { model: 'm', user: 'a@b.tv', project: 'P' }); // no date cell
+
+    const rows = await listed(sql, { range: { from: '2026-09-01', to: '2026-09-03' } });
+    assert.deepEqual(rows.map((r) => r.cells['Date (IST)']).sort(), ['2026-09-01', '2026-09-03']);
+});
+
+test('rowMatches applies the same range the SQL does — the export agrees with the screen', () => {
+    const range = { from: '2026-09-01', to: '2026-09-03' };
+    assert.equal(rowMatches({ 'Date (IST)': '2026-09-01' }, { range }), true);
+    assert.equal(rowMatches({ 'Date (IST)': '2026-09-03' }, { range }), true);
+    assert.equal(rowMatches({ 'Date (IST)': '2026-08-31' }, { range }), false);
+    assert.equal(rowMatches({ 'Date (IST)': '2026-09-04' }, { range }), false);
+    assert.equal(rowMatches({}, { range }), false, 'an undated row never matches a dated view');
+    assert.equal(rowMatches({}, {}), true, 'no range, no exclusion');
 });

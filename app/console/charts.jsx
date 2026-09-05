@@ -88,6 +88,25 @@ export function TaskCostLines({ data, height = 280 }) {
     );
 }
 
+// Per-day outcome mix for the ledger: one stacked bar per IST day, colored to
+// match the status donut (green succeeded, red failed-like, blue in-flight).
+export function DailyOutcomeBars({ data, height = 240 }) {
+    return (
+        <ResponsiveContainer width="100%" height={height}>
+            <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                <CartesianGrid stroke="#2A2A34" vertical={false} />
+                <XAxis dataKey="key" {...AXIS} tickLine={false} axisLine={false} />
+                <YAxis {...AXIS} tickLine={false} axisLine={false} width={40} allowDecimals={false} />
+                <Tooltip contentStyle={TOOLTIP_STYLE.contentStyle} labelStyle={TOOLTIP_STYLE.labelStyle} cursor={{ fill: '#2A2A34', opacity: 0.4 }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} formatter={(v) => <span style={{ color: '#B4B2C0' }}>{v}</span>} />
+                <Bar dataKey="succeeded" name="succeeded" stackId="day" fill="#4ADE80" />
+                <Bar dataKey="failed" name="failed" stackId="day" fill="#F87171" />
+                <Bar dataKey="active" name="in flight" stackId="day" fill="#60A5FA" />
+            </BarChart>
+        </ResponsiveContainer>
+    );
+}
+
 // Fixed-order categorical hues (never cycled), validated colorblind-safe against
 // the #1A1A21 card surface. The tail beyond five models folds into a gray
 // 'Other' so the ring never carries more than six slices.

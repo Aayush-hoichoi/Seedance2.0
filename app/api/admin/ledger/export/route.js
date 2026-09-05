@@ -3,7 +3,7 @@ import { gatewayContext } from '../../../../../lib/gateway/authz.js';
 import { writeAudit } from '../../../../../lib/gateway/db.js';
 import { masterWorkbook, videoWorkbook } from '../../../../../lib/ledger/workbooks.mjs';
 import { buildXlsx } from '../../../../../lib/ledger/xlsxWrite.mjs';
-import { readFilters } from '../../../../../lib/ledger/filters.mjs';
+import { readFilters, readRange } from '../../../../../lib/ledger/filters.mjs';
 import { selectExportRows } from '../../../../../lib/ledger/exportRows.mjs';
 
 export const runtime = 'nodejs';
@@ -62,18 +62,19 @@ export async function GET(request) {
 
     const q = (params.get('q') || '').trim() || null;
     const filters = readFilters(params);
+    const range = readRange(params);
     const requestedMedia = params.get('media');
     const media = isVideo
         ? 'Video'
         : (MEDIA_VALUES.has(requestedMedia) ? requestedMedia : null);
-    const narrowed = Boolean(q || media || Object.keys(filters).length);
+    const narrowed = Boolean(q || media || Object.keys(filters).length || range.from || range.to);
 
     // Oldest-first: both workbooks read as a history, and the session pass
     // needs chronological order anyway.
     const rows = await sql`SELECT * FROM generation_ledger ORDER BY submitted_at ASC NULLS FIRST`;
 
     // Sessions over the whole history, then the selection — see the note above.
-    const selected = selectExportRows(rows, { q, filters, media });
+    const selected = selectExportRows(rows, { q, filters, range, media });
 
     const bucket = process.env.TOS_BUCKET?.trim() || 'seedance-studio-assets';
     const region = process.env.TOS_REGION?.trim() || 'ap-southeast-1';
@@ -99,7 +100,7 @@ export async function GET(request) {
             workbook: spec.label,
             rows: sheets[0].rows.length,
             sheets: sheets.length,
-            ...(narrowed ? { filtered: { q, media, ...filters } } : {}),
+            ...(narrowed ? { filtered: { q, media, ...filters, ...range } } : {}),
         },
         ip: request.headers.get('x-forwarded-for'),
     }).catch(() => { /* an audit failure must not deny the operator their file */ });
