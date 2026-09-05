@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { gatewayContext } from '../../../../lib/gateway/authz.js';
 import { MASTER_COLUMNS, VIDEO_COLUMNS, projectRow } from '../../../../lib/ledger/columns.mjs';
 import { ACCEPTANCE_BASIS } from '../../../../lib/ledger/sessions.mjs';
-import { readFilters, ledgerQuery, readSort, orderBy } from '../../../../lib/ledger/filters.mjs';
+import { readFilters, readRange, ledgerQuery, readSort, orderBy } from '../../../../lib/ledger/filters.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -48,6 +48,7 @@ export async function GET(request) {
 
     const q = (params.get('q') || '').trim() || null;
     const filters = readFilters(params);
+    const range = readRange(params); // from/to, inclusive YYYY-MM-DD (IST)
     const sort = readSort(params);
     const limit = Math.min(MAX_LIMIT, Math.max(1, Number(params.get('limit')) || DEFAULT_LIMIT));
     const offset = Math.max(0, Number(params.get('offset')) || 0);
@@ -55,7 +56,7 @@ export async function GET(request) {
     // One parameter array and one predicate list, shared by the count and the
     // page. Building them separately is how a table and its own row count
     // start disagreeing about what is being filtered.
-    const { where, mediaTest, rowsWhere, values, bind } = ledgerQuery({ q, filters, media });
+    const { where, mediaTest, rowsWhere, values, bind } = ledgerQuery({ q, filters, range, media });
 
     // Snapshot before the LIMIT/OFFSET are bound: Postgres rejects a statement
     // handed more parameters than it references.
@@ -73,6 +74,23 @@ export async function GET(request) {
                 count(*) FILTER (WHERE ${mediaTest} AND status = 'running')::int AS running
          FROM ledger_rows
          ${where}`,
+        countValues,
+    );
+
+    // Per-day rollup over the SAME filtered view (rowsWhere covers the media
+    // tab too), grouped by the 'Date (IST)' cell so the chart's days are the
+    // days the Date column shows. Cost cells are money numbers or '' — NULLIF
+    // keeps the blanks out of the sum.
+    const days = await sql.query(
+        `SELECT cells->>'Date (IST)' AS key,
+                count(*)::int AS total,
+                count(*) FILTER (WHERE status = 'succeeded')::int AS succeeded,
+                count(*) FILTER (WHERE status IN ('failed', 'timed_out', 'rejected', 'cancelled'))::int AS failed,
+                count(*) FILTER (WHERE status IN ('queued', 'running'))::int AS active,
+                COALESCE(SUM(NULLIF(cells->>'Cost (USD)', '')::numeric), 0)::float8 AS cost_usd
+         FROM ledger_rows
+         ${rowsWhere}
+         GROUP BY 1 ORDER BY 1`,
         countValues,
     );
 
@@ -113,9 +131,13 @@ export async function GET(request) {
                 running: counts?.running ?? 0,
             },
         },
+        // One row per IST day in the filtered view, chronological. A row with
+        // no date (blank cell) has no day to land on and is dropped.
+        days: days.filter((d) => d.key),
         // Echoed back so the client can render "filtered by …" from the
         // response it actually got, rather than from what it hoped it sent.
         filters,
+        range,
         sort,
         limit,
         offset,

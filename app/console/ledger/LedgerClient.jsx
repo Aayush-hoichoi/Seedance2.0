@@ -11,10 +11,12 @@ import dynamic from 'next/dynamic';
 import { useMemo, useState } from 'react';
 import { Images, Video, Download, Layers, FileSpreadsheet, BarChart3, Table2 } from 'lucide-react';
 import { useApi, fmtInt } from '../lib.js';
-import { PageHeader, Card, Button, Input, Select, Badge, EmptyState, StatCard } from '../ui.jsx';
+import { PageHeader, Card, Button, Input, Select, Badge, EmptyState, StatCard, DateRangePicker } from '../ui.jsx';
 import { buildLedgerStatusAnalytics, buildLedgerStatusAnalyticsFromCounts } from './ledgerAnalytics.mjs';
 
 const StatusDonut = dynamic(() => import('../charts.jsx').then((m) => m.StatusDonut), { ssr: false });
+const DailyOutcomeBars = dynamic(() => import('../charts.jsx').then((m) => m.DailyOutcomeBars), { ssr: false });
+const TaskCostLines = dynamic(() => import('../charts.jsx').then((m) => m.TaskCostLines), { ssr: false });
 
 const WORKBOOKS = {
     master: {
@@ -134,6 +136,9 @@ export default function LedgerClient() {
     const [query, setQuery] = useState('');
     const [search, setSearch] = useState('');
     const [picked, setPicked] = useState({ model: '', user: '', project: '' });
+    // IST days, inclusive, as 'YYYY-MM-DD' — the same strings the Date (IST)
+    // column shows, which is exactly what the server filters and groups on.
+    const [range, setRange] = useState({ from: '', to: '' });
     const [sort, setSort] = useState('newest');
     const [page, setPage] = useState(0);
     const [section, setSection] = useState('table');
@@ -149,6 +154,8 @@ export default function LedgerClient() {
     if (scoped) params.set('media', scoped);
     if (search) params.set('q', search);
     for (const { key } of FILTERS) if (picked[key]) params.set(key, picked[key]);
+    if (range.from) params.set('from', range.from);
+    if (range.to) params.set('to', range.to);
     if (sort !== 'newest') params.set('sort', sort);
 
     // The dropdown values follow the workbook and media scope, so the video
@@ -178,7 +185,8 @@ export default function LedgerClient() {
             : buildLedgerStatusAnalytics(rows)
     ), [data?.counts?.statuses, rows, total]);
     const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
-    const active = FILTERS.filter(({ key }) => picked[key]).length + (search ? 1 : 0);
+    const active = FILTERS.filter(({ key }) => picked[key]).length + (search ? 1 : 0)
+        + (range.from || range.to ? 1 : 0);
 
     function pick(id) {
         setWorkbook(id);
@@ -198,6 +206,7 @@ export default function LedgerClient() {
 
     function clearAll() {
         setPicked({ model: '', user: '', project: '' });
+        setRange({ from: '', to: '' });
         setQuery('');
         setSearch('');
         setPage(0);
@@ -209,6 +218,8 @@ export default function LedgerClient() {
     if (scoped) viewParams.set('media', scoped);
     if (search) viewParams.set('q', search);
     for (const { key } of FILTERS) if (picked[key]) viewParams.set(key, picked[key]);
+    if (range.from) viewParams.set('from', range.from);
+    if (range.to) viewParams.set('to', range.to);
     const narrowed = active > 0 || Boolean(scoped);
 
     return (
@@ -363,6 +374,11 @@ export default function LedgerClient() {
                         </Select>
                     );
                 })}
+                <DateRangePicker
+                    from={range.from}
+                    to={range.to}
+                    onChange={(r) => { setRange(r); setPage(0); }}
+                />
                 <Select title="Timeline order" value={sort} onChange={(e) => reorder(e.target.value)}>
                     {SORTS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
                 </Select>
@@ -386,7 +402,7 @@ export default function LedgerClient() {
                     {active ? <Button variant="outline" onClick={clearAll}>Clear filters</Button> : null}
                 </EmptyState>
             ) : section === 'analytics' ? (
-                <LedgerAnalytics analytics={analytics} total={total} />
+                <LedgerAnalytics analytics={analytics} total={total} days={data?.days ?? []} />
             ) : (
                 <>
                     <div className="overflow-x-auto rounded-lg border border-line">
@@ -431,8 +447,10 @@ export default function LedgerClient() {
     );
 }
 
-function LedgerAnalytics({ analytics, total }) {
+function LedgerAnalytics({ analytics, total, days = [] }) {
     const scope = `${fmtInt(analytics.total)} matching generation${analytics.total === 1 ? '' : 's'}`;
+    // TaskCostLines wants {key, tasks, cost_usd}; the days rollup carries both.
+    const perf = days.map((d) => ({ key: d.key, tasks: Number(d.total || 0), cost_usd: Number(d.cost_usd || 0) }));
 
     return (
         <section className="space-y-4" aria-label="Ledger analytics">
@@ -490,6 +508,29 @@ function LedgerAnalytics({ analytics, total }) {
                     </div>
                 </div>
             </Card>
+
+            {days.length ? (
+                <>
+                    <Card>
+                        <div className="mb-3">
+                            <div className="text-sm font-medium text-ink-2">Outcomes per day</div>
+                            <div className="mt-1 text-xs text-ink-3">
+                                One bar per IST day in the current view — narrow it with the date range picker above.
+                            </div>
+                        </div>
+                        <DailyOutcomeBars data={days} />
+                    </Card>
+                    <Card>
+                        <div className="mb-3">
+                            <div className="text-sm font-medium text-ink-2">Tasks vs spend per day</div>
+                            <div className="mt-1 text-xs text-ink-3">
+                                When the lines diverge, the day&apos;s cost per task shifted.
+                            </div>
+                        </div>
+                        <TaskCostLines data={perf} />
+                    </Card>
+                </>
+            ) : null}
         </section>
     );
 }
