@@ -635,8 +635,8 @@ function MembersTab({ projectId, members, allUsers, onChange }) {
                     <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
                     <Button variant="primary" onClick={add} disabled={!userId}>Add</Button>
                 </>}>
-                <Field label="Search">
-                    <Input className="w-full" placeholder="Search by name or email…" value={query}
+                <Field label="User">
+                    <Input className="w-full" placeholder="Type a name or email to search…" value={query} autoFocus
                         onChange={(e) => {
                             setQuery(e.target.value);
                             // Keep the selection consistent with what's visible: drop it if
@@ -645,12 +645,24 @@ function MembersTab({ projectId, members, allUsers, onChange }) {
                             if (nm.length === 1) setUserId(nm[0].id || nm[0].user_id);
                             else if (userId && !nm.some((u) => (u.id || u.user_id) === userId)) setUserId('');
                         }} />
-                </Field>
-                <Field label="User">
-                    <Select className="w-full" value={userId} onChange={(e) => setUserId(e.target.value)}>
-                        <option value="">{matches.length ? 'Select a user…' : 'No users match your search'}</option>
-                        {matches.map((u) => <option key={u.id || u.user_id} value={u.id || u.user_id}>{u.email || u.name || u.id}</option>)}
-                    </Select>
+                    {/* Results render as a visible list, not a click-to-open dropdown:
+                        typing must immediately show the matching users. */}
+                    <div className="mt-2 max-h-56 divide-y divide-line overflow-y-auto rounded-md border border-line">
+                        {matches.length === 0 && (
+                            <div className="px-3 py-2 text-sm text-ink-3">No users match your search.</div>
+                        )}
+                        {matches.map((u) => {
+                            const id = u.id || u.user_id;
+                            const selected = id === userId;
+                            return (
+                                <button key={id} type="button" onClick={() => setUserId(selected ? '' : id)}
+                                    className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm ${selected ? 'bg-paper-3 text-ink' : 'text-ink-2 hover:bg-paper-3'}`}>
+                                    <span>{u.email || u.name || id}</span>
+                                    {selected && <span className="text-xs text-ink-3">selected</span>}
+                                </button>
+                            );
+                        })}
+                    </div>
                 </Field>
             </Modal>
         </div>
