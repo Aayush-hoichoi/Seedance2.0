@@ -74,43 +74,55 @@ test('a per-user per-model budget is enforced', () => {
     assert.equal(r.violations[0].quota.id, 6);
 });
 
-test('quotaBalances reports the tightest effective USD headroom including reservations', () => {
-    const rows = quotaBalances({
-        quotas: QUOTAS,
-        projectId: 7,
-        userId: 'u1',
-        modelId: 'seedance',
-        usedByQuota: { 1: 100, 2: 40, 3: 45, 6: 12 },
-        reservedByQuota: { 3: 2, 6: 1 },
-    });
-    assert.deepEqual(rows.map((r) => r.quota.id), [3, 6, 2, 1]);
-    assert.equal(rows[0].remaining, 3);
-    assert.equal(rows[0].used, 45);
-    assert.equal(rows[0].reserved, 2);
-});
-
 test('passes when every layered limit has headroom', () => {
     const r = evalWith({ used: { 1: 100, 2: 50, 3: 10 } });
     assert.equal(r.ok, true);
     assert.deepEqual(r.violations, []);
 });
 
-test('tightest limit binds first (user before project/org)', () => {
-    const r = evalWith({ used: { 1: 100, 2: 50, 3: 45 } }); // 45+10 > 50
+test('tightest limit binds first when both wallets in a group are exhausted', () => {
+    const r = evalWith({ used: { 1: 100, 2: 95, 3: 45 } }); // 95+10 > 100 AND 45+10 > 50
     assert.equal(r.ok, false);
     assert.equal(r.violations[0].quota.id, 3);
     assert.equal(r.violations[0].resetsAt.toISOString(), '2026-08-01T00:00:00.000Z');
 });
 
+// --- shared pool first, personal wallet as top-up ---------------------------------------
+
+test('an exhausted shared pool is forgiven for a member whose personal wallet has room', () => {
+    const r = evalWith({ used: { 1: 100, 2: 99, 3: 10 } }); // shared 99+10 > 100, personal 10+10 ≤ 50
+    assert.equal(r.ok, true);
+});
+
+test('members without a personal wallet are still blocked by the shared pool', () => {
+    const r = evaluateQuotas({
+        quotas: QUOTAS.slice(0, 3), projectId: 7, userId: 'u9', modelId: null, now: NOW,
+        estimate: { usd: 10 }, usedByQuota: { 2: 95 },
+    });
+    assert.equal(r.ok, false);
+    assert.equal(r.violations[0].quota.id, 2);
+});
+
+test('a drained personal wallet rides the shared pool while it has room', () => {
+    const r = evalWith({ used: { 2: 10, 3: 50 } }); // personal full, shared open
+    assert.equal(r.ok, true);
+});
+
+test('a workspace-wide quota is never forgiven by a personal wallet', () => {
+    const r = evalWith({ used: { 1: 495, 2: 10, 3: 10 } }); // workspace 495+10 > 500
+    assert.equal(r.ok, false);
+    assert.equal(r.violations[0].quota.id, 1);
+});
+
 test('in-flight reservations count against the limit', () => {
-    const r = evalWith({ used: { 3: 20 }, reserved: { 3: 25 } }); // 20+25+10 > 50
+    const r = evalWith({ quotas: [QUOTAS[2]], used: { 3: 20 }, reserved: { 3: 25 } }); // 20+25+10 > 50
     assert.equal(r.ok, false);
     assert.equal(r.violations[0].quota.id, 3);
 });
 
 test('exactly reaching the limit still passes; exceeding fails', () => {
-    assert.equal(evalWith({ used: { 3: 40 } }).ok, true);          // 40+10 = 50
-    assert.equal(evalWith({ used: { 3: 40.01 } }).ok, false);      // just over
+    assert.equal(evalWith({ quotas: [QUOTAS[2]], used: { 3: 40 } }).ok, true);          // 40+10 = 50
+    assert.equal(evalWith({ quotas: [QUOTAS[2]], used: { 3: 40.01 } }).ok, false);      // just over
 });
 
 test('soft policy allows the overage percentage, then stops', () => {
@@ -123,6 +135,35 @@ test('quota types without estimate units do not bind', () => {
     const imgQuota = [{ id: 7, org_id: 'org_1', project_id: 7, user_id: null, type: 'image_count', window: 'daily', hard_limit: 10, policy: 'hard', soft_overage_pct: 5 }];
     const r = evalWith({ quotas: imgQuota, estimate: { usd: 3 } }); // video job: no images
     assert.equal(r.ok, true);
+});
+
+// --- balances ------------------------------------------------------------------------
+
+test('quotaBalances shows the shared pool while it out-lasts the personal wallets', () => {
+    const rows = quotaBalances({
+        quotas: QUOTAS,
+        projectId: 7,
+        userId: 'u1',
+        modelId: 'seedance',
+        usedByQuota: { 1: 100, 2: 40, 3: 45, 6: 12 },
+        reservedByQuota: { 3: 2, 6: 1 },
+    });
+    // shared has $60 left vs the member's tightest $3 → the pool governs.
+    assert.deepEqual(rows.map((r) => r.quota.id), [2, 1]);
+    assert.equal(rows[0].remaining, 60);
+    assert.equal(rows[0].used, 40);
+});
+
+test('quotaBalances shows the personal wallet once the shared pool is drained', () => {
+    const rows = quotaBalances({
+        quotas: QUOTAS.slice(1, 3), // shared 100 + personal 50
+        projectId: 7,
+        userId: 'u1',
+        modelId: null,
+        usedByQuota: { 2: 99, 3: 8 },
+    });
+    assert.deepEqual(rows.map((r) => r.quota.id), [3]);
+    assert.equal(rows[0].remaining, 42);
 });
 
 // --- alert thresholds ------------------------------------------------------------------------
