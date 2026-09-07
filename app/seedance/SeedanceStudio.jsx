@@ -1200,7 +1200,7 @@ export default function SeedanceStudio() {
 
         const mediaItems = flattenMedia(mode, mediaByRole);
         if (mediaItems.some((m) => m.pending)) { setError('Wait for reference assets to finish registering into your library.'); return; }
-        const aggProblem = validateAggregate(mediaItems) || validateRequestSize(mediaItems);
+        const aggProblem = validateAggregate(mediaItems, selectedModel?.kind) || validateRequestSize(mediaItems);
         if (aggProblem) { setError(aggProblem); return; }
 
         // @Image1-style chips are auto-corrected to the "Image 1" wording the

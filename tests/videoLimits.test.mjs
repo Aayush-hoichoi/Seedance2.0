@@ -65,6 +65,20 @@ test('the combined-duration budget follows the model too', () => {
     assert.equal(validateAggregate(clips, 'full_2_5'), null, 'but fits 2.5’s 30s');
 });
 
+// Doc revision 2026-09-04: 4k reference input accepted (pixel cap 8,295,044).
+// The production repro: Neha's 3840×2160 clip (8,294,400 px) was refused under
+// the old ~1080p cap; the provider takes it now.
+test('a 4k UHD reference clip passes the pixel window', () => {
+    assert.equal(validateVideoMetadata({ width: 3840, height: 2160, durationSec: 10, fps: 30 }, 'full'), null);
+});
+
+test('2.5 allows up to 10 reference videos, 2.0 still 3', () => {
+    const clips = (n) => Array.from({ length: n }, () => ({ kind: 'video', durationSec: 2 }));
+    assert.equal(validateAggregate(clips(10), 'full_2_5'), null);
+    assert.match(validateAggregate(clips(11), 'full_2_5'), /Too many reference videos/);
+    assert.match(validateAggregate(clips(4), 'full'), /Too many reference videos/);
+});
+
 test('the exported default stays the 2.0 spec for existing readers', () => {
     assert.equal(VIDEO_LIMITS.minDurationSec, 2);
     assert.equal(VIDEO_LIMITS.maxDurationSec, 15);
