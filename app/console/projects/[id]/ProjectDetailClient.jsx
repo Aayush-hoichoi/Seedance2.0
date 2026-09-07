@@ -575,6 +575,7 @@ function BudgetProgressBar({ quota }) {
 function MembersTab({ projectId, members, allUsers, onChange }) {
     const [open, setOpen] = useState(false);
     const [userId, setUserId] = useState('');
+    const [query, setQuery] = useState('');
     const [toRemove, setToRemove] = useState(null);
     const [removing, setRemoving] = useState(false);
 
@@ -585,7 +586,7 @@ function MembersTab({ projectId, members, allUsers, onChange }) {
         const r = await sendJson(`/api/projects/${projectId}/members`, 'POST', { userId });
         if (!r.ok) return toast.error(r.data?.message || 'Failed');
         toast.success('Member added');
-        setOpen(false); setUserId(''); onChange();
+        setOpen(false); setUserId(''); setQuery(''); onChange();
     }
     async function remove() {
         if (!toRemove) return;
@@ -599,6 +600,12 @@ function MembersTab({ projectId, members, allUsers, onChange }) {
     }
 
     const candidates = allUsers.filter((u) => !members.some((m) => m.user_id === (u.id || u.user_id)));
+    const filterUsers = (text) => {
+        const q = text.trim().toLowerCase();
+        if (!q) return candidates;
+        return candidates.filter((u) => [u.email, u.name, u.id || u.user_id].some((v) => v && String(v).toLowerCase().includes(q)));
+    };
+    const matches = filterUsers(query);
     const columns = [
         { accessorKey: 'email', header: 'User', cell: ({ row }) => <span className="text-ink">{row.original.email || row.original.name || row.original.user_id}</span> },
         { accessorKey: 'created_at', header: 'Added', cell: ({ getValue }) => <span className="font-mono text-ink-3">{fmtDate(getValue())}</span> },
@@ -623,15 +630,26 @@ function MembersTab({ projectId, members, allUsers, onChange }) {
                     This person will lose access to the project. Their existing usage history will be kept.
                 </p>
             </Modal>
-            <Modal open={open} onOpenChange={setOpen} title="Add member"
+            <Modal open={open} onOpenChange={(nextOpen) => { setOpen(nextOpen); if (!nextOpen) { setUserId(''); setQuery(''); } }} title="Add member"
                 footer={<>
                     <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
                     <Button variant="primary" onClick={add} disabled={!userId}>Add</Button>
                 </>}>
+                <Field label="Search">
+                    <Input className="w-full" placeholder="Search by name or email…" value={query}
+                        onChange={(e) => {
+                            setQuery(e.target.value);
+                            // Keep the selection consistent with what's visible: drop it if
+                            // filtered out, auto-pick when the search narrows to one user.
+                            const nm = filterUsers(e.target.value);
+                            if (nm.length === 1) setUserId(nm[0].id || nm[0].user_id);
+                            else if (userId && !nm.some((u) => (u.id || u.user_id) === userId)) setUserId('');
+                        }} />
+                </Field>
                 <Field label="User">
                     <Select className="w-full" value={userId} onChange={(e) => setUserId(e.target.value)}>
-                        <option value="">Select a user…</option>
-                        {candidates.map((u) => <option key={u.id || u.user_id} value={u.id || u.user_id}>{u.email || u.name || u.id}</option>)}
+                        <option value="">{matches.length ? 'Select a user…' : 'No users match your search'}</option>
+                        {matches.map((u) => <option key={u.id || u.user_id} value={u.id || u.user_id}>{u.email || u.name || u.id}</option>)}
                     </Select>
                 </Field>
             </Modal>
