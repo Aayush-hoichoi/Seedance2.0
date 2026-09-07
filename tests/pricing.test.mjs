@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolutionTier, unitPrice, costFromTokens, estimateCost } from '../lib/seedance/pricing.mjs';
+import { resolutionTier, unitPrice, costFromTokens, estimateCost, budgetDuration } from '../lib/seedance/pricing.mjs';
 
 test('resolutionTier maps 480p/720p to sd, 1080p and 4k to themselves', () => {
     assert.equal(resolutionTier('480p'), 'sd');
@@ -33,6 +33,18 @@ test('estimateCost scales the 5s example by duration', () => {
     assert.equal(estimateCost({ kind: 'mini', resolution: '480p', duration: 5 }), 0.18);
     assert.equal(estimateCost({ kind: 'mini', resolution: '480p', duration: 10 }), 0.36);
     assert.equal(estimateCost({ kind: 'full', resolution: '720p', duration: 5 }), 0.76);
+});
+
+test('adaptive/unknown duration budgets at the kind max, not 5s', () => {
+    // duration -1 ("Auto") let $2.19 estimates settle at ~$6.18 (Sep 2026).
+    assert.equal(budgetDuration('full', -1), 15);
+    assert.equal(budgetDuration('full', undefined), 15);
+    assert.equal(budgetDuration('full_2_5', -1), 30);
+    assert.equal(budgetDuration('full', 10), 10);
+    assert.equal(
+        estimateCost({ kind: 'full', resolution: '1080p', duration: -1 }),
+        estimateCost({ kind: 'full', resolution: '1080p', duration: 15 }),
+    );
 });
 
 test('full-tier per-5s estimates rise strictly with resolution', () => {
