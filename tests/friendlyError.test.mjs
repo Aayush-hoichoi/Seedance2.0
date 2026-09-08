@@ -26,6 +26,14 @@ test('maps sensitive-content flags to actionable copy', () => {
     assert.doesNotMatch(out, /InputVideoSensitiveContentDetected/);
 });
 
+test('audio copyright points at the Audio toggle, not the references', () => {
+    const out = friendlyError('The request failed because the output audio may be related to copyright restrictions. Request id: 0217888');
+    assert.match(out, /turn audio off/i);
+    assert.doesNotMatch(out, /swap the reference/i);
+    // Non-audio copyright keeps the reference-swap advice.
+    assert.match(friendlyError('The generated video may violate copyright.'), /swap the reference/i);
+});
+
 test('passes through unknown messages, stripping the provider request id', () => {
     assert.equal(
         friendlyError('Something odd happened. Request id: 02178abc'),
