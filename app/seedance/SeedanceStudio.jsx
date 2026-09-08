@@ -6,7 +6,7 @@
 // in-flight tasks are resumed after a reload by re-polling their ModelArk id.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MODELS, MODES, RATIOS, RESOLUTIONS, DEFAULT_OPTIONS, IMAGE_MODELS, IMAGE_DEFAULT_MODEL_ID, IMAGE_RATIOS, IMAGE_RESOLUTIONS, IMAGE_STUDIO_ID, IMAGE_STUDIO_MODEL_ID, modeAllowedForModel, resolutionWithinTier, imageRefMax, durationMaxFor, imageResolutionsFor } from '../../lib/seedance/constants.js';
+import { MODELS, MODES, RATIOS, RESOLUTIONS, DEFAULT_OPTIONS, IMAGE_MODELS, IMAGE_DEFAULT_MODEL_ID, IMAGE_RATIOS, IMAGE_RESOLUTIONS, IMAGE_STUDIO_ID, IMAGE_STUDIO_MODEL_ID, modeAllowedForModel, modeForModel, resolutionWithinTier, imageRefMax, durationMaxFor, imageResolutionsFor } from '../../lib/seedance/constants.js';
 import { sanitizeOptions } from '../../lib/seedance/options.mjs';
 import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js';
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
@@ -51,7 +51,7 @@ function flattenMedia(mode, mediaByRole) {
     return out;
 }
 
-function validate(mode, prompt, mediaByRole) {
+function validate(mode, prompt, mediaByRole, modelKind = null) {
     if (mode.requiresText && !prompt.trim()) return 'Enter a prompt.';
     for (const slot of mode.media) {
         const n = (mediaByRole[slot.role] || []).length;
@@ -60,7 +60,15 @@ function validate(mode, prompt, mediaByRole) {
     if (mode.id === 'reference') {
         const imgs = (mediaByRole.reference_image || []).length;
         const vids = (mediaByRole.reference_video || []).length;
-        if (imgs === 0 && vids === 0) return 'Reference mode needs at least one image or video.';
+        const auds = (mediaByRole.reference_audio || []).length;
+        // Seedance 2.5 newly generates from a pure audio reference; the 2.0
+        // family still requires an image or video alongside. Live-probed
+        // 2026-09-08: base64 wav + text only SUCCEEDED (cgt-20260908152946-fjmvz).
+        if (imgs === 0 && vids === 0 && (auds === 0 || modelKind !== 'full_2_5')) {
+            return auds > 0
+                ? 'Audio-only reference needs Seedance 2.5 — add an image or video, or switch the model.'
+                : 'Reference mode needs at least one image or video.';
+        }
     }
     return null;
 }
@@ -460,9 +468,12 @@ export default function SeedanceStudio() {
         return () => clearInterval(timer);
     }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const mode = useMemo(() => MODES.find((m) => m.id === modeId), [modeId]);
-    const tags = useMemo(() => buildTags(mode, mediaByRole), [mode, mediaByRole]);
     const selectedModel = useMemo(() => MODELS.find((m) => m.id === options.model), [options.model]);
+    // Per-model slot caps applied at the single point the mode object is born:
+    // 2.5's Multi reference takes 30 images / 10 videos / 10 audio, the 2.0
+    // family 9/3/3 — every consumer (uploader, routing, validate) sees one truth.
+    const mode = useMemo(() => modeForModel(MODES.find((m) => m.id === modeId), selectedModel?.kind), [modeId, selectedModel]);
+    const tags = useMemo(() => buildTags(mode, mediaByRole), [mode, mediaByRole]);
     // A deactivated catalog entry disappears from the picker entirely rather
     // than showing as locked: `active` is the switch, and flipping it in the DB
     // brings the tier back with no deploy.
@@ -498,8 +509,12 @@ export default function SeedanceStudio() {
             // agree — a visible pill whose choice gets snapped back is worse
             // than either behavior alone.
             hasFirstFrame: mode.media.some((s) => (s.role === 'first_frame' || s.role === 'last_frame') && (mediaByRole[s.role] || []).length > 0),
+            // Only Multi reference sends omni_reference_task_type (see the
+            // payload build) — a persisted taskType must not unlock pills in a
+            // mode where the server still forces the conservative values.
+            taskType: mode.id === 'reference' ? options.taskType : 'auto',
         }),
-        [selectedModel, mode, hasVideoInput, mediaByRole],
+        [selectedModel, mode, hasVideoInput, mediaByRole, options.taskType],
     );
 
     // Attaching a video (or switching model/mode) can strand a ratio/duration
@@ -1195,13 +1210,33 @@ export default function SeedanceStudio() {
             setError(`${selectedModel?.name || 'This model'} doesn't support ${mode.name} — switch the model to Seedance 2.0, or the mode to Text/Image → Video.`);
             return;
         }
-        const problem = validate(mode, prompt, mediaByRole);
+        const problem = validate(mode, prompt, mediaByRole, selectedModel?.kind);
         if (problem) { setError(problem); return; }
 
         const mediaItems = flattenMedia(mode, mediaByRole);
         if (mediaItems.some((m) => m.pending)) { setError('Wait for reference assets to finish registering into your library.'); return; }
         const aggProblem = validateAggregate(mediaItems, selectedModel?.kind) || validateRequestSize(mediaItems);
         if (aggProblem) { setError(aggProblem); return; }
+
+        // A DECLARED 2.5 edit/extend task needs a reference video, and an edit
+        // only accepts 4–30s sources — the provider now validates the subtype
+        // at submit, so catch what we can before a slot and budget are taken.
+        const declaredTask = selectedModel?.kind === 'full_2_5' && mode.id === 'reference' && options.taskType !== 'auto'
+            ? options.taskType : null;
+        if (declaredTask) {
+            const vids = mediaItems.filter((m) => m.kind === 'video');
+            if ((declaredTask === 'edit' || declaredTask === 'extend') && vids.length === 0) {
+                setError(`A video ${declaredTask} task needs at least one reference video — attach one or set Task back to Auto.`);
+                return;
+            }
+            const badClip = declaredTask === 'edit'
+                ? vids.find((m) => Number.isFinite(m.durationSec) && (m.durationSec < 4 || m.durationSec > 30))
+                : null;
+            if (badClip) {
+                setError(`${badClip.name || 'A reference clip'} is ${badClip.durationSec.toFixed(1)}s — video edits only accept 4–30s sources.`);
+                return;
+            }
+        }
 
         // @Image1-style chips are auto-corrected to the "Image 1" wording the
         // API expects, then checked against what's actually attached.
@@ -1287,7 +1322,22 @@ export default function SeedanceStudio() {
 
         let payload;
         try {
-            payload = buildPayload({ options, prompt: apiPrompt, mediaItems: resolvedItems });
+            // 2.5-only params ride along only when the model takes them: the
+            // declared omni-reference subtype (reference mode only — other
+            // modes have fixed roles that pin the task type) and the output
+            // container. 'auto' is the provider default; sending it anyway
+            // moves the constraint check to submit time, so send it whenever
+            // reference assets are attached.
+            const is25 = selectedModel?.kind === 'full_2_5';
+            const hasOmniRefs = resolvedItems.some((m) => String(m.role || '').startsWith('reference_'));
+            const payloadOptions = {
+                ...options,
+                // A mov choice must not survive a switch to a model without the
+                // param — null makes buildPayload skip the field entirely.
+                output_format: is25 ? options.output_format : null,
+                ...(is25 && hasOmniRefs && mode.id === 'reference' ? { omni_reference_task_type: options.taskType || 'auto' } : {}),
+            };
+            payload = buildPayload({ options: payloadOptions, prompt: apiPrompt, mediaItems: resolvedItems });
         } catch (e) {
             setError(e.message);
             return;

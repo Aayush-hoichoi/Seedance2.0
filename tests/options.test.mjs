@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sanitizeOptions } from '../lib/seedance/options.mjs';
 
 // Mirror the real catalog shape without importing the ESM constants.
-const DEFAULTS = { model: 'pro', ratio: 'adaptive', resolution: '720p', duration: 5, generate_audio: true, watermark: false, seed: -1 };
+const DEFAULTS = { model: 'pro', ratio: 'adaptive', resolution: '720p', duration: 5, generate_audio: true, watermark: false, seed: -1, taskType: 'auto', output_format: 'mp4' };
 const CATALOG = {
     defaults: DEFAULTS,
     modelIds: ['pro', 'fast'],
@@ -14,7 +14,7 @@ const CATALOG = {
 };
 
 test('restores a full valid snapshot verbatim', () => {
-    const snap = { model: 'pro', ratio: '9:16', resolution: '1080p', duration: 10, generate_audio: false, watermark: true, seed: 42 };
+    const snap = { model: 'pro', ratio: '9:16', resolution: '1080p', duration: 10, generate_audio: false, watermark: true, seed: 42, taskType: 'edit', output_format: 'mov' };
     assert.deepEqual(sanitizeOptions(snap, CATALOG), snap);
 });
 
@@ -32,11 +32,11 @@ test('clamps 4k to 720p when the model does not support it', () => {
 
 test('fills missing fields from defaults (partial server-card snapshot)', () => {
     const out = sanitizeOptions({ resolution: '480p', duration: 8, seed: 7 }, CATALOG);
-    assert.deepEqual(out, { model: 'pro', ratio: 'adaptive', resolution: '480p', duration: 8, generate_audio: true, watermark: false, seed: 7 });
+    assert.deepEqual(out, { model: 'pro', ratio: 'adaptive', resolution: '480p', duration: 8, generate_audio: true, watermark: false, seed: 7, taskType: 'auto', output_format: 'mp4' });
 });
 
 test('rejects out-of-range / wrong-type values back to defaults', () => {
-    const out = sanitizeOptions({ model: 'ghost', ratio: '5:1', resolution: '8k', duration: 99, generate_audio: 'yes', watermark: 1, seed: 'x' }, CATALOG);
+    const out = sanitizeOptions({ model: 'ghost', ratio: '5:1', resolution: '8k', duration: 99, generate_audio: 'yes', watermark: 1, seed: 'x', taskType: 'remix', output_format: 'avi' }, CATALOG);
     assert.deepEqual(out, DEFAULTS);
 });
 

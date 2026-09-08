@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MODES } from '../lib/seedance/constants.js';
-import { VIDEO_LIMITS, AUDIO_LIMITS, REFERENCE_IMAGE_MAX } from '../lib/seedance/limits.js';
+import { MODES, modeForModel } from '../lib/seedance/constants.js';
+import { VIDEO_LIMITS, AUDIO_LIMITS, REFERENCE_IMAGE_MAX, videoLimitsFor, audioLimitsFor, referenceImageMaxFor } from '../lib/seedance/limits.js';
 
 // A mode slot that allows more files than BytePlus accepts lets the UI build a
 // request the API rejects. Caps are edited by hand, so pin them to the ceiling.
@@ -27,4 +27,25 @@ test('motion capture takes the full video and image allowance', () => {
     // Video 1 stays mandatory — the style brief treats it as the sole source of
     // performance, timing and audio truth.
     assert.equal(bySlot.video.min, 1);
+});
+
+// Seedance 2.5 raises the Multi-reference ceilings (30 images / 10 videos /
+// 10 audio, doc revision 2026-08-31) — modeForModel is where the UI gets them.
+test('2.5 multi-reference slots take the raised per-model ceilings', () => {
+    const ref = modeForModel(MODES.find((m) => m.id === 'reference'), 'full_2_5');
+    const bySlot = Object.fromEntries(ref.media.map((s) => [s.kind, s]));
+    assert.equal(bySlot.image.max, referenceImageMaxFor('full_2_5'));
+    assert.equal(bySlot.video.max, videoLimitsFor('full_2_5').maxCount);
+    assert.equal(bySlot.audio.max, audioLimitsFor('full_2_5').maxCount);
+    assert.equal(bySlot.image.max, 30);
+    assert.equal(bySlot.video.max, 10);
+    assert.equal(bySlot.audio.max, 10);
+});
+
+test('modeForModel leaves every other mode/model combination untouched', () => {
+    for (const mode of MODES) {
+        assert.equal(modeForModel(mode, 'full'), mode, `${mode.id} on 2.0 must be identity`);
+        if (mode.id !== 'reference') assert.equal(modeForModel(mode, 'full_2_5'), mode, `${mode.id} on 2.5 must be identity`);
+    }
+    assert.equal(modeForModel(undefined, 'full_2_5'), undefined, 'missing mode passes through');
 });
