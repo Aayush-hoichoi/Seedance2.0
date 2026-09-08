@@ -7,6 +7,7 @@ import {
     MODEL_25_KIND,
     EDIT_CLIP_MIN_SEC,
     EDIT_CLIP_MAX_SEC,
+    OMNI_TASK_TYPES,
     seedance25Constraints,
     editClipWarning,
 } from '../lib/seedance/constraints25.mjs';
@@ -38,6 +39,35 @@ test('2.5 first-frame pins ratio only — duration stays free', () => {
     const lock = seedance25Constraints({ modelKind: MODEL_25_KIND, hasFirstFrame: true });
     assert.equal(lock.ratio, 'adaptive');
     assert.equal(lock.duration, null);
+});
+
+// omni_reference_task_type (doc revision 2026-09-04): a DECLARED subtype
+// narrows the lock — only 'edit' and undecided 'auto' still pin everything.
+test('a declared reference task releases both locks', () => {
+    assert.equal(seedance25Constraints({ modelKind: MODEL_25_KIND, hasVideoInput: true, taskType: 'reference' }), null);
+});
+
+test('a declared extend task pins ratio only — duration stays free', () => {
+    const lock = seedance25Constraints({ modelKind: MODEL_25_KIND, hasVideoInput: true, taskType: 'extend' });
+    assert.equal(lock.ratio, 'adaptive');
+    assert.equal(lock.duration, null);
+});
+
+test('a declared edit task pins both, same as auto', () => {
+    for (const taskType of ['edit', 'auto', undefined]) {
+        const lock = seedance25Constraints({ modelKind: MODEL_25_KIND, hasVideoInput: true, taskType });
+        assert.equal(lock.ratio, 'adaptive', `taskType=${taskType}`);
+        assert.equal(lock.duration, -1, `taskType=${taskType}`);
+    }
+});
+
+test('first-frame still pins ratio whatever the declared task type', () => {
+    const lock = seedance25Constraints({ modelKind: MODEL_25_KIND, hasFirstFrame: true, taskType: 'reference' });
+    assert.equal(lock.ratio, 'adaptive');
+});
+
+test('the valid task types are exactly the API set', () => {
+    assert.deepEqual(OMNI_TASK_TYPES, ['auto', 'reference', 'edit', 'extend']);
 });
 
 test('edit-clip warning fires only for out-of-window clips on 2.5', () => {

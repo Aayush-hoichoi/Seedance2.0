@@ -50,7 +50,8 @@ test('the inherited value is the one the API documents', () => {
 
 test('the server sends adaptive rather than the picked ratio', () => {
     const src = readFileSync(new URL('../lib/gateway/videoCreate.mjs', import.meta.url), 'utf8');
-    assert.match(src, /ratioIsInherited\(\{ modelId, hasVideoRef: withVideoRef, hasFirstFrame \}\)/);
+    assert.match(src, /ratioIsInherited\(\{ modelId, hasVideoRef: withVideoRef, hasFirstFrame, taskType \}\)/,
+        'the declared omni-reference subtype must reach the inheritance decision');
     assert.match(src, /ratio: INHERITED_RATIO/);
     assert.match(src, /lowered\?\.ratio !== INHERITED_RATIO/,
         'an already-adaptive request must not be needlessly rewritten');

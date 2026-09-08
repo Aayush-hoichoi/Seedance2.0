@@ -481,11 +481,31 @@ export default function PromptBar({
     // an input — the API accepts only `adaptive` — so the picker is hidden
     // rather than shown with a value that gets discarded. Any attached video
     // counts: the model decides edit vs generate while it renders.
+    const hasVideoRefAttached = (mode?.media || []).some((slot) => slot.kind === 'video' && (mediaByRole[slot.role] || []).length > 0);
     const ratioInherited = !isImage && ratioIsInherited({
         modelId: options.model,
-        hasVideoRef: (mode?.media || []).some((slot) => slot.kind === 'video' && (mediaByRole[slot.role] || []).length > 0),
+        hasVideoRef: hasVideoRefAttached,
         hasFirstFrame: (mode?.media || []).some((slot) => (slot.role === 'first_frame' || slot.role === 'last_frame') && (mediaByRole[slot.role] || []).length > 0),
+        // Matches the lock25 computation: the subtype only rides along (and so
+        // only releases the lock) in Multi reference mode.
+        taskType: mode?.id === 'reference' ? options.taskType : 'auto',
     });
+    // Seedance 2.5 Multi-reference extras: the declared omni-reference subtype
+    // (drives which pills lock — see seedance25Constraints) and the output
+    // container (mov = pro color fidelity, poor player support).
+    const show25Extras = !isImage && selectedModel?.kind === 'full_2_5' && mode?.id === 'reference';
+    const TASK_TYPE_NOTES = {
+        auto: 'The model reads your prompt intent (recommended). Ratio and duration lock to the one config every subtype accepts.',
+        reference: 'Create a new video from your references — ratio and duration stay yours. A prompt that asks to edit or extend a clip will be rejected.',
+        edit: 'Change the attached video (add / remove / replace). Needs a 4–30s reference video; the output follows the source clip.',
+        extend: 'Continue the attached video. Needs a reference video; the ratio follows the clip, the duration is yours.',
+    };
+    const taskTypeOptions = [
+        { value: 'auto', label: 'Auto' },
+        { value: 'reference', label: 'Reference' },
+        { value: 'edit', label: 'Edit', disabled: !hasVideoRefAttached, disabledTitle: 'Attach a reference video first.' },
+        { value: 'extend', label: 'Extend', disabled: !hasVideoRefAttached, disabledTitle: 'Attach a reference video first.' },
+    ];
     const selectedImageModel = imageModels.find((m) => m.id === options.model);
     // The image picker has three entries: the two real models plus Cinematic
     // Studio (Nano Banana Pro under the hood). Studio's picker value is distinct
@@ -910,10 +930,27 @@ export default function PromptBar({
                         />
                         <DurationControl openKey={openKey} setOpenKey={setOpenKey} duration={options.duration} setDuration={(v) => setOpt('duration', v)} maxDuration={durationMaxFor(options.model)} locked={lock25?.duration != null} lockReason={lock25?.reason} />
                         <SeedControl openKey={openKey} setOpenKey={setOpenKey} seed={options.seed} setSeed={(v) => setOpt('seed', v)} />
+                        {show25Extras && (
+                            <PillSelect
+                                id="task" openKey={openKey} setOpenKey={setOpenKey}
+                                display={`Task · ${taskTypeOptions.find((o) => o.value === (options.taskType || 'auto'))?.label || 'Auto'}`}
+                                label="Task type" value={options.taskType || 'auto'}
+                                note={TASK_TYPE_NOTES[options.taskType || 'auto']}
+                                options={taskTypeOptions}
+                                onSelect={(v) => setOpt('taskType', v)}
+                            />
+                        )}
                     </div>
                     <div className="flex items-center gap-1.5">
                         <PillToggle label="Audio" active={!!options.generate_audio} onToggle={() => setOpt('generate_audio', !options.generate_audio)} icon={<AudioIcon />} />
                         <PillToggle label="Watermark" active={!!options.watermark} onToggle={() => setOpt('watermark', !options.watermark)} icon={<DropIcon />} />
+                        {!isImage && selectedModel?.kind === 'full_2_5' && (
+                            <PillToggle
+                                label="MOV" active={options.output_format === 'mov'}
+                                onToggle={() => setOpt('output_format', options.output_format === 'mov' ? 'mp4' : 'mov')}
+                                icon={<FilmIcon />}
+                            />
+                        )}
                     </div>
                     </div>
                     )}
@@ -923,10 +960,7 @@ export default function PromptBar({
                         {(() => {
                             const est = isImage
                                 ? imageCost(selectedImageModel?.kind, 'interactive', 1, selectedImageModel?.resolutions ? options.imageResolution || null : null)
-                                : estimateCost({
-                                    kind: selectedModel?.kind, resolution: options.resolution, duration: options.duration,
-                                    hasVideoInput: (mode?.media || []).some((slot) => slot.kind === 'video' && (mediaByRole[slot.role] || []).length > 0),
-                                });
+                                : estimateCost({ kind: selectedModel?.kind, resolution: options.resolution, duration: options.duration, hasVideoInput: hasVideoRefAttached });
                             return est != null ? (
                                 <span className="hidden sm:inline text-[11px] font-semibold tabular-nums text-white/35 pr-1" title="Estimated cost (final cost uses real token usage)">
                                     ≈ ${(est * (batch || 1)).toFixed(2)}

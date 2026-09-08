@@ -6,6 +6,7 @@ import { packSettings, unpackSettings, SETTINGS_VERSION } from '../lib/seedance/
 const DEFAULTS = {
     model: 'mini', ratio: 'adaptive', resolution: '720p', duration: 5,
     generate_audio: true, watermark: false, seed: -1,
+    taskType: 'auto', output_format: 'mp4',
     imageRatio: '1:1', imageResolution: '2K', imageStudio: false,
 };
 const CATALOG = {
@@ -37,6 +38,7 @@ test('mode, model, ratio, resolution, duration and seed all come back as set', (
     assert.deepEqual(out.options, {
         model: 'pro', ratio: '9:16', resolution: '1080p', duration: 12,
         generate_audio: false, watermark: true, seed: 4242,
+        taskType: 'auto', output_format: 'mp4',
         imageRatio: '1:1', imageResolution: '2K', imageStudio: false,
     });
 });
