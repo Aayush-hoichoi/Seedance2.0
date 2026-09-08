@@ -923,7 +923,10 @@ export default function PromptBar({
                         {(() => {
                             const est = isImage
                                 ? imageCost(selectedImageModel?.kind, 'interactive', 1, selectedImageModel?.resolutions ? options.imageResolution || null : null)
-                                : estimateCost({ kind: selectedModel?.kind, resolution: options.resolution, duration: options.duration });
+                                : estimateCost({
+                                    kind: selectedModel?.kind, resolution: options.resolution, duration: options.duration,
+                                    hasVideoInput: (mode?.media || []).some((slot) => slot.kind === 'video' && (mediaByRole[slot.role] || []).length > 0),
+                                });
                             return est != null ? (
                                 <span className="hidden sm:inline text-[11px] font-semibold tabular-nums text-white/35 pr-1" title="Estimated cost (final cost uses real token usage)">
                                     ≈ ${(est * (batch || 1)).toFixed(2)}
