@@ -4,7 +4,7 @@ import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { PageHeader, Card, Badge, Button, Modal, Field, Input, Select, ProgressBar, EmptyState } from '../ui.jsx';
 import { useApi, sendJson, fmtUsd, fmtInt } from '../lib.js';
-import { Wallet, Plus, Trash2 } from 'lucide-react';
+import { Wallet, Plus, Trash2, History } from 'lucide-react';
 
 const TYPES = [
     ['usd', 'Dollars (USD)'], ['image_count', 'Image count'],
@@ -20,6 +20,8 @@ export default function BudgetsClient() {
     const [toRemove, setToRemove] = useState(null);
     const [removing, setRemoving] = useState(false);
     const [form, setForm] = useState({ type: 'usd', window: 'lifetime', hardLimit: '', policy: 'hard', softOveragePct: 5, projectId: '', userId: '', modelId: '' });
+    const [toHistory, setToHistory] = useState(null);
+    const history = useApi(toHistory ? `/api/admin/quotas?historyFor=${toHistory.id}` : null);
 
     async function create() {
         const r = await sendJson('/api/admin/quotas', 'POST', {
@@ -86,6 +88,7 @@ export default function BudgetsClient() {
                                             </div>
                                             <div className="flex items-center gap-1.5">
                                                 <Badge tone={q.policy === 'hard' ? 'red' : 'amber'}>{q.policy}{q.policy === 'soft' ? ` +${q.soft_overage_pct}%` : ''}</Badge>
+                                                <Button variant="ghost" size="xs" title="Change history" onClick={() => setToHistory(q)}><History size={13} /></Button>
                                                 <Button variant="ghost" size="xs" title="Delete budget" onClick={() => setToRemove(q)}><Trash2 size={13} className="text-danger" /></Button>
                                             </div>
                                         </div>
@@ -167,6 +170,42 @@ export default function BudgetsClient() {
                         ? 'Requests past the limit are rejected.'
                         : `Allows a ~${form.softOveragePct}% overage, then just warns.`}
                 </div>
+            </Modal>
+            <Modal open={!!toHistory} onOpenChange={(nextOpen) => { if (!nextOpen) setToHistory(null); }}
+                title="Budget timeline"
+                footer={<Button variant="outline" onClick={() => setToHistory(null)}>Close</Button>}>
+                {toHistory ? (
+                    history.isLoading ? <div className="text-xs text-ink-3">Loading history…</div>
+                        : history.error ? <div className="text-xs text-danger">Could not load history.</div>
+                            : !(history.data?.items ?? []).length
+                                ? <div className="text-xs text-ink-3">No recorded changes — history only covers changes made after change-logging was deployed.</div>
+                                : (
+                                    <ol className="max-h-96 space-y-3 overflow-y-auto border-l border-line pl-4">
+                                        {history.data.items.map((r, i) => {
+                                            const label = {
+                                                'quota.create': 'Created', 'quota.top_up': 'Topped up',
+                                                'quota.cap_changed': 'Cap changed', 'quota.rescope': 'Scope changed',
+                                                'quota.delete': 'Deleted',
+                                            }[r.action] || r.action;
+                                            const prev = r.before?.hard_limit;
+                                            const next = r.after?.hard_limit;
+                                            return (
+                                                <li key={i} className="text-xs">
+                                                    <div className="text-ink-3">{new Date(r.created_at).toLocaleString()} · {r.actor_email || r.actor_id}</div>
+                                                    <div className="text-ink-2">
+                                                        <span className="font-medium text-ink">{label}</span>
+                                                        {prev != null || next != null ? (
+                                                            <> · {prev != null ? fmt(toHistory, prev) : '—'} → {next != null ? fmt(toHistory, next) : 'removed'}</>
+                                                        ) : null}
+                                                        {r.action === 'quota.rescope' ? <> · model scope: {r.before?.model_id || 'all'} → {r.after?.model_id || 'all'}</> : null}
+                                                        {r.reason ? <> · “{r.reason}”</> : null}
+                                                    </div>
+                                                </li>
+                                            );
+                                        })}
+                                    </ol>
+                                )
+                ) : null}
             </Modal>
             <Modal open={!!toRemove} onOpenChange={(nextOpen) => { if (!nextOpen && !removing) setToRemove(null); }}
                 title="Delete this budget?"
