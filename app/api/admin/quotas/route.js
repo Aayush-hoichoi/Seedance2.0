@@ -13,6 +13,20 @@ export async function GET(request) {
     if (!auth.ok) return auth.response;
     const { sql } = auth.ctx;
     const url = new URL(request.url);
+    const rawHistoryFor = url.searchParams.get('historyFor');
+    if (rawHistoryFor != null) {
+        const quotaId = Number(rawHistoryFor);
+        if (!Number.isInteger(quotaId) || quotaId <= 0) {
+            return apiError('BAD_REQUEST', 'historyFor must be a positive integer.');
+        }
+        // Budget change history straight from the audit trail — every cap
+        // change already writes a row there, so nothing new is recorded.
+        const items = await sql`SELECT created_at, actor_id, actor_email, action, before, after, reason
+            FROM audit_log
+            WHERE target_type = 'quota' AND target_id = ${String(quotaId)}
+            ORDER BY created_at DESC LIMIT 100`;
+        return NextResponse.json({ items });
+    }
     const rawProjectId = url.searchParams.get('projectId');
     const projectId = rawProjectId == null ? null : Number(rawProjectId);
     if (rawProjectId != null && (!Number.isInteger(projectId) || projectId <= 0)) {
