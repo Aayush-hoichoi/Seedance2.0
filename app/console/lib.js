@@ -44,14 +44,13 @@ export function timeAgo(d) {
     return `${Math.floor(s / 86400)}d ago`;
 }
 
-export const monthStartIso = () => {
-    const n = new Date();
-    return new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), 1)).toISOString();
-};
-export const dayStartIso = () => {
-    const n = new Date();
-    return new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate())).toISOString();
-};
+// Console windows are IST days, matching the ledger's "Date (IST)" and the
+// usage rollup's day buckets. Instants stay Z-format ISO (a '+05:30' offset
+// inside a query string decodes as a space and breaks the timestamp).
+export const istDate = (d = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(d); // YYYY-MM-DD
+export const istInstant = (ymd, time = '00:00:00') => new Date(`${ymd}T${time}+05:30`).toISOString();
+export const monthStartIso = () => istInstant(`${istDate().slice(0, 7)}-01`);
+export const dayStartIso = () => istInstant(istDate());
 
 export const STATUS_TONE = {
     queued: 'amber', running: 'blue', succeeded: 'green',

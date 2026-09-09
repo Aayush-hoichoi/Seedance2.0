@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic';
 import { useState } from 'react';
 import { Card, StatCard, PageHeader, Badge, ProgressBar, EmptyState, DateRangePicker } from './ui.jsx';
-import { useApi, fmtUsd, fmtInt, monthStartIso, dayStartIso, timeAgo } from './lib.js';
+import { useApi, fmtUsd, fmtInt, istDate, istInstant, timeAgo } from './lib.js';
 import { buildUserSpendSeries } from './spendSeries.mjs';
 import { useEvents } from '../hooks/useEvents.js';
 import { BellRing } from 'lucide-react';
@@ -14,12 +14,12 @@ const SpendDonut = dynamic(() => import('./charts.jsx').then((m) => m.SpendDonut
 const TopBars = dynamic(() => import('./charts.jsx').then((m) => m.TopBars), { ssr: false });
 
 export default function DashboardClient() {
-    const today = dayStartIso();
-    // Date filter (YYYY-MM-DD): defaults to this month; `to` empty = up to now.
-    // The API's `to` is exclusive, so a picked end date sends end-of-day UTC.
-    const [from, setFrom] = useState(monthStartIso().slice(0, 10));
+    // Date filter (YYYY-MM-DD, IST days): defaults to this month; `to` empty =
+    // up to now. The API's `to` is exclusive, so a picked end date sends
+    // end-of-day IST.
+    const [from, setFrom] = useState(`${istDate().slice(0, 7)}-01`);
     const [to, setTo] = useState('');
-    const range = `from=${from}T00:00:00.000Z${to ? `&to=${to}T23:59:59.999Z` : ''}`;
+    const range = `from=${istInstant(from)}${to ? `&to=${istInstant(to, '23:59:59.999')}` : ''}`;
     const byDay = useApi(`/api/orgs/usage?group_by=day&${range}`);
     const byDayUser = useApi(`/api/orgs/usage?group_by=day_user&${range}`);
     const byModel = useApi(`/api/orgs/usage?group_by=model&${range}`);
@@ -42,7 +42,7 @@ export default function DashboardClient() {
         8, 'tasks',
     );
     const monthSpend = days.reduce((s, d) => s + Number(d.cost_usd || 0), 0);
-    const todayKey = today.slice(0, 10);
+    const todayKey = istDate();
     const todaySpend = Number(days.find((d) => d.key === todayKey)?.cost_usd || 0);
     const generations = days.reduce((s, d) => s + Number(d.generations || 0), 0);
     const failures = days.reduce((s, d) => s + Number(d.failures || 0), 0);
