@@ -7,7 +7,7 @@ import toast from 'react-hot-toast';
 import { PageHeader, Card, Badge, Button, Modal, Field, Input, Select, DataTable, ProgressBar, EmptyState, DateRangePicker, DateTimePicker } from '../../ui.jsx';
 import { useApi, sendJson, fmtUsd, fmtInt, fmtDate, monthStartIso } from '../../lib.js';
 import { supportedResolutionsFor } from '../../../../lib/seedance/constants.js';
-import { PauseCircle, Pencil, PlayCircle, Plus, ShieldBan, ShieldCheck, Trash2, Wallet } from 'lucide-react';
+import { History, PauseCircle, Pencil, PlayCircle, Plus, ShieldBan, ShieldCheck, Trash2, Wallet } from 'lucide-react';
 
 const SpendDonut = dynamic(() => import('../../charts.jsx').then((m) => m.SpendDonut), { ssr: false });
 const TopBars = dynamic(() => import('../../charts.jsx').then((m) => m.TopBars), { ssr: false });
@@ -20,6 +20,7 @@ const BUDGET_TYPES = [
 
 export default function ProjectDetailClient({ projectId }) {
     const [editingBudget, setEditingBudget] = useState(null);
+    const [historyQuota, setHistoryQuota] = useState(null);
     const [lifetimeRange, setLifetimeRange] = useState({ from: '', to: '' });
     const detail = useApi(`/api/projects/${projectId}`);
     const models = useApi(`/api/models?projectId=${projectId}`);
@@ -104,10 +105,16 @@ export default function ProjectDetailClient({ projectId }) {
                                     <div className="flex items-center gap-1.5">
                                         <Badge tone={q.policy === 'hard' ? 'red' : 'amber'}>{q.policy}{q.policy === 'soft' ? ` +${q.soft_overage_pct}%` : ''}</Badge>
                                         {isAdmin ? (
-                                            <Button variant="ghost" size="xs" title="Edit budget cap" aria-label="Edit budget cap"
-                                                onClick={() => setEditingBudget(q)}>
-                                                <Pencil size={13} />
-                                            </Button>
+                                            <>
+                                                <Button variant="ghost" size="xs" title="Change history" aria-label="Change history"
+                                                    onClick={() => setHistoryQuota(q)}>
+                                                    <History size={13} />
+                                                </Button>
+                                                <Button variant="ghost" size="xs" title="Edit budget cap" aria-label="Edit budget cap"
+                                                    onClick={() => setEditingBudget(q)}>
+                                                    <Pencil size={13} />
+                                                </Button>
+                                            </>
                                         ) : null}
                                     </div>
                                 </div>
@@ -155,6 +162,9 @@ export default function ProjectDetailClient({ projectId }) {
                                 quotas.mutate();
                             }}
                         />
+                    ) : null}
+                    {historyQuota ? (
+                        <BudgetTimelineModal quota={historyQuota} onClose={() => setHistoryQuota(null)} />
                     ) : null}
                 </Tabs.Content>
                 <Tabs.Content value="usage">
@@ -225,6 +235,46 @@ function BudgetCardValue({ label, value, hint }) {
             <div className="mt-1 truncate text-xs font-medium text-ink" title={value}>{value}</div>
             {hint ? <div className="mt-0.5 truncate text-[10px] text-ink-3" title={hint}>{hint}</div> : null}
         </div>
+    );
+}
+
+function BudgetTimelineModal({ quota, onClose }) {
+    const history = useApi(`/api/admin/quotas?historyFor=${quota.id}`);
+    const format = quota.type === 'usd' ? fmtUsd : fmtInt;
+    const LABELS = {
+        'quota.create': 'Created', 'quota.top_up': 'Topped up',
+        'quota.cap_changed': 'Cap changed', 'quota.rescope': 'Scope changed',
+        'quota.delete': 'Deleted',
+    };
+    return (
+        <Modal open onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }} title="Budget timeline"
+            footer={<Button variant="outline" onClick={onClose}>Close</Button>}>
+            {history.isLoading ? <div className="text-xs text-ink-3">Loading history…</div>
+                : history.error ? <div className="text-xs text-danger">Could not load history.</div>
+                    : !(history.data?.items ?? []).length
+                        ? <div className="text-xs text-ink-3">No recorded changes — history only covers changes made after change-logging was deployed.</div>
+                        : (
+                            <ol className="max-h-96 space-y-3 overflow-y-auto border-l border-line pl-4">
+                                {history.data.items.map((entry, index) => {
+                                    const prev = entry.before?.hard_limit;
+                                    const next = entry.after?.hard_limit;
+                                    return (
+                                        <li key={index} className="text-xs">
+                                            <div className="text-ink-3">{new Date(entry.created_at).toLocaleString()} · {entry.actor_email || entry.actor_id}</div>
+                                            <div className="text-ink-2">
+                                                <span className="font-medium text-ink">{LABELS[entry.action] || entry.action}</span>
+                                                {prev != null || next != null ? (
+                                                    <> · {prev != null ? format(prev) : '—'} → {next != null ? format(next) : 'removed'}</>
+                                                ) : null}
+                                                {entry.action === 'quota.rescope' ? <> · model scope: {entry.before?.model_id || 'all'} → {entry.after?.model_id || 'all'}</> : null}
+                                                {entry.reason ? <> · “{entry.reason}”</> : null}
+                                            </div>
+                                        </li>
+                                    );
+                                })}
+                            </ol>
+                        )}
+        </Modal>
     );
 }
 
