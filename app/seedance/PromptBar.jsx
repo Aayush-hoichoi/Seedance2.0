@@ -469,7 +469,7 @@ const BATCH_OPTIONS = [1, 2 /* , 4 — capped at ×2 for now; uncomment to bring
 export default function PromptBar({
     mode, onChangeMode, prompt, onPromptChange, options, setOpt,
     mediaByRole, setMediaByRole, models, allowedModelIds, projectId, resolutions, selectedModel, lock25 = null, tierCaps = {}, pendingTiers = {},
-    error, notice, noticeAction = null, setNotice, onClear = null, onGenerate, enhancing = false, batch = 1, setBatch,
+    error, notice, setNotice, onClear = null, onGenerate, enhancing = false, batch = 1, setBatch,
     onMediaError, onUploadFiles, tags, sidebarLeft = '', barRef,
     mediaType = 'video', onChangeMediaType, imageModels = [],
     imageStudio = false, onChangeImageModel,
@@ -789,9 +789,18 @@ export default function PromptBar({
                 {!error && notice && (
                     <div className="mx-1 px-3 py-1.5 rounded-lg bg-warn/10 border border-warn/20 text-[11px] text-warn flex items-center justify-between gap-3">
                         <span>{notice}</span>
-                        {noticeAction && (
-                            <button type="button" onClick={noticeAction.onClick} className="shrink-0 underline underline-offset-2 hover:no-underline">{noticeAction.label}</button>
-                        )}
+                        {/* Dismiss: takes the banner away and leaves the bar
+                            alone. Emptying the bar is Clear all's job, which
+                            confirms first — one destructive path, not two. */}
+                        <button
+                            type="button"
+                            onClick={() => setNotice?.(null)}
+                            aria-label="Dismiss"
+                            title="Dismiss"
+                            className="shrink-0 text-warn/60 transition-colors hover:text-warn"
+                        >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                        </button>
                     </div>
                 )}
 

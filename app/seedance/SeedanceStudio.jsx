@@ -26,6 +26,7 @@ import { loadJobs, saveJobs, newJob, loadPrompts, savePrompt, removePrompt } fro
 import { packSettings, unpackSettings, loadSettings, saveSettings } from '../../lib/seedance/settingsMemory.mjs';
 import { packDraft, mergeDraft, unpackDraft, loadDraft, saveDraft } from '../../lib/seedance/draftMemory.mjs';
 import { tosPresignExpired } from '../../lib/seedance/tosPresign.mjs';
+import { preferredProjectId, resolveProjectId, rememberProjectId } from '../../lib/seedance/projectChoice.mjs';
 import { archiveKeyForTask } from '../../lib/seedance/archiveKey.mjs';
 import { resolveFreshVideoUrl } from '../../lib/seedance/videoUrl.js';
 import { downloadAsset } from '../../lib/seedance/downloadAssets.js';
@@ -76,9 +77,9 @@ function validate(mode, prompt, mediaByRole, modelKind = null) {
     return null;
 }
 
-// The restored-draft banner. Compared by identity rather than tracked in its
-// own state: the "Clear" action shows only while THIS text is the notice, so
-// any other notice replacing it takes the button away with it.
+// The restored-draft banner. Dismissed with the × every notice carries; the bar
+// itself is emptied by Clear all, which confirms first — one destructive path,
+// not two, and dismissing the banner never costs the draft.
 const DRAFT_NOTICE = 'Restored your last draft — prompt and references are back.';
 
 // "No project's draft is loaded yet" — distinct from every real project id,
@@ -191,6 +192,11 @@ export default function SeedanceStudio() {
     // seeding the ref with it would let the very first save run before the
     // restore — wiping that user's stored draft with the empty mount state.
     const draftScopeRef = useRef(NO_DRAFT_SCOPE);
+    // The stored draft map, so the save path never re-parses megabytes of base64
+    // off localStorage on every debounce tick. `undefined` = not yet read.
+    const draftMapRef = useRef(undefined);
+    // The out-of-storage warning is said once, not on every keystroke after.
+    const draftSaveFailedRef = useRef(false);
     const controllersRef = useRef({}); // jobId -> AbortController (not persisted)
     const pendingRef = useRef(0);
 
@@ -274,13 +280,12 @@ export default function SeedanceStudio() {
                 setCanManageProjects(!!d?.canManageProjects);
                 if (Array.isArray(d?.items) && d.items.length) {
                     setProjects(d.items);
-                    // /projects deep-links with ?project=; that beats the stored last choice.
-                    const fromUrl = Number(new URLSearchParams(window.location.search).get('project')) || null;
-                    const wanted = [fromUrl, Number(localStorage.getItem('seedance:project')) || null]
-                        .find((id) => id && d.items.some((p) => p.id === id));
-                    const chosen = wanted ?? d.items[0].id;
+                    // ?project= beats the stored last choice, which beats the
+                    // first granted project — resolved in projectChoice.mjs so
+                    // the mount-time draft restore reaches the same answer.
+                    const chosen = resolveProjectId(d.items, window.location.search, localStorage);
                     setProjectId(chosen);
-                    try { localStorage.setItem('seedance:project', String(chosen)); } catch { /* private mode */ }
+                    rememberProjectId(chosen, localStorage);
                 }
                 setProjectsLoaded(true); // gate the history rail until the project is known
             })
@@ -459,7 +464,7 @@ export default function SeedanceStudio() {
         // would keep playing on the stage here).
         setSelectedId(null);
         autoSelectedRef.current = false;
-        try { localStorage.setItem('seedance:project', String(id)); } catch { /* private mode */ }
+        rememberProjectId(id, localStorage);
     };
 
     // One-time backfill: history created before project tagging has no
@@ -740,7 +745,8 @@ export default function SeedanceStudio() {
             // defaults and mis-slot every reference.
             const guess = guessProjectId();
             const target = MODES.find((m) => m.id === (s?.modeId ?? modeId)) || mode;
-            applyDraft(unpackDraft(loadDraft(), guess, {
+            draftMapRef.current = loadDraft();
+            applyDraft(unpackDraft(draftMapRef.current, guess, {
                 mode: target,
                 imageRefMax: imageRefMax(s?.options?.model ?? options.model),
             }));
@@ -1476,14 +1482,10 @@ export default function SeedanceStudio() {
     // prompt painting with the first frame and popping in a network round trip
     // later. The guess can still be wrong (a stored project since revoked); the
     // effect below reconciles when the real id lands.
-    const guessProjectId = () => {
-        try {
-            const fromUrl = Number(new URLSearchParams(window.location.search).get('project')) || null;
-            return fromUrl ?? (Number(localStorage.getItem('seedance:project')) || null);
-        } catch {
-            return null;
-        }
-    };
+    const guessProjectId = () => preferredProjectId(
+        typeof window === 'undefined' ? '' : window.location.search,
+        typeof window === 'undefined' ? null : window.localStorage,
+    );
 
     // A restored reference can be out of date in two ways, and only one of them
     // is recoverable:
@@ -1589,17 +1591,30 @@ export default function SeedanceStudio() {
         draftScopeRef.current = projectId;
     }, [settingsReady, projectsLoaded, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Save the draft shortly after each change. Debounced because a draft
-    // holding inline image references is megabytes of base64 — parsing and
-    // re-serialising that on every keystroke would visibly jank the input. The
-    // cost is the last few characters if the tab closes inside the window.
+    // Save the draft shortly after each change.
+    //
+    // Debounced because a draft holding inline image references is megabytes of
+    // base64 and serialising it per keystroke janks the input — and the stored
+    // map is held in a ref rather than re-read, because loadDraft() would
+    // JSON.parse those same megabytes back off localStorage on every tick,
+    // which is most of the cost the debounce was meant to remove. The ref is
+    // this tab's own writes plus what it read at mount; another tab's changes
+    // are not merged, which is the pre-existing behaviour of every other
+    // localStorage user here (jobs.js, settingsMemory).
     useEffect(() => {
         // Before the restore has run for THIS project, the bar still holds the
         // previous project's work — saving it here would attribute it wrongly.
         if (!settingsReady || draftScopeRef.current !== projectId) return undefined;
         const t = setTimeout(() => {
-            const entry = packDraft({ prompt, mediaByRole, imageRefs });
-            saveDraft(mergeDraft(loadDraft(), projectId, entry), projectId);
+            if (draftMapRef.current === undefined) draftMapRef.current = loadDraft();
+            const next = mergeDraft(draftMapRef.current, projectId, packDraft({ prompt, mediaByRole, imageRefs }));
+            draftMapRef.current = next;
+            // A draft that stops persisting looks exactly like one that is
+            // saving, so say it once rather than let the bar imply it is safe.
+            if (!saveDraft(next, projectId) && !draftSaveFailedRef.current) {
+                draftSaveFailedRef.current = true;
+                setNotice('This browser is out of storage — your prompt and references will not survive a reload.');
+            }
         }, DRAFT_SAVE_DELAY_MS);
         return () => clearTimeout(t);
     }, [settingsReady, projectId, prompt, mediaByRole, imageRefs]);
@@ -1997,7 +2012,6 @@ export default function SeedanceStudio() {
                 lock25={lock25}
                 error={error}
                 notice={notice}
-                noticeAction={notice === DRAFT_NOTICE ? { label: 'Clear', onClick: () => setConfirmClear(true) } : null}
                 onClear={hasBarContent ? () => setConfirmClear(true) : null}
                 setNotice={setNotice}
                 onGenerate={onGenerate}

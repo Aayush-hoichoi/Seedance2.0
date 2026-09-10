@@ -121,3 +121,45 @@ test('a null project id gets its own bucket rather than colliding', () => {
     assert.equal(unpackDraft(map, null, { mode: MODE }).prompt, 'no gateway');
     assert.equal(unpackDraft(map, 7, { mode: MODE }).prompt, 'seven');
 });
+
+// saveDraft's return value is what tells the studio whether to warn. Before it
+// reported failure, a browser that refused the write left the user typing into
+// a draft that would silently not survive the reload.
+
+const withStorage = (impl, run) => {
+    const had = 'window' in globalThis;
+    const prev = had ? globalThis.window : undefined;
+    globalThis.window = { localStorage: impl };
+    try { return run(); } finally {
+        if (had) globalThis.window = prev; else delete globalThis.window;
+    }
+};
+
+test('saveDraft reports success when the write lands', async () => {
+    const { saveDraft } = await import('../lib/seedance/draftMemory.mjs');
+    const written = {};
+    const ok = withStorage({ setItem: (k, v) => { written[k] = v; }, getItem: () => null },
+        () => saveDraft(mergeDraft(null, 7, packDraft({ prompt: 'p' })), 7));
+    assert.equal(ok, true);
+    assert.ok(Object.keys(written).length);
+});
+
+test('over quota once, it retries with only this project and still reports success', async () => {
+    const { saveDraft } = await import('../lib/seedance/draftMemory.mjs');
+    let calls = 0;
+    const ok = withStorage({
+        setItem: (k, v) => { calls += 1; if (calls === 1) throw new Error('QuotaExceededError'); return v; },
+        getItem: () => null,
+    }, () => saveDraft(mergeDraft(mergeDraft(null, 1, packDraft({ prompt: 'other' })), 7, packDraft({ prompt: 'mine' })), 7));
+    assert.equal(calls, 2);      // shrank and retried
+    assert.equal(ok, true);
+});
+
+test('over quota even alone, it reports FAILURE so the studio can warn', async () => {
+    const { saveDraft } = await import('../lib/seedance/draftMemory.mjs');
+    const ok = withStorage({
+        setItem: () => { throw new Error('QuotaExceededError'); },
+        getItem: () => null,
+    }, () => saveDraft(mergeDraft(null, 7, packDraft({ prompt: 'p' })), 7));
+    assert.equal(ok, false);
+});
