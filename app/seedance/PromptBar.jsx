@@ -469,7 +469,7 @@ const BATCH_OPTIONS = [1, 2 /* , 4 — capped at ×2 for now; uncomment to bring
 export default function PromptBar({
     mode, onChangeMode, prompt, onPromptChange, options, setOpt,
     mediaByRole, setMediaByRole, models, allowedModelIds, projectId, resolutions, selectedModel, lock25 = null, tierCaps = {}, pendingTiers = {},
-    error, notice, setNotice, onGenerate, enhancing = false, batch = 1, setBatch,
+    error, notice, noticeAction = null, setNotice, onGenerate, enhancing = false, batch = 1, setBatch,
     onMediaError, onUploadFiles, tags, sidebarLeft = '', barRef,
     mediaType = 'video', onChangeMediaType, imageModels = [],
     imageStudio = false, onChangeImageModel,
@@ -786,7 +786,12 @@ export default function PromptBar({
                     <div className="mx-1 px-3 py-1.5 rounded-lg bg-danger/10 border border-danger/20 text-[11px] text-danger">{friendlyError(error)}</div>
                 )}
                 {!error && notice && (
-                    <div className="mx-1 px-3 py-1.5 rounded-lg bg-warn/10 border border-warn/20 text-[11px] text-warn">{notice}</div>
+                    <div className="mx-1 px-3 py-1.5 rounded-lg bg-warn/10 border border-warn/20 text-[11px] text-warn flex items-center justify-between gap-3">
+                        <span>{notice}</span>
+                        {noticeAction && (
+                            <button type="button" onClick={noticeAction.onClick} className="shrink-0 underline underline-offset-2 hover:no-underline">{noticeAction.label}</button>
+                        )}
+                    </div>
                 )}
 
                 {/* controls (selectors left, toggles right) + generate (own row, right) */}

@@ -24,6 +24,7 @@ import { seedance25Constraints, editClipWarning } from '../../lib/seedance/const
 import { fitImageToLimits } from '../../lib/seedance/downscaleImage.js';
 import { loadJobs, saveJobs, newJob, loadPrompts, savePrompt, removePrompt } from '../../lib/seedance/jobs.js';
 import { packSettings, unpackSettings, loadSettings, saveSettings } from '../../lib/seedance/settingsMemory.mjs';
+import { packDraft, mergeDraft, unpackDraft, loadDraft, saveDraft } from '../../lib/seedance/draftMemory.mjs';
 import { archiveKeyForTask } from '../../lib/seedance/archiveKey.mjs';
 import { resolveFreshVideoUrl } from '../../lib/seedance/videoUrl.js';
 import { downloadAsset } from '../../lib/seedance/downloadAssets.js';
@@ -72,6 +73,17 @@ function validate(mode, prompt, mediaByRole, modelKind = null) {
     }
     return null;
 }
+
+// The restored-draft banner. Compared by identity rather than tracked in its
+// own state: the "Clear" action shows only while THIS text is the notice, so
+// any other notice replacing it takes the button away with it.
+const DRAFT_NOTICE = 'Restored your last draft — prompt and references are back.';
+
+// "No project's draft is loaded yet" — distinct from every real project id,
+// including the null one a workspace without gateway projects uses.
+const NO_DRAFT_SCOPE = Symbol('draft-scope');
+
+const DRAFT_SAVE_DELAY_MS = 400;
 
 const STATUS_TEXT = { submitting: 'Submitting…', waiting: 'Waiting for a free slot…', queued: 'Queued…', running: 'Rendering…' };
 const ACTIVE_STATUSES = ['submitting', 'waiting', 'queued', 'running'];
@@ -158,6 +170,18 @@ export default function SeedanceStudio() {
     // The remembered settings have been applied — until they are, saving would
     // overwrite the user's setup with this mount's defaults.
     const [settingsReady, setSettingsReady] = useState(false);
+    // A gallery "Reuse" handoff is the user explicitly choosing a setup, so it
+    // wins over the remembered draft — which must then not be restored on top
+    // of it once the project resolves.
+    const reusedRef = useRef(false);
+    // The project the live prompt/references belong to. Switching projects
+    // changes projectId before the new project's draft has been applied, and
+    // without this the save effect would fire in that gap and stamp the old
+    // project's prompt onto the new one. Starts at a sentinel rather than null:
+    // null IS a real project id here (a workspace with no gateway projects), and
+    // seeding the ref with it would let the very first save run before the
+    // restore — wiping that user's stored draft with the empty mount state.
+    const draftScopeRef = useRef(NO_DRAFT_SCOPE);
     const controllersRef = useRef({}); // jobId -> AbortController (not persisted)
     const pendingRef = useRef(0);
 
@@ -688,6 +712,7 @@ export default function SeedanceStudio() {
                 );
                 setNotice('Loaded from the gallery — tweak anything and hit Generate.');
                 reused = true;
+                reusedRef.current = true;
             }
         } catch { /* corrupt handoff — open the studio blank */ }
 
@@ -1387,11 +1412,12 @@ export default function SeedanceStudio() {
         imageStudioModelId: IMAGE_STUDIO_MODEL_ID,
     });
 
-    // Put the remembered settings back in the bar. Only the pills are touched:
-    // prompt and references are never stored, so a reload never re-attaches a
-    // file or refills a prompt. The access guards that run after this still get
-    // the last word — a model revoked while the tab was closed, or a tier now
-    // above the granted cap, falls back exactly as it does for any selection.
+    // Put the remembered settings back in the bar. Only the pills are touched —
+    // the prompt and the references ride in the separate per-project draft
+    // below, which is applied later, once the project is known. The access
+    // guards that run after this still get the last word: a model revoked while
+    // the tab was closed, or a tier now above the granted cap, falls back
+    // exactly as it does for any selection.
     const restoreSettings = () => {
         const s = unpackSettings(loadSettings(), settingsCatalog());
         if (!s) return;
@@ -1412,6 +1438,58 @@ export default function SeedanceStudio() {
         if (!settingsReady) return;
         saveSettings(packSettings({ modeId, mediaType, options }));
     }, [settingsReady, modeId, mediaType, options]);
+
+    /* ── draft memory: the prompt + its references, per project ─────────── */
+
+    // Restore the draft once the project is known — it is keyed by project, and
+    // projectId only lands after /api/projects answers. Runs again on every
+    // project SWITCH, so the bar always shows the draft belonging to the
+    // project on screen (and empties when that project has none), rather than
+    // carrying a prompt across a boundary that scopes assets and budgets.
+    //
+    // Deliberately not depending on `mode` / `options.model`: this is a restore,
+    // not a subscription. Changing the mode afterwards must not re-apply it.
+    useEffect(() => {
+        if (!settingsReady || !projectsLoaded) return;
+        // A gallery handoff already filled the bar — don't overwrite it. It
+        // belongs to this project from here on, so let it save normally.
+        if (reusedRef.current) {
+            reusedRef.current = false;
+            draftScopeRef.current = projectId;
+            return;
+        }
+        const d = unpackDraft(loadDraft(), projectId, { mode, imageRefMax: imageRefMax(options.model) });
+        setPrompt(d?.prompt ?? '');
+        setMediaByRole(d?.mediaByRole ?? {});
+        setImageRefs(d?.imageRefs ?? []);
+        if (d) setNotice(DRAFT_NOTICE);
+        // Only now do the live prompt/refs belong to this project.
+        draftScopeRef.current = projectId;
+    }, [settingsReady, projectsLoaded, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Save the draft shortly after each change. Debounced because a draft
+    // holding inline image references is megabytes of base64 — parsing and
+    // re-serialising that on every keystroke would visibly jank the input. The
+    // cost is the last few characters if the tab closes inside the window.
+    useEffect(() => {
+        // Before the restore has run for THIS project, the bar still holds the
+        // previous project's work — saving it here would attribute it wrongly.
+        if (!settingsReady || draftScopeRef.current !== projectId) return undefined;
+        const t = setTimeout(() => {
+            const entry = packDraft({ prompt, mediaByRole, imageRefs });
+            saveDraft(mergeDraft(loadDraft(), projectId, entry), projectId);
+        }, DRAFT_SAVE_DELAY_MS);
+        return () => clearTimeout(t);
+    }, [settingsReady, projectId, prompt, mediaByRole, imageRefs]);
+
+    // "Clear" on the restored-draft notice: empty the bar. The save effect
+    // above then drops the stored entry, so the next reload opens blank.
+    const clearDraft = () => {
+        setPrompt('');
+        setMediaByRole({});
+        setImageRefs([]);
+        setNotice(null);
+    };
 
     // "Reuse" on a history card: load that generation's reference assets AND
     // its prompt back into the prompt bar — restoring the mode it was made in,
@@ -1764,6 +1842,7 @@ export default function SeedanceStudio() {
                 lock25={lock25}
                 error={error}
                 notice={notice}
+                noticeAction={notice === DRAFT_NOTICE ? { label: 'Clear', onClick: clearDraft } : null}
                 setNotice={setNotice}
                 onGenerate={onGenerate}
                 enhancing={enhancing}
