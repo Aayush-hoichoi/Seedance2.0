@@ -1603,8 +1603,16 @@ export default function SeedanceStudio() {
         return () => clearTimeout(t);
     }, [settingsReady, projectId, prompt, mediaByRole, imageRefs]);
 
-    // "Clear" on the restored-draft notice: empty the bar. The save effect
-    // above then drops the stored entry, so the next reload opens blank.
+    // Is there anything in the bar to clear? Gates the Clear button, so an
+    // already-empty bar doesn't carry a control that would do nothing.
+    const hasBarContent = !!prompt.trim()
+        || imageRefs.length > 0
+        || Object.values(mediaByRole).some((items) => items?.length);
+
+    // Empty the bar — from the Clear button, or from the restored-draft notice.
+    // The save effect above then drops the stored entry, so the next reload
+    // opens blank. No confirm: this matches the per-thumbnail × and a mode
+    // switch, which both discard references without asking.
     const clearDraft = () => {
         setPrompt('');
         setMediaByRole({});
@@ -1964,6 +1972,7 @@ export default function SeedanceStudio() {
                 error={error}
                 notice={notice}
                 noticeAction={notice === DRAFT_NOTICE ? { label: 'Clear', onClick: clearDraft } : null}
+                onClear={hasBarContent ? clearDraft : null}
                 setNotice={setNotice}
                 onGenerate={onGenerate}
                 enhancing={enhancing}

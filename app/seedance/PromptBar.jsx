@@ -469,7 +469,7 @@ const BATCH_OPTIONS = [1, 2 /* , 4 — capped at ×2 for now; uncomment to bring
 export default function PromptBar({
     mode, onChangeMode, prompt, onPromptChange, options, setOpt,
     mediaByRole, setMediaByRole, models, allowedModelIds, projectId, resolutions, selectedModel, lock25 = null, tierCaps = {}, pendingTiers = {},
-    error, notice, noticeAction = null, setNotice, onGenerate, enhancing = false, batch = 1, setBatch,
+    error, notice, noticeAction = null, setNotice, onClear = null, onGenerate, enhancing = false, batch = 1, setBatch,
     onMediaError, onUploadFiles, tags, sidebarLeft = '', barRef,
     mediaType = 'video', onChangeMediaType, imageModels = [],
     imageStudio = false, onChangeImageModel,
@@ -779,6 +779,16 @@ export default function PromptBar({
                             className="relative block w-full bg-transparent border-none text-transparent caret-white text-sm placeholder:text-white/40 focus:outline-none resize-y pt-2 leading-relaxed min-h-[40px] max-h-[60vh] overflow-y-auto custom-scrollbar [scrollbar-gutter:stable]"
                         />
                     </div>
+                    {onClear && (
+                        <button
+                            type="button"
+                            onClick={onClear}
+                            title="Clear the prompt and every attached reference"
+                            className="mt-1.5 shrink-0 rounded-md px-2 py-1 text-[11px] text-white/40 hover:text-white hover:bg-white/[0.06] transition-colors"
+                        >
+                            Clear
+                        </button>
+                    )}
                 </div>
 
                 {/* error (red) / notice (amber) — descriptive hint line was removed to declutter the bar */}
