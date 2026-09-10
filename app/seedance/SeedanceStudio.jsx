@@ -26,7 +26,7 @@ import { loadJobs, saveJobs, newJob, loadPrompts, savePrompt, removePrompt } fro
 import { packSettings, unpackSettings, loadSettings, saveSettings } from '../../lib/seedance/settingsMemory.mjs';
 import { packDraft, mergeDraft, unpackDraft, loadDraft, saveDraft } from '../../lib/seedance/draftMemory.mjs';
 import { tosPresignExpired } from '../../lib/seedance/tosPresign.mjs';
-import { preferredProjectId, resolveProjectId, rememberProjectId } from '../../lib/seedance/projectChoice.mjs';
+import { preferredProjectId, resolveProjectId, rememberProjectId, syncProjectParam } from '../../lib/seedance/projectChoice.mjs';
 import { archiveKeyForTask } from '../../lib/seedance/archiveKey.mjs';
 import { resolveFreshVideoUrl } from '../../lib/seedance/videoUrl.js';
 import { downloadAsset } from '../../lib/seedance/downloadAssets.js';
@@ -465,6 +465,10 @@ export default function SeedanceStudio() {
         setSelectedId(null);
         autoSelectedRef.current = false;
         rememberProjectId(id, localStorage);
+        // /projects opens /seedance?project=N. Without this the param outlives
+        // the choice it described and every later reload reads it and drags the
+        // user back to N, whatever they picked here.
+        syncProjectParam(id, window.location, window.history);
     };
 
     // One-time backfill: history created before project tagging has no
