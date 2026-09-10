@@ -11,7 +11,7 @@ import { sanitizeOptions } from '../../lib/seedance/options.mjs';
 import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js';
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
 import { buildTags, modeSupportsTags, normalizePromptForApi, restorePromptTokens, tagToken, validatePromptReferences } from '../../lib/seedance/tags.js';
-import { getAsset, resolveMediaRefs, cleanupOldAssets, registerAssetFromUrl } from '../../lib/seedance/assetsClient.js';
+import { getAsset, isAssetGone, resolveMediaRefs, cleanupOldAssets, registerAssetFromUrl } from '../../lib/seedance/assetsClient.js';
 import { useEvents } from '../hooks/useEvents.js';
 import { enhancePrompt } from '../../lib/seedance/enhance.js';
 import { friendlyError } from '../../lib/seedance/friendlyError.js';
@@ -1484,26 +1484,69 @@ export default function SeedanceStudio() {
         }
     };
 
-    // A stored reference keeps the presigned URL it was uploaded with, and
-    // those signatures last 12h — a draft picked up the next morning would show
-    // broken thumbnails. The object behind them is permanent, so re-presign
-    // from tosKey (local HMAC on the server, no TOS round-trip). Submit has its
-    // own guard in rehydrateStaleAssetRefs; this one is so the bar LOOKS right.
-    const refreshExpiredRefs = async (byRole) => {
-        const stale = Object.values(byRole || {}).flat().filter((m) => m?.tosKey && tosPresignExpired(m.url));
-        if (!stale.length) return;
+    // A restored reference can be out of date in two ways, and only one of them
+    // is recoverable:
+    //
+    //  • an UPLOADED ref (has a tosKey) whose 12h presign aged out. The object
+    //    behind it is permanent, so re-presign and carry on. Submit re-presigns
+    //    too (rehydrateStaleAssetRefs) — this pass is so the bar LOOKS right,
+    //    not just submits right.
+    //
+    //  • a LIBRARY PICK (asset://, no tosKey) that has since left the library:
+    //    swept out of a studio group by the 1h cleanup, or deleted by hand from
+    //    the shared BytePlus pool, which caps out around 50 entries and is
+    //    account-wide. Nothing can re-source it — there is no tosKey to
+    //    re-presign from — so drop it HERE, where we can say so, instead of
+    //    letting ModelArk fail the generation with "asset ... is not found"
+    //    after the user has already hit Generate.
+    //
+    // Drafts themselves never hold an asset alive: they store strings, and the
+    // sweep deletes by createdAt without consulting anything that references it.
+    const reconcileRestoredRefs = async (byRole) => {
+        const all = Object.values(byRole || {}).flat();
+        const expired = all.filter((m) => m?.tosKey && tosPresignExpired(m.url));
+        const unbacked = all.filter((m) => !m?.tosKey && m?.assetId && typeof m.url === 'string' && m.url.startsWith('asset://'));
+        if (!expired.length && !unbacked.length) return;
+
         const fresh = new Map();
-        await Promise.all(stale.map(async (m) => {
-            try {
-                const r = await fetch(`/api/byteplus/archive?key=${encodeURIComponent(m.tosKey)}`);
-                const d = r.ok ? await r.json() : null;
-                if (d?.url) fresh.set(m.tosKey, d.url);
-            } catch { /* keep the stale url — submit re-presigns again anyway */ }
-        }));
-        if (!fresh.size) return;
-        setMediaByRole((prev) => Object.fromEntries(Object.entries(prev).map(([role, items]) => [
-            role, items.map((m) => (fresh.has(m.tosKey) ? { ...m, url: fresh.get(m.tosKey) } : m)),
-        ])));
+        const dead = new Set();
+        await Promise.all([
+            ...expired.map(async (m) => {
+                try {
+                    const r = await fetch(`/api/byteplus/archive?key=${encodeURIComponent(m.tosKey)}`);
+                    const d = r.ok ? await r.json() : null;
+                    if (d?.url) fresh.set(m.tosKey, d.url);
+                } catch { /* keep the stale url — submit re-presigns again anyway */ }
+            }),
+            ...unbacked.map(async (m) => {
+                try {
+                    // 'Failed' is terminal; a transient state (still verifying)
+                    // is not, and must not cost the user their reference.
+                    const a = await getAsset(m.assetId);
+                    if (a?.status === 'Failed') dead.add(m.assetId);
+                } catch (e) {
+                    // The lookup THROWS both for a deleted id and for a
+                    // throttle or an outage. Only the first is proof of death.
+                    if (isAssetGone(e?.message || '')) dead.add(m.assetId);
+                }
+            }),
+        ]);
+        if (!fresh.size && !dead.size) return;
+
+        setMediaByRole((prev) => Object.fromEntries(
+            Object.entries(prev)
+                .map(([role, items]) => [
+                    role,
+                    items.filter((m) => !dead.has(m.assetId))
+                        .map((m) => (m.tosKey && fresh.has(m.tosKey) ? { ...m, url: fresh.get(m.tosKey) } : m)),
+                ])
+                .filter(([, items]) => items.length),
+        ));
+        if (dead.size) {
+            setNotice(dead.size > 1
+                ? `${dead.size} references are no longer in your asset library — re-attach them before generating.`
+                : 'One reference is no longer in your asset library — re-attach it before generating.');
+        }
     };
 
     // Put a restored draft in the bar. Null empties it — and takes the restored
@@ -1514,7 +1557,9 @@ export default function SeedanceStudio() {
         setImageRefs(d?.imageRefs ?? []);
         if (d) {
             setNotice(DRAFT_NOTICE);
-            refreshExpiredRefs(d.mediaByRole);
+            // Async: it may replace the banner above with a "reference is gone"
+            // warning, which is the more useful thing to be looking at.
+            reconcileRestoredRefs(d.mediaByRole);
         } else {
             setNotice((n) => (n === DRAFT_NOTICE ? null : n));
         }
