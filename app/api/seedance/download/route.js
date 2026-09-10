@@ -2,6 +2,7 @@ import { Readable } from 'node:stream';
 import { NextResponse } from 'next/server';
 import { zipStream } from '../../../../lib/seedance/zip.mjs';
 import { safeName } from '../../../../lib/seedance/downloadName.mjs';
+import { ensureH264 } from '../../../../lib/seedance/ensureH264.mjs';
 import { getUser } from '../../../../lib/auth/user.js';
 import { getDb } from '../../../../lib/db/neon.js';
 import { recordGenerationEvent } from '../../../../lib/access/db.js';
@@ -93,17 +94,16 @@ export async function POST(request) {
 
     await logDownloads(items);
 
-    // Single asset → stream the raw file straight through (no zip overhead).
+    // Single asset → buffer it (so the codec can be fixed) and send it back.
     if (items.length === 1) {
-        const res = await fetch(items[0].url).catch(() => null);
-        if (!res || !res.ok || !res.body) {
+        const buf = await fetchAsset(items[0].url);
+        if (!buf) {
             return bad('Could not download the file — the link may have expired.', 502);
         }
-        return new Response(res.body, {
+        const data = await ensureH264(buf, items[0].name);
+        return new Response(data, {
             headers: {
-                // Mirror what the origin served (image/png, video/mp4, …) rather than
-                // asserting a type; the attachment disposition is what forces the save.
-                'Content-Type': res.headers.get('content-type') || 'application/octet-stream',
+                'Content-Type': contentTypeFor(items[0].name),
                 'Content-Disposition': contentDisposition(items[0].name),
                 'Cache-Control': 'no-store',
             },
@@ -114,7 +114,7 @@ export async function POST(request) {
     async function* entries() {
         for (const it of items) {
             const data = await fetchAsset(it.url);
-            if (data) yield { name: it.name, data };
+            if (data) yield { name: it.name, data: await ensureH264(data, it.name) };
         }
     }
     const nodeStream = Readable.from(zipStream(entries()));
@@ -125,6 +125,12 @@ export async function POST(request) {
             'Cache-Control': 'no-store',
         },
     });
+}
+
+const TYPES = { mp4: 'video/mp4', mov: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
+function contentTypeFor(name) {
+    const ext = /\.(\w+)$/.exec(name || '')?.[1]?.toLowerCase();
+    return TYPES[ext] || 'application/octet-stream';
 }
 
 // RFC 5987 / 6266 Content-Disposition with both a plain and a UTF-8 filename,
