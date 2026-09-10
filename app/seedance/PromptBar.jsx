@@ -731,6 +731,7 @@ export default function PromptBar({
                     )}
                     {!isImage && <MediaButtons mode={mode} mediaByRole={mediaByRole} setMediaByRole={setMediaByRole} onUploadFiles={onUploadFiles} tags={allTags} />}
                     {isImage && <ImageRefUploader refs={imageRefs} onUpload={onUploadImageRefs} onRemove={removeImageRef} onReorder={reorderImageRefs} maxRefs={imageRefMax(options.model)} />}
+
                     {/* Chip-rendered prompt: a backdrop paints the text (tokens as
                         cyan chips) behind a transparent-text textarea, so editing
                         mechanics stay native while @Image1 reads as a pill. */}
@@ -779,16 +780,6 @@ export default function PromptBar({
                             className="relative block w-full bg-transparent border-none text-transparent caret-white text-sm placeholder:text-white/40 focus:outline-none resize-y pt-2 leading-relaxed min-h-[40px] max-h-[60vh] overflow-y-auto custom-scrollbar [scrollbar-gutter:stable]"
                         />
                     </div>
-                    {onClear && (
-                        <button
-                            type="button"
-                            onClick={onClear}
-                            title="Clear the prompt and every attached reference"
-                            className="mt-1.5 shrink-0 rounded-md px-2 py-1 text-[11px] text-white/40 hover:text-white hover:bg-white/[0.06] transition-colors"
-                        >
-                            Clear
-                        </button>
-                    )}
                 </div>
 
                 {/* error (red) / notice (amber) — descriptive hint line was removed to declutter the bar */}
@@ -971,6 +962,23 @@ export default function PromptBar({
                     )}
 
                     <div className="flex flex-wrap items-center justify-end gap-2">
+                        {/* Clear the whole bar — prompt and every reference. Lives
+                            in the empty left of this row (mr-auto), well away from
+                            both the + that ADDS references and the Generate it must
+                            never be fat-fingered for. Rendered only when there is
+                            something to clear, so an empty bar carries no control
+                            that would do nothing. */}
+                        {onClear && (
+                            <button
+                                type="button"
+                                onClick={onClear}
+                                title="Clear the prompt and all references"
+                                className="mr-auto shrink-0 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold text-white/35 transition-colors hover:bg-danger/10 hover:text-danger"
+                            >
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6" /></svg>
+                                Clear all
+                            </button>
+                        )}
                         {/* Cost transparency: the same estimate the gateway reserves against. */}
                         {(() => {
                             const est = isImage

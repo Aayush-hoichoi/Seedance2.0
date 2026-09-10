@@ -37,6 +37,7 @@ import BudgetRemaining from './BudgetRemaining.jsx';
 import MySpend from './MySpend.jsx';
 import BudgetRequestModal from './BudgetRequestModal.jsx';
 import IssueReportModal from './IssueReportModal.jsx';
+import ConfirmDialog from '../../components/ConfirmDialog.jsx';
 import Link from 'next/link';
 import { ArrowLeft, Bug, ShieldCheck, WalletCards } from 'lucide-react';
 import AssetsPanel from './AssetsPanel.jsx';
@@ -1609,15 +1610,31 @@ export default function SeedanceStudio() {
         || imageRefs.length > 0
         || Object.values(mediaByRole).some((items) => items?.length);
 
-    // Empty the bar — from the Clear button, or from the restored-draft notice.
-    // The save effect above then drops the stored entry, so the next reload
-    // opens blank. No confirm: this matches the per-thumbnail × and a mode
-    // switch, which both discard references without asking.
+    // Clearing throws away uploads that took time to make, and the button sits
+    // in the same row as Generate — so it asks first. The per-thumbnail × stays
+    // unconfirmed: that drops ONE reference you are already pointing at.
+    const [confirmClear, setConfirmClear] = useState(false);
+
+    // What Clear all is about to discard, said plainly in the dialog rather than
+    // a generic "are you sure" the user has to translate.
+    const clearSummary = () => {
+        const refCount = imageRefs.length
+            + Object.values(mediaByRole).reduce((t, items) => t + (items?.length || 0), 0);
+        const parts = [];
+        if (prompt.trim()) parts.push('your prompt');
+        if (refCount) parts.push(`${refCount} reference${refCount === 1 ? '' : 's'}`);
+        return parts.join(' and ');
+    };
+
+    // Empty the bar — from Clear all, or from the restored-draft notice. The
+    // save effect above then drops the stored entry, so the next reload opens
+    // blank.
     const clearDraft = () => {
         setPrompt('');
         setMediaByRole({});
         setImageRefs([]);
         setNotice(null);
+        setConfirmClear(false);
     };
 
     // "Reuse" on a history card: load that generation's reference assets AND
@@ -1890,6 +1907,15 @@ export default function SeedanceStudio() {
                 </div>
             </div>
 
+            <ConfirmDialog
+                open={confirmClear}
+                onOpenChange={setConfirmClear}
+                title="Clear the prompt bar?"
+                description={`This discards ${clearSummary() || 'everything in the bar'}. Uploaded references have to be attached again.`}
+                confirmLabel="Clear all"
+                onConfirm={clearDraft}
+            />
+
             {budgetRequestOpen && projectId ? (
                 <BudgetRequestModal
                     projectId={projectId}
@@ -1971,8 +1997,8 @@ export default function SeedanceStudio() {
                 lock25={lock25}
                 error={error}
                 notice={notice}
-                noticeAction={notice === DRAFT_NOTICE ? { label: 'Clear', onClick: clearDraft } : null}
-                onClear={hasBarContent ? clearDraft : null}
+                noticeAction={notice === DRAFT_NOTICE ? { label: 'Clear', onClick: () => setConfirmClear(true) } : null}
+                onClear={hasBarContent ? () => setConfirmClear(true) : null}
                 setNotice={setNotice}
                 onGenerate={onGenerate}
                 enhancing={enhancing}
