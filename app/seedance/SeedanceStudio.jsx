@@ -1209,6 +1209,9 @@ export default function SeedanceStudio() {
                         imageCount: 1,
                         aspectRatio: options.imageRatio || null,
                         imageSize: imgModelDef?.resolutions ? (options.imageResolution || null) : null,
+                        // ChatGPT Image 2.5 only (models declaring variants/qualities).
+                        variant: imgModelDef?.variants ? (options.imageVariant || null) : null,
+                        quality: imgModelDef?.qualities ? (options.imageQuality || null) : null,
                     },
                 }),
             });

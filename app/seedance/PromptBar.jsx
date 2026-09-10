@@ -507,9 +507,6 @@ export default function PromptBar({
         { value: 'extend', label: 'Extend', disabled: !hasVideoRefAttached, disabledTitle: 'Attach a reference video first.' },
     ];
     const selectedImageModel = imageModels.find((m) => m.id === options.model);
-    // The image picker has three entries: the two real models plus Cinematic
-    // Studio (Nano Banana Pro under the hood). Studio's picker value is distinct
-    // so it can be the active choice even though the model sent is Pro.
     // A model name followed by a small lock glyph — the locked-picker label.
     const withLock = (name) => (
         <span className="inline-flex items-center gap-1.5">{name}<Lock size={11} className="text-white/45" /></span>
@@ -526,13 +523,12 @@ export default function PromptBar({
         const name = imageModels.find((m) => m.id === id)?.name || fallback;
         return imgLocked(id) ? withLock(name) : name;
     };
-    const imageModeOptions = [
-        { value: 'nano-banana-pro', label: lockName('nano-banana-pro', 'Nano Banana Pro') },
-        { value: 'nano-banana-2', label: lockName('nano-banana-2', 'Nano Banana 2') },
-        { value: 'seedream-5.0-pro', label: lockName('seedream-5.0-pro', 'Seedream 5.0 Pro') },
-        { value: 'chatgpt-image-2', label: lockName('chatgpt-image-2', 'ChatGPT Image 2') },
-        { value: IMAGE_STUDIO_ID, label: lockName(IMAGE_STUDIO_ID, 'Cinematic Studio') },
-    ];
+    // Derived from the catalog, not hand-listed: this list used to be hardcoded,
+    // so a model added to IMAGE_MODELS seeded cleanly, priced, reported as
+    // allowed — and never appeared in the picker, with no error anywhere.
+    // Cinematic Studio rides along as its own IMAGE_MODELS entry (id ===
+    // IMAGE_STUDIO_ID), gated like any other.
+    const imageModeOptions = imageModels.map((m) => ({ value: m.id, label: lockName(m.id, m.name) }));
     const imageModeValue = imageStudio ? IMAGE_STUDIO_ID : options.model;
     const imageModeLabel = imageStudio ? 'Cinematic Studio' : (selectedImageModel?.name || 'Model');
     // Fire an access request for a locked model (shared by the video + image
@@ -873,6 +869,29 @@ export default function PromptBar({
                             />
                             );
                         })()}
+                        {selectedImageModel?.variants && (
+                            <PillSelect
+                                id="ivar" openKey={openKey} setOpenKey={setOpenKey}
+                                display={options.imageVariant === 'sunburst' ? 'Sunburst' : 'Flare'}
+                                label="Engine" value={options.imageVariant || 'flare'}
+                                options={[
+                                    { value: 'flare', label: 'Flare — fast, everyday' },
+                                    { value: 'sunburst', label: 'Sunburst — premium edits, slower' },
+                                ]}
+                                onSelect={(v) => setOpt('imageVariant', v)}
+                            />
+                        )}
+                        {selectedImageModel?.qualities && (
+                            <PillSelect
+                                id="iqual" openKey={openKey} setOpenKey={setOpenKey}
+                                display={(options.imageQuality || 'medium').replace(/^./, (c) => c.toUpperCase())}
+                                label="Quality" value={options.imageQuality || 'medium'}
+                                options={selectedImageModel.qualities.map((q) => ({
+                                    value: q, label: q.replace(/^./, (c) => c.toUpperCase()),
+                                }))}
+                                onSelect={(v) => setOpt('imageQuality', v)}
+                            />
+                        )}
                         <span className="hidden sm:inline text-[11px] text-white/35">Batch queue · the image lands in your history</span>
                     </div>
                     ) : (
@@ -991,7 +1010,9 @@ export default function PromptBar({
                         {/* Cost transparency: the same estimate the gateway reserves against. */}
                         {(() => {
                             const est = isImage
-                                ? imageCost(selectedImageModel?.kind, 'interactive', 1, selectedImageModel?.resolutions ? options.imageResolution || null : null)
+                                ? imageCost(selectedImageModel?.kind, 'interactive', 1,
+                                    selectedImageModel?.resolutions ? options.imageResolution || null : null,
+                                    selectedImageModel?.qualities ? options.imageQuality || null : null)
                                 : estimateCost({ kind: selectedModel?.kind, resolution: options.resolution, duration: options.duration, hasVideoInput: hasVideoRefAttached });
                             return est != null ? (
                                 <span className="hidden sm:inline text-[11px] font-semibold tabular-nums text-white/35 pr-1" title="Estimated cost (final cost uses real token usage)">
