@@ -76,6 +76,7 @@ export default function BudgetsClient() {
                         <div className="grid gap-3 lg:grid-cols-2">
                             {items.map((q) => {
                                 const projected = Number(q.used) + Number(q.reserved || 0);
+                                const overBy = projected - Number(q.hard_limit);
                                 return (
                                     <Card key={q.id}>
                                         <div className="mb-1 flex items-center justify-between">
@@ -94,9 +95,16 @@ export default function BudgetsClient() {
                                         </div>
                                         <div className="mb-2 text-xs text-ink-3">
                                             {q.type} · {q.window} · alerts at {(q.alert_thresholds || []).join('/')}% ·
-                                            {' '}{fmt(q, q.used)} used{Number(q.reserved) > 0 ? ` + ${fmt(q, q.reserved)} in flight` : ''} of {fmt(q, q.hard_limit)}
+                                            {' '}<span className={overBy > 0 ? 'font-medium text-danger' : undefined}>{fmt(q, q.used)} used</span>{Number(q.reserved) > 0 ? ` + ${fmt(q, q.reserved)} in flight` : ''} of {fmt(q, q.hard_limit)}
                                         </div>
                                         <ProgressBar value={projected} max={Number(q.hard_limit)} />
+                                        {overBy > 0 && (
+                                            <div className="mt-1 text-xs text-danger">
+                                                {q.policy === 'soft'
+                                                    ? `Over cap by ${fmt(q, overBy)} — within this budget's +${q.soft_overage_pct}% soft allowance.`
+                                                    : `Over by ${fmt(q, overBy)} — the final provider cost came in above the pre-run estimate. New requests are blocked until this budget is topped up.`}
+                                            </div>
+                                        )}
                                     </Card>
                                 );
                             })}
