@@ -11,7 +11,7 @@ import { sanitizeOptions } from '../../lib/seedance/options.mjs';
 import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js';
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
 import { buildTags, modeSupportsTags, normalizePromptForApi, restorePromptTokens, tagToken, validatePromptReferences } from '../../lib/seedance/tags.js';
-import { getAsset, resolveMediaRefs, cleanupOldAssets, registerAssetFromUrl } from '../../lib/seedance/assetsClient.js';
+import { getAsset, isAssetGone, resolveMediaRefs, cleanupOldAssets, registerAssetFromUrl } from '../../lib/seedance/assetsClient.js';
 import { useEvents } from '../hooks/useEvents.js';
 import { enhancePrompt } from '../../lib/seedance/enhance.js';
 import { friendlyError } from '../../lib/seedance/friendlyError.js';
@@ -24,6 +24,9 @@ import { seedance25Constraints, editClipWarning } from '../../lib/seedance/const
 import { fitImageToLimits } from '../../lib/seedance/downscaleImage.js';
 import { loadJobs, saveJobs, newJob, loadPrompts, savePrompt, removePrompt } from '../../lib/seedance/jobs.js';
 import { packSettings, unpackSettings, loadSettings, saveSettings } from '../../lib/seedance/settingsMemory.mjs';
+import { packDraft, mergeDraft, unpackDraft, loadDraft, saveDraft } from '../../lib/seedance/draftMemory.mjs';
+import { tosPresignExpired } from '../../lib/seedance/tosPresign.mjs';
+import { preferredProjectId, resolveProjectId, rememberProjectId } from '../../lib/seedance/projectChoice.mjs';
 import { archiveKeyForTask } from '../../lib/seedance/archiveKey.mjs';
 import { resolveFreshVideoUrl } from '../../lib/seedance/videoUrl.js';
 import { downloadAsset } from '../../lib/seedance/downloadAssets.js';
@@ -35,6 +38,7 @@ import BudgetRemaining from './BudgetRemaining.jsx';
 import MySpend from './MySpend.jsx';
 import BudgetRequestModal from './BudgetRequestModal.jsx';
 import IssueReportModal from './IssueReportModal.jsx';
+import ConfirmDialog from '../../components/ConfirmDialog.jsx';
 import Link from 'next/link';
 import { ArrowLeft, Bug, ShieldCheck, WalletCards } from 'lucide-react';
 import AssetsPanel from './AssetsPanel.jsx';
@@ -73,6 +77,17 @@ function validate(mode, prompt, mediaByRole, modelKind = null) {
     return null;
 }
 
+// The restored-draft banner. Dismissed with the × every notice carries; the bar
+// itself is emptied by Clear all, which confirms first — one destructive path,
+// not two, and dismissing the banner never costs the draft.
+const DRAFT_NOTICE = 'Restored your last draft — prompt and references are back.';
+
+// "No project's draft is loaded yet" — distinct from every real project id,
+// including the null one a workspace without gateway projects uses.
+const NO_DRAFT_SCOPE = Symbol('draft-scope');
+
+const DRAFT_SAVE_DELAY_MS = 400;
+
 const STATUS_TEXT = { submitting: 'Submitting…', waiting: 'Waiting for a free slot…', queued: 'Queued…', running: 'Rendering…' };
 const ACTIVE_STATUSES = ['submitting', 'waiting', 'queued', 'running'];
 
@@ -104,7 +119,14 @@ const RATE_LIMIT_RE = /rate.?limit|quota|too many|429|concurren|throttl/i;
 // auto-deleted) and pass through untouched. Returns a NEW array.
 async function rehydrateStaleAssetRefs(items) {
     return Promise.all(items.map(async (m) => {
-        if (typeof m?.url !== 'string' || !m.url.startsWith('asset://') || !m.tosKey) return m;
+        // No key, nothing to re-source from.
+        if (typeof m?.url !== 'string' || !m.tosKey) return m;
+        // Two ways a ref goes dead: the asset:// id was swept, or the presigned
+        // https URL aged out. Both re-source from the same durable tosKey — and
+        // the second case reaches every caller (draft restore, history Reuse,
+        // gallery Reuse), which previously sent an expired signature to ModelArk
+        // and failed the generation, not just the thumbnail.
+        if (!m.url.startsWith('asset://') && !tosPresignExpired(m.url)) return m;
         try {
             const res = await fetch(`/api/byteplus/archive?key=${encodeURIComponent(m.tosKey)}`);
             const d = res.ok ? await res.json() : null;
@@ -158,6 +180,23 @@ export default function SeedanceStudio() {
     // The remembered settings have been applied — until they are, saving would
     // overwrite the user's setup with this mount's defaults.
     const [settingsReady, setSettingsReady] = useState(false);
+    // A gallery "Reuse" handoff is the user explicitly choosing a setup, so it
+    // wins over the remembered draft — which must then not be restored on top
+    // of it once the project resolves.
+    const reusedRef = useRef(false);
+    // The project the live prompt/references belong to. Switching projects
+    // changes projectId before the new project's draft has been applied, and
+    // without this the save effect would fire in that gap and stamp the old
+    // project's prompt onto the new one. Starts at a sentinel rather than null:
+    // null IS a real project id here (a workspace with no gateway projects), and
+    // seeding the ref with it would let the very first save run before the
+    // restore — wiping that user's stored draft with the empty mount state.
+    const draftScopeRef = useRef(NO_DRAFT_SCOPE);
+    // The stored draft map, so the save path never re-parses megabytes of base64
+    // off localStorage on every debounce tick. `undefined` = not yet read.
+    const draftMapRef = useRef(undefined);
+    // The out-of-storage warning is said once, not on every keystroke after.
+    const draftSaveFailedRef = useRef(false);
     const controllersRef = useRef({}); // jobId -> AbortController (not persisted)
     const pendingRef = useRef(0);
 
@@ -241,13 +280,12 @@ export default function SeedanceStudio() {
                 setCanManageProjects(!!d?.canManageProjects);
                 if (Array.isArray(d?.items) && d.items.length) {
                     setProjects(d.items);
-                    // /projects deep-links with ?project=; that beats the stored last choice.
-                    const fromUrl = Number(new URLSearchParams(window.location.search).get('project')) || null;
-                    const wanted = [fromUrl, Number(localStorage.getItem('seedance:project')) || null]
-                        .find((id) => id && d.items.some((p) => p.id === id));
-                    const chosen = wanted ?? d.items[0].id;
+                    // ?project= beats the stored last choice, which beats the
+                    // first granted project — resolved in projectChoice.mjs so
+                    // the mount-time draft restore reaches the same answer.
+                    const chosen = resolveProjectId(d.items, window.location.search, localStorage);
                     setProjectId(chosen);
-                    try { localStorage.setItem('seedance:project', String(chosen)); } catch { /* private mode */ }
+                    rememberProjectId(chosen, localStorage);
                 }
                 setProjectsLoaded(true); // gate the history rail until the project is known
             })
@@ -426,7 +464,7 @@ export default function SeedanceStudio() {
         // would keep playing on the stage here).
         setSelectedId(null);
         autoSelectedRef.current = false;
-        try { localStorage.setItem('seedance:project', String(id)); } catch { /* private mode */ }
+        rememberProjectId(id, localStorage);
     };
 
     // One-time backfill: history created before project tagging has no
@@ -688,6 +726,7 @@ export default function SeedanceStudio() {
                 );
                 setNotice('Loaded from the gallery — tweak anything and hit Generate.');
                 reused = true;
+                reusedRef.current = true;
             }
         } catch { /* corrupt handoff — open the studio blank */ }
 
@@ -696,7 +735,23 @@ export default function SeedanceStudio() {
         // mode/model/ratio/resolution/duration/seed instead of the defaults. A
         // gallery "Reuse" is the user explicitly choosing a different setup, so
         // it wins. Either way the bar is now authoritative and safe to save.
-        if (!reused) restoreSettings();
+        if (!reused) {
+            const s = restoreSettings();
+            // …and the draft in the SAME synchronous pass, so the prompt and its
+            // references paint with the first frame instead of appearing a
+            // network round trip later. Both the mode and the per-model ref cap
+            // come from `s` rather than state: restoreSettings has only QUEUED
+            // those setters, so reading state here would use this mount's
+            // defaults and mis-slot every reference.
+            const guess = guessProjectId();
+            const target = MODES.find((m) => m.id === (s?.modeId ?? modeId)) || mode;
+            draftMapRef.current = loadDraft();
+            applyDraft(unpackDraft(draftMapRef.current, guess, {
+                mode: target,
+                imageRefMax: imageRefMax(s?.options?.model ?? options.model),
+            }));
+            draftScopeRef.current = guess;
+        }
         setSettingsReady(true);
 
         const restored = loadJobs().map((raw) => {
@@ -1387,14 +1442,15 @@ export default function SeedanceStudio() {
         imageStudioModelId: IMAGE_STUDIO_MODEL_ID,
     });
 
-    // Put the remembered settings back in the bar. Only the pills are touched:
-    // prompt and references are never stored, so a reload never re-attaches a
-    // file or refills a prompt. The access guards that run after this still get
-    // the last word — a model revoked while the tab was closed, or a tier now
-    // above the granted cap, falls back exactly as it does for any selection.
+    // Put the remembered settings back in the bar. Only the pills are touched —
+    // the prompt and the references ride in the separate per-project draft
+    // below, which is applied later, once the project is known. The access
+    // guards that run after this still get the last word: a model revoked while
+    // the tab was closed, or a tier now above the granted cap, falls back
+    // exactly as it does for any selection.
     const restoreSettings = () => {
         const s = unpackSettings(loadSettings(), settingsCatalog());
-        if (!s) return;
+        if (!s) return null;
         if (s.modeId) setModeId(s.modeId);
         setMediaType(s.mediaType);
         // Merged over the live defaults, not swapped in: a setting added to
@@ -1404,6 +1460,10 @@ export default function SeedanceStudio() {
         // Cinematic Studio without a camera rig would be a dead toggle — the
         // model picker sets one when you choose Studio, so match that here.
         if (s.options.imageStudio) setCinematic((c) => c || DEFAULT_SETUP);
+        // Returned, not just applied: the draft restore below runs in the same
+        // synchronous pass and needs the mode/model these setters have only
+        // QUEUED — reading state here would still give this mount's defaults.
+        return s;
     };
 
     // Save on every settings change. These are pill clicks, not keystrokes, so
@@ -1412,6 +1472,185 @@ export default function SeedanceStudio() {
         if (!settingsReady) return;
         saveSettings(packSettings({ modeId, mediaType, options }));
     }, [settingsReady, modeId, mediaType, options]);
+
+    /* ── draft memory: the prompt + its references, per project ─────────── */
+
+    // Which project this browser will land in, answered SYNCHRONOUSLY. The
+    // project bootstrap picks from exactly these two sources before falling
+    // back to the first project it is granted, so at mount we can reach the
+    // right draft without waiting on /api/projects — the difference between the
+    // prompt painting with the first frame and popping in a network round trip
+    // later. The guess can still be wrong (a stored project since revoked); the
+    // effect below reconciles when the real id lands.
+    const guessProjectId = () => preferredProjectId(
+        typeof window === 'undefined' ? '' : window.location.search,
+        typeof window === 'undefined' ? null : window.localStorage,
+    );
+
+    // A restored reference can be out of date in two ways, and only one of them
+    // is recoverable:
+    //
+    //  • an UPLOADED ref (has a tosKey) whose 12h presign aged out. The object
+    //    behind it is permanent, so re-presign and carry on. Submit re-presigns
+    //    too (rehydrateStaleAssetRefs) — this pass is so the bar LOOKS right,
+    //    not just submits right.
+    //
+    //  • a LIBRARY PICK (asset://, no tosKey) that has since left the library:
+    //    swept out of a studio group by the 1h cleanup, or deleted by hand from
+    //    the shared BytePlus pool, which caps out around 50 entries and is
+    //    account-wide. Nothing can re-source it — there is no tosKey to
+    //    re-presign from — so drop it HERE, where we can say so, instead of
+    //    letting ModelArk fail the generation with "asset ... is not found"
+    //    after the user has already hit Generate.
+    //
+    // Drafts themselves never hold an asset alive: they store strings, and the
+    // sweep deletes by createdAt without consulting anything that references it.
+    const reconcileRestoredRefs = async (byRole) => {
+        const all = Object.values(byRole || {}).flat();
+        const expired = all.filter((m) => m?.tosKey && tosPresignExpired(m.url));
+        const unbacked = all.filter((m) => !m?.tosKey && m?.assetId && typeof m.url === 'string' && m.url.startsWith('asset://'));
+        if (!expired.length && !unbacked.length) return;
+
+        const fresh = new Map();
+        const dead = new Set();
+        await Promise.all([
+            ...expired.map(async (m) => {
+                try {
+                    const r = await fetch(`/api/byteplus/archive?key=${encodeURIComponent(m.tosKey)}`);
+                    const d = r.ok ? await r.json() : null;
+                    if (d?.url) fresh.set(m.tosKey, d.url);
+                } catch { /* keep the stale url — submit re-presigns again anyway */ }
+            }),
+            ...unbacked.map(async (m) => {
+                try {
+                    // 'Failed' is terminal; a transient state (still verifying)
+                    // is not, and must not cost the user their reference.
+                    const a = await getAsset(m.assetId);
+                    if (a?.status === 'Failed') dead.add(m.assetId);
+                } catch (e) {
+                    // The lookup THROWS both for a deleted id and for a
+                    // throttle or an outage. Only the first is proof of death.
+                    if (isAssetGone(e?.message || '')) dead.add(m.assetId);
+                }
+            }),
+        ]);
+        if (!fresh.size && !dead.size) return;
+
+        setMediaByRole((prev) => Object.fromEntries(
+            Object.entries(prev)
+                .map(([role, items]) => [
+                    role,
+                    items.filter((m) => !dead.has(m.assetId))
+                        .map((m) => (m.tosKey && fresh.has(m.tosKey) ? { ...m, url: fresh.get(m.tosKey) } : m)),
+                ])
+                .filter(([, items]) => items.length),
+        ));
+        if (dead.size) {
+            setNotice(dead.size > 1
+                ? `${dead.size} references are no longer in your asset library — re-attach them before generating.`
+                : 'One reference is no longer in your asset library — re-attach it before generating.');
+        }
+    };
+
+    // Put a restored draft in the bar. Null empties it — and takes the restored
+    // banner with it, without touching an unrelated notice.
+    const applyDraft = (d) => {
+        setPrompt(d?.prompt ?? '');
+        setMediaByRole(d?.mediaByRole ?? {});
+        setImageRefs(d?.imageRefs ?? []);
+        if (d) {
+            setNotice(DRAFT_NOTICE);
+            // Async: it may replace the banner above with a "reference is gone"
+            // warning, which is the more useful thing to be looking at.
+            reconcileRestoredRefs(d.mediaByRole);
+        } else {
+            setNotice((n) => (n === DRAFT_NOTICE ? null : n));
+        }
+    };
+
+    // Reconcile once the REAL project is known. Usually a no-op: the mount
+    // guess was right and the scope ref already matches. It does work when the
+    // guess missed (stored project revoked → the gateway picked another) and on
+    // every project SWITCH, so the bar always shows the draft belonging to the
+    // project on screen rather than carrying a prompt across a boundary that
+    // scopes assets and budgets.
+    //
+    // Deliberately not depending on `mode` / `options.model`: this is a restore,
+    // not a subscription. Changing the mode afterwards must not re-apply it.
+    useEffect(() => {
+        if (!settingsReady || !projectsLoaded) return;
+        if (draftScopeRef.current === projectId) return; // mount already got this one
+        // A gallery handoff filled the bar on purpose — don't overwrite it, just
+        // let it belong to this project from here on so it saves normally.
+        if (reusedRef.current) {
+            reusedRef.current = false;
+            draftScopeRef.current = projectId;
+            return;
+        }
+        applyDraft(unpackDraft(loadDraft(), projectId, { mode, imageRefMax: imageRefMax(options.model) }));
+        draftScopeRef.current = projectId;
+    }, [settingsReady, projectsLoaded, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Save the draft shortly after each change.
+    //
+    // Debounced because a draft holding inline image references is megabytes of
+    // base64 and serialising it per keystroke janks the input — and the stored
+    // map is held in a ref rather than re-read, because loadDraft() would
+    // JSON.parse those same megabytes back off localStorage on every tick,
+    // which is most of the cost the debounce was meant to remove. The ref is
+    // this tab's own writes plus what it read at mount; another tab's changes
+    // are not merged, which is the pre-existing behaviour of every other
+    // localStorage user here (jobs.js, settingsMemory).
+    useEffect(() => {
+        // Before the restore has run for THIS project, the bar still holds the
+        // previous project's work — saving it here would attribute it wrongly.
+        if (!settingsReady || draftScopeRef.current !== projectId) return undefined;
+        const t = setTimeout(() => {
+            if (draftMapRef.current === undefined) draftMapRef.current = loadDraft();
+            const next = mergeDraft(draftMapRef.current, projectId, packDraft({ prompt, mediaByRole, imageRefs }));
+            draftMapRef.current = next;
+            // A draft that stops persisting looks exactly like one that is
+            // saving, so say it once rather than let the bar imply it is safe.
+            if (!saveDraft(next, projectId) && !draftSaveFailedRef.current) {
+                draftSaveFailedRef.current = true;
+                setNotice('This browser is out of storage — your prompt and references will not survive a reload.');
+            }
+        }, DRAFT_SAVE_DELAY_MS);
+        return () => clearTimeout(t);
+    }, [settingsReady, projectId, prompt, mediaByRole, imageRefs]);
+
+    // Is there anything in the bar to clear? Gates the Clear button, so an
+    // already-empty bar doesn't carry a control that would do nothing.
+    const hasBarContent = !!prompt.trim()
+        || imageRefs.length > 0
+        || Object.values(mediaByRole).some((items) => items?.length);
+
+    // Clearing throws away uploads that took time to make, and the button sits
+    // in the same row as Generate — so it asks first. The per-thumbnail × stays
+    // unconfirmed: that drops ONE reference you are already pointing at.
+    const [confirmClear, setConfirmClear] = useState(false);
+
+    // What Clear all is about to discard, said plainly in the dialog rather than
+    // a generic "are you sure" the user has to translate.
+    const clearSummary = () => {
+        const refCount = imageRefs.length
+            + Object.values(mediaByRole).reduce((t, items) => t + (items?.length || 0), 0);
+        const parts = [];
+        if (prompt.trim()) parts.push('your prompt');
+        if (refCount) parts.push(`${refCount} reference${refCount === 1 ? '' : 's'}`);
+        return parts.join(' and ');
+    };
+
+    // Empty the bar — from Clear all, or from the restored-draft notice. The
+    // save effect above then drops the stored entry, so the next reload opens
+    // blank.
+    const clearDraft = () => {
+        setPrompt('');
+        setMediaByRole({});
+        setImageRefs([]);
+        setNotice(null);
+        setConfirmClear(false);
+    };
 
     // "Reuse" on a history card: load that generation's reference assets AND
     // its prompt back into the prompt bar — restoring the mode it was made in,
@@ -1683,6 +1922,15 @@ export default function SeedanceStudio() {
                 </div>
             </div>
 
+            <ConfirmDialog
+                open={confirmClear}
+                onOpenChange={setConfirmClear}
+                title="Clear the prompt bar?"
+                description={`This discards ${clearSummary() || 'everything in the bar'}. Uploaded references have to be attached again.`}
+                confirmLabel="Clear all"
+                onConfirm={clearDraft}
+            />
+
             {budgetRequestOpen && projectId ? (
                 <BudgetRequestModal
                     projectId={projectId}
@@ -1764,6 +2012,7 @@ export default function SeedanceStudio() {
                 lock25={lock25}
                 error={error}
                 notice={notice}
+                onClear={hasBarContent ? () => setConfirmClear(true) : null}
                 setNotice={setNotice}
                 onGenerate={onGenerate}
                 enhancing={enhancing}

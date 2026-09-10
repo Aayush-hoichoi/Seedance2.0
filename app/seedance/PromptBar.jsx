@@ -469,7 +469,7 @@ const BATCH_OPTIONS = [1, 2 /* , 4 — capped at ×2 for now; uncomment to bring
 export default function PromptBar({
     mode, onChangeMode, prompt, onPromptChange, options, setOpt,
     mediaByRole, setMediaByRole, models, allowedModelIds, projectId, resolutions, selectedModel, lock25 = null, tierCaps = {}, pendingTiers = {},
-    error, notice, setNotice, onGenerate, enhancing = false, batch = 1, setBatch,
+    error, notice, setNotice, onClear = null, onGenerate, enhancing = false, batch = 1, setBatch,
     onMediaError, onUploadFiles, tags, sidebarLeft = '', barRef,
     mediaType = 'video', onChangeMediaType, imageModels = [],
     imageStudio = false, onChangeImageModel,
@@ -731,6 +731,7 @@ export default function PromptBar({
                     )}
                     {!isImage && <MediaButtons mode={mode} mediaByRole={mediaByRole} setMediaByRole={setMediaByRole} onUploadFiles={onUploadFiles} tags={allTags} />}
                     {isImage && <ImageRefUploader refs={imageRefs} onUpload={onUploadImageRefs} onRemove={removeImageRef} onReorder={reorderImageRefs} maxRefs={imageRefMax(options.model)} />}
+
                     {/* Chip-rendered prompt: a backdrop paints the text (tokens as
                         cyan chips) behind a transparent-text textarea, so editing
                         mechanics stay native while @Image1 reads as a pill. */}
@@ -786,7 +787,21 @@ export default function PromptBar({
                     <div className="mx-1 px-3 py-1.5 rounded-lg bg-danger/10 border border-danger/20 text-[11px] text-danger">{friendlyError(error)}</div>
                 )}
                 {!error && notice && (
-                    <div className="mx-1 px-3 py-1.5 rounded-lg bg-warn/10 border border-warn/20 text-[11px] text-warn">{notice}</div>
+                    <div className="mx-1 px-3 py-1.5 rounded-lg bg-warn/10 border border-warn/20 text-[11px] text-warn flex items-center justify-between gap-3">
+                        <span>{notice}</span>
+                        {/* Dismiss: takes the banner away and leaves the bar
+                            alone. Emptying the bar is Clear all's job, which
+                            confirms first — one destructive path, not two. */}
+                        <button
+                            type="button"
+                            onClick={() => setNotice?.(null)}
+                            aria-label="Dismiss"
+                            title="Dismiss"
+                            className="shrink-0 text-warn/60 transition-colors hover:text-warn"
+                        >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                        </button>
+                    </div>
                 )}
 
                 {/* controls (selectors left, toggles right) + generate (own row, right) */}
@@ -956,6 +971,23 @@ export default function PromptBar({
                     )}
 
                     <div className="flex flex-wrap items-center justify-end gap-2">
+                        {/* Clear the whole bar — prompt and every reference. Lives
+                            in the empty left of this row (mr-auto), well away from
+                            both the + that ADDS references and the Generate it must
+                            never be fat-fingered for. Rendered only when there is
+                            something to clear, so an empty bar carries no control
+                            that would do nothing. */}
+                        {onClear && (
+                            <button
+                                type="button"
+                                onClick={onClear}
+                                title="Clear the prompt and all references"
+                                className="mr-auto shrink-0 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold text-white/35 transition-colors hover:bg-danger/10 hover:text-danger"
+                            >
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6" /></svg>
+                                Clear all
+                            </button>
+                        )}
                         {/* Cost transparency: the same estimate the gateway reserves against. */}
                         {(() => {
                             const est = isImage
