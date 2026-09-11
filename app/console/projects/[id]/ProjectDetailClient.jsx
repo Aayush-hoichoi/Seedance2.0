@@ -305,7 +305,7 @@ function EditBudgetModal({ quota, projectName, userName, onClose, onUpdated }) {
         && (!reducing || reason.trim().length >= 3);
 
     async function save() {
-        if (!valid) return;
+        if (!valid || saving) return;
         setSaving(true);
         setError('');
         const response = await sendJson('/api/admin/quotas', 'PATCH', {
@@ -397,7 +397,8 @@ function EditBudgetModal({ quota, projectName, userName, onClose, onUpdated }) {
 
             <Field label="New total budget cap">
                 <Input type="number" min={minimumCap} step={wholeNumber ? '1' : 'any'} value={newCapInput}
-                    onChange={(event) => { setNewCapInput(event.target.value); setError(''); }} />
+                    onChange={(event) => { setNewCapInput(event.target.value); setError(''); }}
+                    onKeyDown={(event) => { if (event.key === 'Enter') save(); }} />
             </Field>
 
             {validNumber && newCap >= minimumCap && newCap !== snapshot.hardLimit ? (
@@ -411,7 +412,8 @@ function EditBudgetModal({ quota, projectName, userName, onClose, onUpdated }) {
             {reducing ? (
                 <Field label="Reason for reduction">
                     <Input value={reason} maxLength={500} placeholder="Correcting an accidental allocation"
-                        onChange={(event) => { setReason(event.target.value); setError(''); }} />
+                        onChange={(event) => { setReason(event.target.value); setError(''); }}
+                        onKeyDown={(event) => { if (event.key === 'Enter') save(); }} />
                 </Field>
             ) : null}
             </>}
