@@ -1626,8 +1626,9 @@ export default function SeedanceStudio() {
         return () => clearTimeout(t);
     }, [settingsReady, projectId, prompt, mediaByRole, imageRefs]);
 
-    // Is there anything in the bar to clear? Gates the Clear button, so an
-    // already-empty bar doesn't carry a control that would do nothing.
+    // Is there anything in the bar? Gates the Clear button, so an already-empty
+    // bar doesn't carry a control that would do nothing — and the cost estimate,
+    // which reads $0.00 until there is something to actually generate.
     const hasBarContent = !!prompt.trim()
         || imageRefs.length > 0
         || Object.values(mediaByRole).some((items) => items?.length);
@@ -2020,6 +2021,7 @@ export default function SeedanceStudio() {
                 error={error}
                 notice={notice}
                 onClear={hasBarContent ? () => setConfirmClear(true) : null}
+                hasBarContent={hasBarContent}
                 setNotice={setNotice}
                 onGenerate={onGenerate}
                 enhancing={enhancing}

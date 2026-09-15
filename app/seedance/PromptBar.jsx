@@ -7,8 +7,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { Lock } from 'lucide-react';
 import { MODES, RATIOS, RESOLUTIONS, IMAGE_RATIOS, IMAGE_STUDIO_ID, modeAllowedForModel, resolutionWithinTier, imageRefMax, durationMaxFor, ratioIsInherited, imageResolutionsFor } from '../../lib/seedance/constants.js';
-import { estimateCost } from '../../lib/seedance/pricing.mjs';
-import { imageCost } from '../../lib/gateway/imagePricing.mjs';
+import { estimateLabel, unitEstimate } from './estimateLabel.mjs';
 import { summarize as summarizeCinematic } from '../../lib/seedance/cinematic.mjs';
 import { filterTags, tagLabelFor, tagToken, TOKEN_RE } from '../../lib/seedance/tags.js';
 import { friendlyError } from '../../lib/seedance/friendlyError.js';
@@ -470,6 +469,7 @@ export default function PromptBar({
     mode, onChangeMode, prompt, onPromptChange, options, setOpt,
     mediaByRole, setMediaByRole, models, allowedModelIds, projectId, resolutions, selectedModel, lock25 = null, tierCaps = {}, pendingTiers = {},
     error, notice, setNotice, onClear = null, onGenerate, enhancing = false, batch = 1, setBatch,
+    hasBarContent = false,
     onMediaError, onUploadFiles, tags, sidebarLeft = '', barRef,
     mediaType = 'video', onChangeMediaType, imageModels = [],
     imageStudio = false, onChangeImageModel,
@@ -1007,16 +1007,23 @@ export default function PromptBar({
                                 Clear all
                             </button>
                         )}
-                        {/* Cost transparency: the same estimate the gateway reserves against. */}
+                        {/* Cost transparency: the same estimate the gateway reserves
+                            against, shown with its error band. An empty bar reads
+                            $0.00 — it has nothing to generate, so quoting the model's
+                            price there implied a charge the user was not about to
+                            incur. Shown at EVERY width: it was `hidden sm:inline`,
+                            which meant phone users spent from a shared budget with
+                            no price in front of them. The row already wraps, and
+                            Generate takes its own full-width line below on mobile. */}
                         {(() => {
-                            const est = isImage
-                                ? imageCost(selectedImageModel?.kind, 'interactive', 1,
-                                    selectedImageModel?.resolutions ? options.imageResolution || null : null,
-                                    selectedImageModel?.qualities ? options.imageQuality || null : null)
-                                : estimateCost({ kind: selectedModel?.kind, resolution: options.resolution, duration: options.duration, hasVideoInput: hasVideoRefAttached });
-                            return est != null ? (
-                                <span className="hidden sm:inline text-[11px] font-semibold tabular-nums text-white/35 pr-1" title="Estimated cost (final cost uses real token usage)">
-                                    ≈ ${(est * (batch || 1)).toFixed(2)}
+                            const est = unitEstimate({
+                                isImage, model: selectedModel, imageModel: selectedImageModel,
+                                options, hasVideoInput: hasVideoRefAttached,
+                            });
+                            const label = estimateLabel({ unitUsd: est, batch, hasContent: hasBarContent });
+                            return label ? (
+                                <span className="shrink-0 text-[11px] font-semibold tabular-nums text-white/35 pr-1" title={label.title}>
+                                    {label.text}
                                 </span>
                             ) : null;
                         })()}
