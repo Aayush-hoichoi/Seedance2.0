@@ -2580,6 +2580,7 @@ function Hero() {
 // the video fills the left; a right panel carries the prompt, reference
 // thumbnails, generation details and the reuse / download / like actions.
 function AssetViewer({ job, onClose, onReuse, onToggleLike, onRefresh, onPrev, onNext }) {
+    const [dlFormat, setDlFormat] = useState('mov'); // video download container — mov is the default
     const modelName = job.model ? (MODELS.find((m) => m.id === job.model)?.name ?? IMAGE_MODELS.find((m) => m.id === job.model)?.name ?? job.model) : null;
     const prompt = job.userPrompt || job.prompt || '';
     const created = job.createdAt ? new Date(job.createdAt) : null;
@@ -2695,12 +2696,25 @@ function AssetViewer({ job, onClose, onReuse, onToggleLike, onRefresh, onPrev, o
                     <div className="flex items-center gap-2">
                         <button
                             type="button"
-                            onClick={() => downloadAsset(job.videoUrl || job.imageUrl, job.taskId || 'generation', job.taskId)}
+                            onClick={() => downloadAsset(job.videoUrl || job.imageUrl, job.taskId || 'generation', job.taskId, { format: dlFormat })}
+                            title={job.videoUrl ? `Download as .${dlFormat}` : 'Download'}
                             className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-line px-3 py-2.5 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink"
                         >
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
                             Download
                         </button>
+                        {job.videoUrl && (
+                            <select
+                                value={dlFormat}
+                                onChange={(e) => setDlFormat(e.target.value)}
+                                title="Video file format for Download"
+                                aria-label="Download format"
+                                className="rounded-md border border-line bg-paper-2 px-2 py-2.5 text-xs font-semibold text-ink-3 transition-colors hover:bg-paper-3 hover:text-ink"
+                            >
+                                <option value="mov">.mov</option>
+                                <option value="mp4">.mp4</option>
+                            </select>
+                        )}
                         {job.videoUrl && (() => {
                             // Only 4k renders are re-encoded (H.265 → H.264) on download;
                             // for every other resolution Download already IS the original.
