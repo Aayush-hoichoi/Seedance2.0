@@ -37,7 +37,11 @@ function renderChips(text, tags) {
         );
         last = m.index + m[0].length;
     }
-    out.push(text.slice(last));
+    // Trailing "\n": a pre-wrap block drops a segment break at its end, a
+    // textarea keeps it as a real empty line. Without the sentinel the backdrop
+    // is one line shorter, and scrolled to the bottom of a long prompt the
+    // synced scrollTop clamps early and paints the chips a line above the caret.
+    out.push(`${text.slice(last)}\n`);
     return out;
 }
 
@@ -743,6 +747,9 @@ export default function PromptBar({
                         >
                             {renderChips(prompt, allTags)}
                         </div>
+                        {/* globals.css ::selection sets a colour, which overrides
+                            text-transparent and paints the textarea's own text on top
+                            of the backdrop on select-all — [&::selection] keeps it invisible. */}
                         <textarea
                             ref={taRef}
                             value={prompt}
@@ -773,7 +780,7 @@ export default function PromptBar({
                             placeholder={isImage ? 'Describe the image you want to create' : allTagsPossible ? 'Describe the video — type “@” to reference an upload (e.g. actions in @Video1, character from @Image1)' : mode.requiresText ? 'Describe the video you want to create' : 'Describe the video (optional)…'}
                             rows={1}
                             title="Drag the bottom-right corner to resize"
-                            className="relative block w-full bg-transparent border-none text-transparent caret-white text-sm placeholder:text-white/40 focus:outline-none resize-y pt-2 leading-relaxed min-h-[40px] max-h-[60vh] overflow-y-auto custom-scrollbar [scrollbar-gutter:stable]"
+                            className="relative block w-full bg-transparent border-none text-transparent [&::selection]:text-transparent caret-white text-sm placeholder:text-white/40 focus:outline-none resize-y pt-2 leading-relaxed min-h-[40px] max-h-[60vh] overflow-y-auto custom-scrollbar [scrollbar-gutter:stable]"
                         />
                     </div>
                 </div>
