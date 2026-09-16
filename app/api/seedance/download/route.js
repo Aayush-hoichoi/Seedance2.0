@@ -91,6 +91,9 @@ export async function POST(request) {
     }
     const { items, error } = parseItems(body?.items);
     if (error) return bad(error);
+    // raw: skip the H.264 compatibility re-encode and return the exact stored
+    // bytes (bit-identical original — 4k files stay H.265, which Nuke can't open).
+    const fix = body?.raw === true ? (buf) => buf : ensureH264;
 
     await logDownloads(items);
 
@@ -100,7 +103,7 @@ export async function POST(request) {
         if (!buf) {
             return bad('Could not download the file — the link may have expired.', 502);
         }
-        const data = await ensureH264(buf, items[0].name);
+        const data = await fix(buf, items[0].name);
         return new Response(data, {
             headers: {
                 'Content-Type': contentTypeFor(items[0].name),
@@ -114,7 +117,7 @@ export async function POST(request) {
     async function* entries() {
         for (const it of items) {
             const data = await fetchAsset(it.url);
-            if (data) yield { name: it.name, data: await ensureH264(data, it.name) };
+            if (data) yield { name: it.name, data: await fix(data, it.name) };
         }
     }
     const nodeStream = Readable.from(zipStream(entries()));

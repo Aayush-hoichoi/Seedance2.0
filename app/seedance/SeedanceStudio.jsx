@@ -2700,6 +2700,24 @@ function AssetViewer({ job, onClose, onReuse, onToggleLike, onRefresh, onPrev, o
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
                             Download
                         </button>
+                        {job.videoUrl && (() => {
+                            // Only 4k renders are re-encoded (H.265 → H.264) on download;
+                            // for every other resolution Download already IS the original.
+                            const is4k = /\b4k\b/i.test(job.options?.resolution || job.meta || '');
+                            return (
+                                <button
+                                    type="button"
+                                    disabled={!is4k}
+                                    onClick={() => downloadAsset(job.videoUrl, job.taskId || 'generation', job.taskId, { raw: true })}
+                                    title={is4k
+                                        ? 'Exact file as generated, no re-encode (stays H.265 — may not open in Nuke)'
+                                        : 'Not needed below 4k — Download already gives the exact original file'}
+                                    className="rounded-md border border-line px-3 py-2.5 text-xs font-semibold text-ink-3 transition-colors enabled:hover:bg-paper-3 enabled:hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                    Original
+                                </button>
+                            );
+                        })()}
                         {onToggleLike && (
                             <button
                                 type="button"
