@@ -2,7 +2,7 @@ import { Readable } from 'node:stream';
 import { NextResponse } from 'next/server';
 import { zipStream } from '../../../../lib/seedance/zip.mjs';
 import { safeName } from '../../../../lib/seedance/downloadName.mjs';
-import { ensureH264 } from '../../../../lib/seedance/ensureH264.mjs';
+import { ensureH264, remuxToMov } from '../../../../lib/seedance/ensureH264.mjs';
 import { getUser } from '../../../../lib/auth/user.js';
 import { getDb } from '../../../../lib/db/neon.js';
 import { recordGenerationEvent } from '../../../../lib/access/db.js';
@@ -91,9 +91,23 @@ export async function POST(request) {
     }
     const { items, error } = parseItems(body?.items);
     if (error) return bad(error);
-    // raw: skip the H.264 compatibility re-encode and return the exact stored
-    // bytes (bit-identical original — 4k files stay H.265, which Nuke can't open).
-    const fix = body?.raw === true ? (buf) => buf : ensureH264;
+    // raw: skip the H.264 compatibility re-encode and the mov remux — return
+    // the exact stored bytes (bit-identical original — 4k files stay H.265).
+    const raw = body?.raw === true;
+    // format: 'mp4' opts back into the plain mp4 (codec fix still applies —
+    // only the mov rewrap is skipped). Anything else means the default, mov.
+    const wantMov = body?.format !== 'mp4';
+
+    // Videos leave as .mov by default: fix the codec if needed, then losslessly
+    // rewrap the mp4 into a QuickTime container (editing tools prefer it). If
+    // the remux fails for any reason the mp4 goes out unchanged.
+    async function toDelivery(buf, name) {
+        if (raw) return { data: buf, name };
+        const fixed = await ensureH264(buf, name);
+        if (!wantMov) return { data: fixed, name };
+        const mov = await remuxToMov(fixed, name);
+        return mov ? { data: mov, name: name.replace(/\.(mp4|m4v)$/i, '.mov') } : { data: fixed, name };
+    }
 
     await logDownloads(items);
 
@@ -103,11 +117,11 @@ export async function POST(request) {
         if (!buf) {
             return bad('Could not download the file — the link may have expired.', 502);
         }
-        const data = await fix(buf, items[0].name);
+        const { data, name } = await toDelivery(buf, items[0].name);
         return new Response(data, {
             headers: {
-                'Content-Type': contentTypeFor(items[0].name),
-                'Content-Disposition': contentDisposition(items[0].name),
+                'Content-Type': contentTypeFor(name),
+                'Content-Disposition': contentDisposition(name),
                 'Cache-Control': 'no-store',
             },
         });
@@ -116,8 +130,8 @@ export async function POST(request) {
     // Many assets → stream a zip. Fetch lazily as the archive is consumed.
     async function* entries() {
         for (const it of items) {
-            const data = await fetchAsset(it.url);
-            if (data) yield { name: it.name, data: await fix(data, it.name) };
+            const buf = await fetchAsset(it.url);
+            if (buf) yield await toDelivery(buf, it.name);
         }
     }
     const nodeStream = Readable.from(zipStream(entries()));
@@ -130,7 +144,7 @@ export async function POST(request) {
     });
 }
 
-const TYPES = { mp4: 'video/mp4', mov: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
+const TYPES = { mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/mp4', webm: 'video/webm', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
 function contentTypeFor(name) {
     const ext = /\.(\w+)$/.exec(name || '')?.[1]?.toLowerCase();
     return TYPES[ext] || 'application/octet-stream';
