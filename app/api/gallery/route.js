@@ -26,8 +26,12 @@ export async function GET(request) {
         // The studio history rail: the caller's OWN complete generation list
         // (from the DB), so it isn't capped by ModelArk's recent-tasks window.
         if (params.get('mine')) {
-            const rows = await listUserGenerations(user.userId);
-            return NextResponse.json({ items: rows.map(toItem) });
+            const before = params.get('before') || null;
+            if (before && before.length > 40) return NextResponse.json({ error: 'Invalid cursor.' }, { status: 400 });
+            const rows = await listUserGenerations(user.userId, 200, before);
+            // A full page means there may be older rows — hand back a cursor.
+            const nextBefore = rows.length === 200 ? rows[rows.length - 1].created_at : null;
+            return NextResponse.json({ items: rows.map(toItem), nextBefore });
         }
         if (params.get('liked')) {
             const rows = await listLikedGenerations(user.userId);

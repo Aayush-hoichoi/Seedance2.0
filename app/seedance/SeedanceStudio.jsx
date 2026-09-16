@@ -893,12 +893,10 @@ export default function SeedanceStudio() {
 
         // The user's COMPLETE own history from the DB (usage_events ⋈ prompts),
         // independent of ModelArk's recent-30 window — so older own generations,
-        // and ones made on another device, still appear in the rail.
-        fetch('/api/gallery?mine=1')
-            .then((r) => (r.ok ? r.json() : null))
-            .then((d) => {
-                const items = Array.isArray(d?.items) ? d.items : [];
-                if (!items.length) return;
+        // and ones made on another device, still appear in the rail. The server
+        // returns 200 rows per page with a `nextBefore` cursor; walk every page
+        // so heavy users see all of their history, not just the newest 200.
+        const mergeMine = (items) => {
                 const toStatus = (s) => (s === 'succeeded' ? 'done' : ['queued', 'running'].includes(s) ? s : 'error');
                 updateJobs((prev) => {
                     const known = new Set(prev.map((j) => j.taskId).filter(Boolean));
@@ -939,8 +937,22 @@ export default function SeedanceStudio() {
                         });
                     return added.length ? [...prev, ...added].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)) : prev;
                 });
-            })
-            .catch(() => { /* DB history unavailable: ModelArk merge + local still work */ });
+        };
+        (async () => {
+            let before = null;
+            // ponytail: sequential 200-row pages, 50-page (10k) safety cap —
+            // switch to on-scroll fetching if rails ever grow past that.
+            for (let page = 0; page < 50; page += 1) {
+                const url = before ? `/api/gallery?mine=1&before=${encodeURIComponent(before)}` : '/api/gallery?mine=1';
+                const r = await fetch(url);
+                if (!r.ok) return;
+                const d = await r.json();
+                const items = Array.isArray(d?.items) ? d.items : [];
+                if (items.length) mergeMine(items);
+                before = d?.nextBefore || null;
+                if (!before) return;
+            }
+        })().catch(() => { /* DB history unavailable: ModelArk merge + local still work */ });
 
         return () => { Object.values(controllersRef.current).forEach((c) => c.abort()); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
