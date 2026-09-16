@@ -42,3 +42,15 @@ test('green screen shares the same rules', () => {
     assert.match(STYLES.green_screen.system, /REQUESTED ACTIONS OUTRANK THE LOCKS/);
     assert.match(STYLES.green_screen.system, /ASSET ROLES COME FROM THE USER/);
 });
+
+// Mannequin mode's source is SILENT: the Bengali dialogue locks that every
+// other styled mode hard-codes would demand speech that does not exist.
+test('mannequin brief never inherits the Bengali dialogue lock', () => {
+    const mannequin = STYLES.mannequin.system;
+    assert.doesNotMatch(mannequin, /Bengali/);
+    assert.match(mannequin, /SILENT/);
+    assert.match(mannequin, /Do not invent dialogue or voices/);
+    // The shared quality lessons still apply.
+    assert.match(mannequin, /REQUESTED ACTIONS OUTRANK THE LOCKS/);
+    assert.match(mannequin, /THE CAMERA MOVE MUST BE DESCRIBED, NOT JUST FORBIDDEN/);
+});

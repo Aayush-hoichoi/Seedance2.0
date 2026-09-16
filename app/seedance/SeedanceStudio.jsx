@@ -1322,7 +1322,8 @@ export default function SeedanceStudio() {
 
         // Styled modes promise the source video's Bengali dialogue in the
         // output — impossible with audio generation off (silent video).
-        if (mode.enhanceStyle && !options.generate_audio) {
+        // Silent-source modes (Mannequin) carry no dialogue, so audio is free.
+        if (mode.enhanceStyle && !mode.silentSource && !options.generate_audio) {
             setError(`${mode.name} carries the source video's dialogue into the output — turn the Audio toggle on to generate.`);
             return;
         }
