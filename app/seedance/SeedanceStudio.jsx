@@ -12,6 +12,7 @@ import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
 import { buildTags, modeSupportsTags, normalizePromptForApi, restorePromptTokens, tagToken, validatePromptReferences } from '../../lib/seedance/tags.js';
 import { getAsset, isAssetGone, resolveMediaRefs, cleanupOldAssets, registerAssetFromUrl } from '../../lib/seedance/assetsClient.js';
+import { ASSET_TTL_MS } from '../../lib/seedance/assetTtl.mjs';
 import { useEvents } from '../hooks/useEvents.js';
 import { enhancePrompt } from '../../lib/seedance/enhance.js';
 import { friendlyError } from '../../lib/seedance/friendlyError.js';
@@ -492,12 +493,12 @@ export default function SeedanceStudio() {
         [projectId, projects],
     );
 
-    // Sweep leaked studio assets (1h+, from closed or pre-update tabs) from
-    // ALL studio groups so the tiny shared (account-wide) BytePlus pool never
-    // fills up — stale assets in other projects' groups count against the
-    // same pool and broke uploads before. Re-sweep every 30 min: a studio tab
-    // left open for days never remounts, and mount-only sweeping let the pool
-    // silently refill.
+    // Sweep leaked studio assets (past the pool TTL, from closed or
+    // pre-update tabs) from ALL studio groups so the tiny shared (account-wide)
+    // BytePlus pool never fills up — stale assets in other projects' groups
+    // count against the same pool and broke uploads before. Re-sweep on the TTL
+    // itself: a studio tab left open for days never remounts, and sweeping on a
+    // slower clock than the TTL just puts the wait back in.
     //
     // No longer the only cleanup path: this runs only while a tab is OPEN, so
     // it never collected anything registered by MCP or left by a closed tab.
@@ -506,7 +507,7 @@ export default function SeedanceStudio() {
     useEffect(() => {
         if (!projectId) return;
         cleanupOldAssets().catch(() => {});
-        const timer = setInterval(() => cleanupOldAssets().catch(() => {}), 30 * 60 * 1000);
+        const timer = setInterval(() => cleanupOldAssets().catch(() => {}), ASSET_TTL_MS);
         return () => clearInterval(timer);
     }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -682,7 +683,7 @@ export default function SeedanceStudio() {
     // Assets registered for a submit are intentionally NOT deleted when the
     // batch finishes: asset writes share a 120 QPM zero-burst account quota
     // (QuotaWriteQPMExceeded), so resolveMediaRefs reuses them across submits —
-    // iterating on the same refs costs zero creates. The 1h age sweep
+    // iterating on the same refs costs zero creates. The age sweep
     // (cleanupOldAssets above) is the single cleanup path.
 
     // Poll one task to its end and reflect progress on the job card.
@@ -1438,7 +1439,7 @@ export default function SeedanceStudio() {
 
         // Fire `batch` parallel generations (seed -1 → each gets its own random
         // seed). Registered assets are shared by the batch AND later submits
-        // (resolveMediaRefs cache) — the 1h age sweep cleans them up.
+        // (resolveMediaRefs cache) — the age sweep cleans them up.
         for (let i = 0; i < batch; i++) launchJob(payload, apiPrompt, promptMeta, creation);
     };
 
