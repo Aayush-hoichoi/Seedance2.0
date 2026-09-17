@@ -146,3 +146,29 @@ test('one undeletable asset does not abort the rest of the sweep', async () => {
     assert.equal(await cleanupOldAssets({ maxAgeHours: 1 }), 1,
         'a already-deleted id is normal under concurrent sweeps — keep going');
 });
+
+// The pool TTL used to be an hour, which meant a busy afternoon kept it full
+// and the next upload failed. It is ASSET_TTL_MINUTES now, and the default is
+// what every caller actually uses — the cron and both sweeps pass no age at
+// all — so the default is the thing worth pinning, not the explicit argument.
+const minutesAgo = (m) => new Date(Date.now() - m * 60 * 1000).toISOString();
+
+test('the default window is the shared TTL, and it spares anything younger', async () => {
+    const { cleanupOldAssets } = await import('../lib/byteplus/assetsServer.js');
+    const { ASSET_TTL_MINUTES } = await import('../lib/seedance/assetTtl.mjs');
+    assert.equal(ASSET_TTL_MINUTES, 10, 'the pool TTL the studio and cron sweep on');
+    const calls = stubBytePlus({
+        groups: GROUPS,
+        assetsByGroup: {
+            'g-studio-a': [
+                { id: 'past-ttl', createdAt: minutesAgo(ASSET_TTL_MINUTES + 10) },
+                // A render that is still being handed to ModelArk (launchJob
+                // retries run ~90s) still needs its reference — that grace is
+                // the whole reason the window is not shorter.
+                { id: 'still-starting', createdAt: minutesAgo(ASSET_TTL_MINUTES - 5) },
+            ],
+        },
+    });
+    assert.equal(await cleanupOldAssets(), 1, 'no explicit age: the default reclaims the old one');
+    assert.deepEqual(calls.filter((c) => c.action === 'DeleteAsset').map((c) => c.payload.Id), ['past-ttl']);
+});

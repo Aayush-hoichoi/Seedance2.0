@@ -53,7 +53,7 @@ export async function GET(request) {
     // upload most likely to hit a full pool. Riding this job rather than a new
     // cron because vercel.json is on the Hobby one-cron-per-day limit.
     // Best-effort: the rollup above is the reason this route exists.
-    const sweptAssets = await cleanupOldAssets({ maxAgeHours: 1 })
+    const sweptAssets = await cleanupOldAssets()
         .catch((error) => { console.error('[assets] cron sweep failed:', error.message); return 0; });
 
     // Approval cards are posted once, at request time, best-effort — so a

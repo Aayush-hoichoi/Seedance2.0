@@ -101,28 +101,28 @@ test('propagates registration failures', async () => {
     );
 });
 
-test('quota recovery: sweeps 1h and retries', async () => {
+test('quota recovery: sweeps at the TTL and retries', async () => {
     const calls = [];
     let attempt = 0;
     const create = async () => {
         if (++attempt === 1) throw new Error('Asset quota exceeded: the shared pool for projects without explicit allocation is full.');
         return 'asset-1';
     };
-    const cleanup = async ({ maxAgeHours }) => { calls.push(maxAgeHours); return 3; };
+    const cleanup = async ({ maxAgeHours } = {}) => { calls.push(maxAgeHours); return 3; };
     assert.equal(await createWithQuotaRecovery(create, cleanup), 'asset-1');
-    assert.deepEqual(calls, [1]);
+    assert.deepEqual(calls, [undefined], 'no explicit age — cleanupOldAssets\u2019 own TTL default');
 });
 
-test('quota recovery: escalates to a minutes-old sweep when the 1h sweep frees nothing', async () => {
+test('quota recovery: escalates to a minutes-old sweep when the TTL sweep frees nothing', async () => {
     const calls = [];
     let attempt = 0;
     const create = async () => {
         if (++attempt === 1) throw new Error('quota exceeded');
         return 'asset-2';
     };
-    const cleanup = async ({ maxAgeHours }) => { calls.push(maxAgeHours); return 0; };
+    const cleanup = async ({ maxAgeHours } = {}) => { calls.push(maxAgeHours); return 0; };
     assert.equal(await createWithQuotaRecovery(create, cleanup), 'asset-2');
-    assert.deepEqual(calls, [1, 5 / 60]);
+    assert.deepEqual(calls, [undefined, 5 / 60]);
 });
 
 test('quota recovery: still-full pool surfaces an actionable message', async () => {

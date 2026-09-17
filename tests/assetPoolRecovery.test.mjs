@@ -61,17 +61,17 @@ test('real capacity exhaustion still sweeps and retries', async () => {
     const { calls, cleanup } = recorder({ freed: 3 });
     const result = await createWithQuotaRecovery(flaky('Asset quota exceeded: pool is full', 1), cleanup);
     assert.equal(result, 'created', 'the second attempt should succeed after the sweep');
-    assert.deepEqual(calls, [{ maxAgeHours: 1 }], 'one hour first; it freed rows, so no aggressive pass');
+    assert.deepEqual(calls, [undefined], 'the TTL default first; it freed rows, so no aggressive pass');
 });
 
-test('when the hourly sweep frees nothing it escalates to the five-minute pass', async () => {
+test('when the TTL sweep frees nothing it escalates to the five-minute pass', async () => {
     const { calls, cleanup } = recorder({ freed: 0 });
     await assert.rejects(
         () => createWithQuotaRecovery(flaky('Asset quota exceeded: pool is full', 99), cleanup),
         /asset pool is still full/,
         'after both sweeps fail the user gets the manual-cleanup message',
     );
-    assert.deepEqual(calls, [{ maxAgeHours: 1 }, { maxAgeHours: 5 / 60 }]);
+    assert.deepEqual(calls, [undefined, { maxAgeHours: 5 / 60 }]);
 });
 
 test('a successful create never sweeps', async () => {
