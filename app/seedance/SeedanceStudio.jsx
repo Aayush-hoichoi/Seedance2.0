@@ -2134,12 +2134,16 @@ function BigStage({ job, onCancel, onFullscreen, onReuse, onRefresh, onReportIss
     }
     if (job.status === 'done' && job.videoUrl) {
         const hasPrompt = !!(job.prompt || job.userPrompt || job.refs?.length);
+        // Mannequin mode: put the silent motion-source video beside the output
+        // so the source action and the generated performance compare at a glance.
+        const mannequinRef = (job.modeId || job.style) === 'mannequin' ? job.refs?.find((r) => r.kind === 'video') : null;
         return (
             <div className={`w-full animate-fade-in-up ${hasPrompt ? 'max-w-7xl' : 'max-w-5xl'}`}>
                 {/* Video left, prompt panel on the RIGHT (stacks below on small screens). */}
                 <div className="flex flex-col lg:flex-row gap-4 justify-center lg:items-start">
-                    <div className="flex-1 min-w-0 max-w-5xl mx-auto lg:mx-0">
-                        <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-black shadow-2xl">
+                    <div className={`flex-1 min-w-0 mx-auto lg:mx-0 ${mannequinRef ? 'flex flex-col sm:flex-row gap-4 sm:items-start max-w-6xl' : 'max-w-5xl'}`}>
+                        {mannequinRef && <MannequinSource r={mannequinRef} />}
+                        <div className="relative flex-1 min-w-0 rounded-2xl overflow-hidden border border-white/10 bg-black shadow-2xl">
                             <video
                                 key={job.id}
                                 src={job.videoUrl}
@@ -2285,6 +2289,37 @@ function PromptTabs({ job, onReuse }) {
                 </>
             )}
             {job.refs?.length > 0 && <RefAssets refs={job.refs} onReuse={onReuse ? (items) => onReuse(job, items) : null} />}
+        </div>
+    );
+}
+
+// The mannequin motion-source video, playing beside the finished output so the
+// user can compare the source action with the generated performance. Muted —
+// the source is silent by definition; the output owns the audio. Same link
+// refresh as RefAssets: tosKey re-presigns, asset:// asks the library.
+function MannequinSource({ r }) {
+    const [url, setUrl] = useState(r.previewUrl || r.url || null);
+    useEffect(() => {
+        let alive = true;
+        (async () => {
+            try {
+                if (r?.tosKey) {
+                    const res = await fetch(`/api/byteplus/archive?key=${encodeURIComponent(r.tosKey)}`);
+                    const d = res.ok ? await res.json() : null;
+                    if (alive && d?.url) setUrl(d.url);
+                } else if (r?.assetId) {
+                    const a = await getAsset(r.assetId);
+                    if (alive && a?.previewUrl) setUrl(a.previewUrl);
+                }
+            } catch { /* stored url below still gets a try */ }
+        })();
+        return () => { alive = false; };
+    }, [r]);
+    if (!url) return null;
+    return (
+        <div className="relative sm:w-[38%] shrink-0 rounded-2xl overflow-hidden border border-white/10 bg-black shadow-2xl">
+            <video src={url} controls muted loop autoPlay playsInline className="w-full max-h-[82vh] object-contain bg-black" />
+            <span className="absolute top-3 left-3 px-2 py-1 rounded-md bg-black/60 border border-white/10 text-[10px] font-bold uppercase tracking-wider text-white/70 backdrop-blur-sm pointer-events-none">Mannequin source</span>
         </div>
     );
 }
