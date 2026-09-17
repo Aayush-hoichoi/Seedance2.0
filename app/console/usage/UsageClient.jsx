@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import dynamic from 'next/dynamic';
-import { PageHeader, Card, Select, Button, DataTable } from '../ui.jsx';
-import { useApi, fmtUsd, fmtInt, monthStartIso, dayStartIso } from '../lib.js';
+import { PageHeader, Card, Select, Button, DataTable, DateRangePicker } from '../ui.jsx';
+import { useApi, fmtUsd, fmtInt, monthStartIso, dayStartIso, istInstant } from '../lib.js';
 import { Download } from 'lucide-react';
 
 const SpendArea = dynamic(() => import('../charts.jsx').then((m) => m.SpendArea), { ssr: false });
@@ -16,8 +16,11 @@ const WINDOWS = { today: dayStartIso, month: monthStartIso, all: () => '' };
 export default function UsageClient() {
     const [groupBy, setGroupBy] = useState('model');
     const [window, setWindow] = useState('month');
-    const from = WINDOWS[window]();
-    const url = `/api/orgs/usage?group_by=${groupBy}${from ? `&from=${from}` : ''}`;
+    const [range, setRange] = useState({ from: '', to: '' });
+    const from = window === 'custom' ? (range.from ? istInstant(range.from) : '') : WINDOWS[window]();
+    // Exclusive upper bound: end-date + 1 day so the picked end day is included.
+    const to = window === 'custom' && range.to ? new Date(new Date(istInstant(range.to)).getTime() + 864e5).toISOString() : '';
+    const url = `/api/orgs/usage?group_by=${groupBy}${from ? `&from=${from}` : ''}${to ? `&to=${to}` : ''}`;
     const { data, error } = useApi(url);
     const items = (data?.items ?? []).map((r) => ({ ...r, cost_usd: Number(r.cost_usd), video_seconds: Number(r.video_seconds) }));
 
@@ -40,7 +43,9 @@ export default function UsageClient() {
                     <option value="today">today</option>
                     <option value="month">this month</option>
                     <option value="all">all time</option>
+                    <option value="custom">custom range</option>
                 </Select>
+                {window === 'custom' && <DateRangePicker from={range.from} to={range.to} onChange={setRange} />}
                 <a href={`${url}${url.includes('?') ? '&' : '?'}format=csv`}>
                     <Button variant="outline"><Download size={13} /> CSV</Button>
                 </a>
