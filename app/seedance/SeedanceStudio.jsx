@@ -2618,6 +2618,9 @@ function AssetViewer({ job, onClose, onReuse, onToggleLike, onRefresh, onPrev, o
     const [dlFormat, setDlFormat] = useState('mov'); // video download container — mov is the default
     const modelName = job.model ? (MODELS.find((m) => m.id === job.model)?.name ?? IMAGE_MODELS.find((m) => m.id === job.model)?.name ?? job.model) : null;
     const prompt = job.userPrompt || job.prompt || '';
+    // Mannequin mode: the silent motion-source video plays beside the output
+    // so the source action and the generated performance compare at a glance.
+    const mannequinRef = (job.modeId || job.style) === 'mannequin' && !job.imageUrl ? job.refs?.find((r) => r.kind === 'video') : null;
     const created = job.createdAt ? new Date(job.createdAt) : null;
     const createdText = created && !Number.isNaN(created.getTime())
         ? created.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
@@ -2639,6 +2642,20 @@ function AssetViewer({ job, onClose, onReuse, onToggleLike, onRefresh, onPrev, o
             <div className="relative flex min-h-0 flex-1 items-center justify-center bg-black">
                 {job.imageUrl ? (
                     <img key={job.id} src={job.imageUrl} alt={job.prompt || 'Generated image'} className="max-h-full max-w-full object-contain" />
+                ) : mannequinRef ? (
+                    <div className="flex h-full w-full min-h-0 flex-col items-center justify-center gap-3 p-3 sm:flex-row">
+                        <MannequinSource r={mannequinRef} />
+                        <video
+                            key={job.id}
+                            src={job.videoUrl}
+                            controls
+                            autoPlay
+                            loop
+                            playsInline
+                            onError={onRefresh}
+                            className="min-h-0 min-w-0 max-h-full flex-1 object-contain"
+                        />
+                    </div>
                 ) : (
                     <video
                         key={job.id}
