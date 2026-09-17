@@ -43,6 +43,26 @@ test('green screen shares the same rules', () => {
     assert.match(STYLES.green_screen.system, /ASSET ROLES COME FROM THE USER/);
 });
 
+// Customized mode's source is dialogue-free footage (vehicle/product plates):
+// like Mannequin it must never inherit the Bengali dialogue lock, and its
+// brief must carry the pillars of the source formats it generalizes — locked
+// hero subjects, environment replacement, physically plausible reflections,
+// a described (not merely forbidden) camera, and a closing priority order.
+test('customized brief carries the environment-replacement pillars, no dialogue lock', () => {
+    const customized = STYLES.customized.system;
+    assert.doesNotMatch(customized, /Bengali/);
+    assert.match(customized, /Subject Consistency — Highest Priority/);
+    assert.match(customized, /Reflections — Critical/);
+    assert.match(customized, /Lighting & Integration/);
+    assert.match(customized, /Priority order/);
+    assert.match(customized, /THE CAMERA MOVE MUST BE DESCRIBED, NOT JUST FORBIDDEN/);
+    // The busy-street variant is conditional, never invented.
+    assert.match(customized, /only when the user asks for a busy or living environment/);
+    assert.match(customized, /omit the section entirely rather than inventing crowds/);
+    // No speech may be invented for silent source footage.
+    assert.match(customized, /never invent speech/);
+});
+
 // Mannequin mode's source is SILENT: the Bengali dialogue locks that every
 // other styled mode hard-codes would demand speech that does not exist.
 test('mannequin brief never inherits the Bengali dialogue lock', () => {
