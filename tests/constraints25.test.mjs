@@ -70,15 +70,22 @@ test('the valid task types are exactly the API set', () => {
     assert.deepEqual(OMNI_TASK_TYPES, ['auto', 'reference', 'edit', 'extend']);
 });
 
-test('edit-clip warning fires only for out-of-window clips on 2.5', () => {
+test('edit-clip warning fires only for out-of-window clips on seedance models', () => {
     // Shinjini's actual failure: a 3.6s clip on 2.5.
     assert.match(editClipWarning(MODEL_25_KIND, 3.6, 'clip.mp4'), /clip\.mp4 is 3\.6s/);
     assert.match(editClipWarning(MODEL_25_KIND, 31), /4–30s/);
+    // Neha's actual failure: a 1.5s clip on 2.0 died with an opaque provider
+    // internal error — 2.0-family kinds warn too now.
+    assert.match(editClipWarning('full', 1.5, 'SHOT_01.mp4'), /SHOT_01\.mp4 is 1\.5s/);
+    assert.match(editClipWarning('fast', 3.6), /4–30s/);
+    assert.match(editClipWarning('mini', 3.6), /4–30s/);
+    assert.match(editClipWarning('full_sensitive', 3.6), /4–30s/);
     // In-window, boundary values, other models, and unknown durations are quiet.
     assert.equal(editClipWarning(MODEL_25_KIND, EDIT_CLIP_MIN_SEC), null);
     assert.equal(editClipWarning(MODEL_25_KIND, EDIT_CLIP_MAX_SEC), null);
     assert.equal(editClipWarning(MODEL_25_KIND, 12.4), null);
-    assert.equal(editClipWarning('full', 3.6), null);
+    assert.equal(editClipWarning('full', 12.4), null);
+    assert.equal(editClipWarning('pro_1_5', 3.6), null);
     assert.equal(editClipWarning(MODEL_25_KIND, null), null);
     assert.equal(editClipWarning(MODEL_25_KIND, undefined), null);
 });

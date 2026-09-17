@@ -1014,8 +1014,8 @@ export default function SeedanceStudio() {
             const f = kind === 'image' ? await fitImageToLimits(file) : file;
             const { error: invalid, meta } = await validateMediaFile(kind, f, MODELS.find((m) => m.id === options.model)?.kind ?? null);
             if (invalid) { setError(invalid); continue; }
-            // A clip an editing prompt would reject (2.5 edits need 4–30s) is
-            // still a valid reference — attach it, but say so up front instead
+            // A clip an editing prompt would reject (Seedance edits need 4–30s)
+            // is still a valid reference — attach it, but say so up front instead
             // of letting the task fail asynchronously after it's been priced.
             if (kind === 'video') {
                 const warn = editClipWarning(selectedModel?.kind, meta?.durationSec, f.name);
