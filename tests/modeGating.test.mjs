@@ -8,7 +8,7 @@ const mode = (id) => MODES.find((m) => m.id === id);
 // BytePlus infers the task type from the content roles: reference_* items
 // become an r2v task, which Seedance 1.5 Pro rejects (t2v/i2v/first+last only).
 test('reference-based modes are blocked on Seedance 1.5 Pro', () => {
-    for (const id of ['reference', 'motion_capture', 'green_screen', 'performance_transfer']) {
+    for (const id of ['reference', 'motion_capture', 'green_screen', 'performance_transfer', 'customized']) {
         assert.equal(modeAllowedForModel(mode(id), byKind('pro_1_5')), false, id);
     }
 });
