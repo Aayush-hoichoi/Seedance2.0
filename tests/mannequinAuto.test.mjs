@@ -26,7 +26,10 @@ test('stage-1 brief locks the mannequin conversion invariants', () => {
     // Motion must transfer untouched, identity must not survive.
     assert.match(MANNEQUIN_SOURCE_PROMPT, /Do not add, remove, smooth/i);
     assert.match(MANNEQUIN_SOURCE_PROMPT, /No trace of the original performer/i);
-    // Green screen is replaced, camera is reproduced.
+    // Green screen is replaced with pitch black, camera is reproduced.
     assert.match(MANNEQUIN_SOURCE_PROMPT, /Replace the green screen/i);
+    assert.match(MANNEQUIN_SOURCE_PROMPT, /PITCH-BLACK/i);
+    assert.match(MANNEQUIN_SOURCE_PROMPT, /evenly lit/i); // white body must stay visible on black
+    assert.doesNotMatch(MANNEQUIN_SOURCE_PROMPT, /light-grey/i);
     assert.match(MANNEQUIN_SOURCE_PROMPT, /camera exactly/i);
 });
