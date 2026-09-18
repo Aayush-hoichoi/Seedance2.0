@@ -26,6 +26,13 @@ test('conversion brief locks the mannequin invariants', () => {
     // Motion must transfer untouched, identity must not survive.
     assert.match(MANNEQUIN_SOURCE_PROMPT, /Do not add, remove, smooth/i);
     assert.match(MANNEQUIN_SOURCE_PROMPT, /No trace of the original performer/i);
+    // Exact-motion lock: frame-by-frame full-body copy, 1:1 timing, same
+    // in-frame position — the invariants that stop the model improvising.
+    assert.match(MANNEQUIN_SOURCE_PROMPT, /frame by frame/i);
+    assert.match(MANNEQUIN_SOURCE_PROMPT, /FULL-BODY/i);
+    assert.match(MANNEQUIN_SOURCE_PROMPT, /1:1/);
+    assert.match(MANNEQUIN_SOURCE_PROMPT, /SAME position, scale and path/i);
+    assert.match(MANNEQUIN_SOURCE_PROMPT, /perfectly still/i);
     // Green screen is replaced with pitch black, camera is reproduced.
     assert.match(MANNEQUIN_SOURCE_PROMPT, /Replace the green screen/i);
     assert.match(MANNEQUIN_SOURCE_PROMPT, /PITCH-BLACK/i);

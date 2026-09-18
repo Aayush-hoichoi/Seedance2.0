@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { MODELS, MODES, RATIOS, RESOLUTIONS, DEFAULT_OPTIONS, IMAGE_MODELS, IMAGE_DEFAULT_MODEL_ID, IMAGE_RATIOS, IMAGE_RESOLUTIONS, IMAGE_STUDIO_ID, IMAGE_STUDIO_MODEL_ID, modeAllowedForModel, modeForModel, resolutionWithinTier, imageRefMax, durationMaxFor, imageResolutionsFor, MANNEQUIN_SOURCE_PROMPT } from '../../lib/seedance/constants.js';
 import { sanitizeOptions } from '../../lib/seedance/options.mjs';
 import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js';
-import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
+import { validateAggregate, validateRequestSize, DURATION_TOLERANCE_SEC } from '../../lib/seedance/limits.js';
 import { buildTags, modeSupportsTags, normalizePromptForApi, restorePromptTokens, tagToken, validatePromptReferences } from '../../lib/seedance/tags.js';
 import { getAsset, isAssetGone, resolveMediaRefs, cleanupOldAssets, registerAssetFromUrl } from '../../lib/seedance/assetsClient.js';
 import { ASSET_TTL_MS } from '../../lib/seedance/assetTtl.mjs';
@@ -20,7 +20,7 @@ import { moveItem } from '../../lib/seedance/reorder.mjs';
 import { mediaItemFromUpload } from '../../lib/seedance/mediaItem.mjs';
 import { savePromptRecord, fetchPromptRecords, setLikeRecord, setBinRecord, deletePromptRecord } from '../../lib/seedance/promptsClient.js';
 import { uploadToCdn } from '../../lib/seedance/upload.js';
-import { validateMediaFile } from '../../lib/seedance/inspectMedia.js';
+import { validateMediaFile, greenScreenShare } from '../../lib/seedance/inspectMedia.js';
 import { seedance25Constraints, editClipWarning } from '../../lib/seedance/constraints25.mjs';
 import { fitImageToLimits } from '../../lib/seedance/downscaleImage.js';
 import { loadJobs, saveJobs, newJob, loadPrompts, savePrompt, removePrompt } from '../../lib/seedance/jobs.js';
@@ -1022,6 +1022,17 @@ export default function SeedanceStudio() {
                 const warn = editClipWarning(selectedModel?.kind, meta?.durationSec, f.name);
                 if (warn) setNotice(warn);
             }
+            // Green Screen → Mannequin accepts ONLY green-screen footage: the
+            // fixed brief replaces the backdrop, so anything else produces
+            // garbage. Sample a frame and require a green-screen share; an
+            // unreadable frame passes (the metadata inspection already worked).
+            if (kind === 'video' && mode.autoMannequin) {
+                const share = await greenScreenShare(f).catch(() => null);
+                if (share !== null && share < 0.15) {
+                    setError(`${f.name} doesn't look like a green-screen video — ${mode.name} only accepts a performance shot on a green screen.`);
+                    continue;
+                }
+            }
             used[slot.role] += 1;
             onUploadFile(slot, f, meta);
         }
@@ -1305,7 +1316,7 @@ export default function SeedanceStudio() {
                 return;
             }
             const badClip = declaredTask === 'edit'
-                ? vids.find((m) => Number.isFinite(m.durationSec) && (m.durationSec < 4 || m.durationSec > 30))
+                ? vids.find((m) => Number.isFinite(m.durationSec) && (m.durationSec < 4 || m.durationSec > 30 + DURATION_TOLERANCE_SEC))
                 : null;
             if (badClip) {
                 setError(`${badClip.name || 'A reference clip'} is ${badClip.durationSec.toFixed(1)}s — video edits only accept 4–30s sources.`);
