@@ -687,9 +687,7 @@ export default function SeedanceStudio() {
     // (cleanupOldAssets above) is the single cleanup path.
 
     // Poll one task to its end and reflect progress on the job card.
-    // `onDone` (optional) fires with the finished video URL — used by the
-    // Green Screen → Mannequin chain to auto-launch stage 2.
-    const watchJob = (jobId, taskId, onDone = null) => {
+    const watchJob = (jobId, taskId) => {
         const controller = new AbortController();
         controllersRef.current[jobId] = controller;
         pollTask(taskId, {
@@ -699,7 +697,6 @@ export default function SeedanceStudio() {
             .then(({ url }) => {
                 patchJob(jobId, { status: 'done', videoUrl: url });
                 archiveJob(jobId, taskId, url);
-                onDone?.(url);
             })
             .catch((e) => patchJob(jobId, { status: 'error', error: e.message }))
             .finally(() => {
@@ -1109,7 +1106,7 @@ export default function SeedanceStudio() {
                 // later can say how many submit retries this cost, not just how
                 // many times the user pressed Generate.
                 patchJob(job.id, { taskId, status: 'queued', submitAttempts: attempt });
-                watchJob(job.id, taskId, creation.chain ? (url) => launchChainedMannequin(url, creation.chain) : null);
+                watchJob(job.id, taskId);
                 return;
             } catch (e) {
                 if (RATE_LIMIT_RE.test(e.message) && attempt < MAX_ATTEMPTS) {
@@ -1121,27 +1118,6 @@ export default function SeedanceStudio() {
                 return;
             }
         }
-    };
-
-    // Stage 2 of Green Screen → Mannequin: the finished mannequin video becomes
-    // Video 1 of a normal Mannequin generation, joined by the user's character
-    // images and their (already enhanced) prompt. The mannequin clip is
-    // AI-generated — featureless, no real person — so its raw URL passes
-    // ModelArk's input scan without an asset-library round-trip.
-    const launchChainedMannequin = (mannequinUrl, chain) => {
-        const video = { kind: 'video', role: 'reference_video', url: mannequinUrl, name: 'Mannequin (auto-generated)' };
-        let payload;
-        try {
-            payload = buildPayload({ options: chain.options, prompt: chain.prompt, mediaItems: [video, ...chain.images] });
-        } catch { return; } // stage 1 already errored visibly if inputs were unusable
-        launchJob(payload, chain.prompt, chain.promptMeta, {
-            modeId: 'mannequin',
-            // ponytail: the mannequin ref carries only its ~24h ModelArk URL (no
-            // tosKey) — the comparison player goes stale after that; wire the
-            // stage-1 archiveKey through if that matters.
-            refs: [{ kind: 'video', role: 'reference_video', url: mannequinUrl, previewUrl: mannequinUrl, name: 'Mannequin (auto-generated)', assetId: null, tosKey: null }, ...chain.imageRefs],
-            options: chain.options,
-        });
     };
 
     // Flip Image ↔ Video, keeping options.model valid for the active type.
@@ -1420,14 +1396,12 @@ export default function SeedanceStudio() {
             }
         }
 
-        // Green Screen → Mannequin: two chained generations instead of one.
-        // Stage 1 turns the green-screen performance into its silent white-
-        // mannequin motion twin (fixed brief, audio forced off); when it lands,
-        // watchJob's onDone auto-launches stage 2 — a normal Mannequin run with
-        // that video, the user's character images, and their enhanced prompt.
+        // Green Screen → Mannequin: convert the green-screen performance into
+        // its silent white-mannequin motion twin on pure black — the fixed
+        // brief is the prompt, audio forced off. Feed the result to Mannequin
+        // mode (via Reuse) to drive a character with it.
         if (mode.autoMannequin) {
             const video = resolvedItems.find((m) => m.kind === 'video');
-            const images = resolvedItems.filter((m) => m.kind === 'image');
             const snap = (items) => items
                 .filter((m) => typeof m.url === 'string' && !m.url.startsWith('data:'))
                 .map((m) => ({
@@ -1439,23 +1413,18 @@ export default function SeedanceStudio() {
                     assetId: m.assetId || null,
                     tosKey: m.tosKey || null,
                 }));
-            let stage1Payload;
+            let mannequinPayload;
             try {
-                stage1Payload = buildPayload({
+                mannequinPayload = buildPayload({
                     options: { ...options, generate_audio: false },
                     prompt: MANNEQUIN_SOURCE_PROMPT,
                     mediaItems: [video],
                 });
             } catch (e) { setError(e.message); return; }
-            launchJob(stage1Payload, MANNEQUIN_SOURCE_PROMPT, null, {
+            launchJob(mannequinPayload, MANNEQUIN_SOURCE_PROMPT, null, {
                 modeId: 'mannequin_auto',
                 refs: snap([video]),
                 options: { ...options, generate_audio: false },
-                // ponytail: the chain lives in memory only — a reload mid-stage-1
-                // drops it; the mannequin still lands in history and Reuse into
-                // Mannequin mode finishes the job by hand. Batch (×2) is also
-                // ignored here: one chain per click.
-                chain: { prompt: apiPrompt, promptMeta, images, imageRefs: snap(images), options: { ...options } },
             });
             return;
         }
