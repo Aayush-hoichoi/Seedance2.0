@@ -1893,6 +1893,23 @@ export default function SeedanceStudio() {
     const scopedJobs = projectsLoaded ? jobs.filter(belongsToProject) : [];
     const visibleJobs = scopedJobs.filter((j) => !j.deleted);
 
+    // Sequential-workflow link: finished Green Screen → Mannequin results,
+    // importable straight into Mannequin mode's video slot. Server-merged
+    // cards carry no modeId, so the fixed brief's header identifies them.
+    const mannequinSources = visibleJobs.filter((j) => j.status === 'done' && j.videoUrl
+        && (j.modeId === 'mannequin_auto' || String(j.prompt || '').startsWith('MANNEQUIN')));
+
+    // Attach a generated mannequin as the Mannequin-mode motion source —
+    // replaces whatever video is in the slot. tosKey = the job's archiveKey so
+    // the submit pre-flight can re-presign it after the ~24h task URL dies.
+    const onImportMannequin = (job) => {
+        setError(null);
+        setMediaByRole((prev) => ({
+            ...prev,
+            reference_video: [{ kind: 'video', role: 'reference_video', url: job.videoUrl, previewUrl: job.videoUrl, tosKey: job.archiveKey || null, name: 'Mannequin (generated)', isImage: false }],
+        }));
+    };
+
     // Landing opens on the Hero, never a preview. The big stage appears only
     // when the user clicks a history item (or starts a fresh generation).
     // autoSelectedRef is still reset on project switch (see selectProject).
@@ -2087,6 +2104,8 @@ export default function SeedanceStudio() {
                 setBatch={setBatch}
                 onMediaError={setError}
                 onUploadFiles={onUploadFiles}
+                mannequinSources={mannequinSources}
+                onImportMannequin={onImportMannequin}
                 tags={tags}
                 mediaType={mediaType}
                 onChangeMediaType={changeMediaType}
