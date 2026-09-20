@@ -1,12 +1,18 @@
 import { NextResponse } from 'next/server';
 import { getUser } from '../../../lib/auth/user.js';
-import { listCreators, listUserGenerations, listLikedGenerations } from '../../../lib/access/db.js';
+import {
+    listCreators,
+    listUserGenerations,
+    listUserGenerationProjects,
+    listLikedGenerations,
+} from '../../../lib/access/db.js';
 import { toItem } from '../../../lib/seedance/galleryItem.mjs';
 
 // Community gallery — every signed-in user can browse every creator's work.
 //   GET /api/gallery            → { me, creators: [{ id, name, email, generations, last_at }] }
 //                                 ordered newest → oldest by last_at (sidebar order)
-//   GET /api/gallery?user=<id>  → { items: [...] } that creator's generations
+//   GET /api/gallery?user=<id>  → that creator's generations + project facets
+//   GET /api/gallery?user=<id>&project=<id> → that creator's work in one project
 //   GET /api/gallery?liked=1    → { items: [...] } every liked generation (all creators)
 // Each item carries a presigned URL for the archived copy of its video
 // (videos/<taskId>.mp4 in TOS — pure local HMAC, no round-trip). The object
@@ -15,6 +21,13 @@ import { toItem } from '../../../lib/seedance/galleryItem.mjs';
 
 export const runtime = 'nodejs';
 export const maxDuration = 15;
+
+function positiveInteger(value) {
+    if (value == null || value === '') return null;
+    if (!/^[1-9]\d*$/.test(value)) return undefined;
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) ? parsed : undefined;
+}
 
 export async function GET(request) {
     const user = await getUser();
@@ -50,8 +63,29 @@ export async function GET(request) {
             return NextResponse.json({ me: user.userId, creators });
         }
         if (target.length > 200) return NextResponse.json({ error: 'Invalid user id.' }, { status: 400 });
-        const rows = await listUserGenerations(target);
-        return NextResponse.json({ items: rows.map(toItem) });
+        const before = params.get('before') || null;
+        if (before && before.length > 40) return NextResponse.json({ error: 'Invalid cursor.' }, { status: 400 });
+        const projectId = positiveInteger(params.get('project'));
+        if (projectId === undefined) return NextResponse.json({ error: 'Invalid project id.' }, { status: 400 });
+
+        const [rows, projectRows] = await Promise.all([
+            listUserGenerations(target, 200, before, projectId),
+            listUserGenerationProjects(target),
+        ]);
+        const projects = projectRows
+            .filter((row) => row.project_id != null)
+            .map((row) => ({
+                id: Number(row.project_id),
+                name: row.project_name,
+                generations: Number(row.generations),
+                images: Number(row.images),
+                videos: Number(row.videos),
+            }));
+        const total = projectId == null
+            ? projectRows.reduce((sum, row) => sum + Number(row.generations), 0)
+            : projects.find((project) => project.id === projectId)?.generations ?? 0;
+        const nextBefore = rows.length === 200 ? rows[rows.length - 1].created_at : null;
+        return NextResponse.json({ items: rows.map(toItem), projects, total, nextBefore });
     } catch (e) {
         console.error('[gallery] failed:', e.message);
         return NextResponse.json({ error: 'Could not load the gallery.' }, { status: 502 });
