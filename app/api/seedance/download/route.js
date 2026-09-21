@@ -22,8 +22,9 @@ export const maxDuration = 300;
 
 const MAX_ITEMS = 200;
 const MAX_ASSET_BYTES = 200 * 1024 * 1024; // mirrors the archive route's cap
+const MAX_EXR_BYTES = 1024 * 1024 * 1024;
 // Only fetch from BytePlus's own media hosts — this is not an open proxy (SSRF).
-const HOST_RE = /\.(volces\.com|bytepluses\.com)$/;
+const HOST_RE = /\.(volces\.com|bytepluses\.com|volcvideo\.com)$/;
 
 function bad(message, status = 400) {
     return NextResponse.json({ error: message }, { status });
@@ -69,14 +70,15 @@ function parseItems(raw) {
 
 // Download one asset into a Buffer, enforcing the size cap. Returns null on any
 // failure so a single expired/broken link never aborts the whole archive.
-async function fetchAsset(url) {
+async function fetchAsset(url, name = '') {
     try {
         const res = await fetch(url);
         if (!res.ok) return null;
+        const maxBytes = /\.exr$/i.test(name) || /\.exr(?:$|[?#])/i.test(url) ? MAX_EXR_BYTES : MAX_ASSET_BYTES;
         const len = Number(res.headers.get('content-length'));
-        if (len && len > MAX_ASSET_BYTES) return null;
+        if (len && len > maxBytes) return null;
         const buf = Buffer.from(await res.arrayBuffer());
-        return buf.length && buf.length <= MAX_ASSET_BYTES ? buf : null;
+        return buf.length && buf.length <= maxBytes ? buf : null;
     } catch {
         return null;
     }
@@ -113,7 +115,7 @@ export async function POST(request) {
 
     // Single asset → buffer it (so the codec can be fixed) and send it back.
     if (items.length === 1) {
-        const buf = await fetchAsset(items[0].url);
+        const buf = await fetchAsset(items[0].url, items[0].name);
         if (!buf) {
             return bad('Could not download the file — the link may have expired.', 502);
         }
@@ -130,7 +132,7 @@ export async function POST(request) {
     // Many assets → stream a zip. Fetch lazily as the archive is consumed.
     async function* entries() {
         for (const it of items) {
-            const buf = await fetchAsset(it.url);
+            const buf = await fetchAsset(it.url, it.name);
             if (buf) yield await toDelivery(buf, it.name);
         }
     }
@@ -144,7 +146,7 @@ export async function POST(request) {
     });
 }
 
-const TYPES = { mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/mp4', webm: 'video/webm', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
+const TYPES = { mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/mp4', webm: 'video/webm', exr: 'image/x-exr', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
 function contentTypeFor(name) {
     const ext = /\.(\w+)$/.exec(name || '')?.[1]?.toLowerCase();
     return TYPES[ext] || 'application/octet-stream';
