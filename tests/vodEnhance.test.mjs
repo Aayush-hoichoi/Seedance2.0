@@ -80,3 +80,26 @@ test('EXR submission sends the professional 16-bit request', async () => {
         else process.env.BYTEPLUS_VOD_MEDIAKIT_API_KEY = previousKey;
     }
 });
+
+test('EXR submission removes gallery metadata before calling BytePlus', async () => {
+    const previousKey = process.env.BYTEPLUS_VOD_MEDIAKIT_API_KEY;
+    const previousFetch = globalThis.fetch;
+    process.env.BYTEPLUS_VOD_MEDIAKIT_API_KEY = 'test-vod-key';
+    let body;
+    globalThis.fetch = async (_url, init) => {
+        body = JSON.parse(init.body);
+        return new Response(JSON.stringify({ task_id: 'task-exr-2' }), { status: 200 });
+    };
+    try {
+        await submitEnhancement({
+            videoUrl: 'https://cdn.bytepluses.com/video.mp4',
+            requestBody: { _gallery: { sourceTaskId: 'video-1' }, output_format: 'EXR' },
+        });
+        assert.equal(body._gallery, undefined);
+        assert.equal(body.output_format, 'EXR');
+    } finally {
+        globalThis.fetch = previousFetch;
+        if (previousKey === undefined) delete process.env.BYTEPLUS_VOD_MEDIAKIT_API_KEY;
+        else process.env.BYTEPLUS_VOD_MEDIAKIT_API_KEY = previousKey;
+    }
+});

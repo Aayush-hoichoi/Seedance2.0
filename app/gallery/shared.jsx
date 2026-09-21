@@ -339,6 +339,18 @@ export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext }) {
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
                             </button>
                         )}
+                        {!isImage && item.exrUrl && (
+                            <button
+                                type="button"
+                                onClick={() => downloadAsset(item.exrUrl, `${item.taskId || 'generation'}.exr`, item.taskId, { raw: true })}
+                                title="Download the EXR output"
+                                aria-label="Download the EXR output"
+                                className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-amber-300/25 bg-amber-300/10 text-amber-200 hover:bg-amber-300/20 hover:border-amber-300/45 transition-colors text-xs font-semibold"
+                            >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
+                                EXR
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>
