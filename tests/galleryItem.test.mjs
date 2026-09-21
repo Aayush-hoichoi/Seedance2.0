@@ -7,10 +7,12 @@ test('toItem maps a video row (no AK/SK in env → archiveUrl null) and an image
     assert.equal(video.mediaType, 'video');
     assert.equal(video.taskId, 't1');
     assert.equal(video.liked, true);
-    const image = toItem({ task_id: 't2', category: 'image', image_prompt: 'dog', image_key: 'images/job-9-0.png' });
+    const image = toItem({ task_id: 't2', category: 'image', image_prompt: 'dog', image_key: 'images/job-9-0.png', project_id: 9, project_name: 'Film A' });
     assert.equal(image.mediaType, 'image');
     assert.equal(image.prompt, 'dog');
     assert.equal(image.archiveUrl, null);
+    assert.equal(image.projectId, 9);
+    assert.equal(image.projectName, 'Film A');
 });
 
 test('imageUrlsFromResult: url entries pass through; key entries need creds (none in test env → dropped); b64 and junk skipped', () => {

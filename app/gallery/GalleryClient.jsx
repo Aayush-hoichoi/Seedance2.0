@@ -5,7 +5,7 @@
 // settings land back in the studio prompt bar); only the creator can delete,
 // and that lives in the studio, not here.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { UserButton } from '@clerk/nextjs';
@@ -17,9 +17,15 @@ export default function GalleryClient() {
     const [me, setMe] = useState(null);
     const [selected, setSelected] = useState(null); // creator id
     const [items, setItems] = useState(null); // null = loading
+    const [projects, setProjects] = useState(null); // project facets for selected creator
+    const [projectId, setProjectId] = useState(''); // empty = all projects
+    const [total, setTotal] = useState(0);
+    const [nextBefore, setNextBefore] = useState(null);
+    const [loadingMore, setLoadingMore] = useState(false);
     const [lightbox, setLightbox] = useState(null); // item
     const [error, setError] = useState(null);
     const [query, setQuery] = useState('');
+    const requestKeyRef = useRef('');
 
     useEffect(() => {
         let alive = true;
@@ -42,14 +48,25 @@ export default function GalleryClient() {
     useEffect(() => {
         if (!selected) return;
         let alive = true;
+        const requestKey = `${selected}:${projectId}`;
+        requestKeyRef.current = requestKey;
         setItems(null);
         setError(null);
-        fetch(`/api/gallery?user=${encodeURIComponent(selected)}`)
+        setNextBefore(null);
+        setLoadingMore(false);
+        setLightbox(null);
+        fetch(galleryUrl(selected, projectId))
             .then((r) => (r.ok ? r.json() : Promise.reject(new Error('Could not load this creator’s work.'))))
-            .then((d) => { if (alive) setItems(d.items || []); })
+            .then((d) => {
+                if (!alive || requestKeyRef.current !== requestKey) return;
+                setItems(d.items || []);
+                setProjects(d.projects || []);
+                setTotal(Number(d.total) || 0);
+                setNextBefore(d.nextBefore || null);
+            })
             .catch((e) => { if (alive) { setError(e.message); setItems([]); } });
         return () => { alive = false; };
-    }, [selected]);
+    }, [selected, projectId]);
 
     const creator = useMemo(() => creators?.find((c) => c.id === selected) || null, [creators, selected]);
 
@@ -60,6 +77,47 @@ export default function GalleryClient() {
         if (!q || !creators) return creators;
         return creators.filter((c) => `${c.name || ''} ${c.email || ''}`.toLowerCase().includes(q));
     }, [creators, query]);
+
+    const activeProject = useMemo(
+        () => projects?.find((project) => String(project.id) === projectId) || null,
+        [projects, projectId],
+    );
+    const mediaTotals = useMemo(() => {
+        if (activeProject) return activeProject;
+        return (projects || []).reduce((sum, project) => ({
+            images: sum.images + project.images,
+            videos: sum.videos + project.videos,
+        }), { images: 0, videos: 0 });
+    }, [projects, activeProject]);
+
+    const chooseCreator = (id) => {
+        if (id === selected) {
+            if (projectId) setProjectId('');
+            return;
+        }
+        setSelected(id);
+        setProjectId('');
+        setProjects(null);
+    };
+
+    const loadMore = async () => {
+        if (!selected || !nextBefore || loadingMore) return;
+        const requestKey = requestKeyRef.current;
+        setLoadingMore(true);
+        setError(null);
+        try {
+            const response = await fetch(galleryUrl(selected, projectId, nextBefore));
+            if (!response.ok) throw new Error('Could not load older generations.');
+            const data = await response.json();
+            if (requestKeyRef.current !== requestKey) return;
+            setItems((current) => [...(current || []), ...(data.items || [])]);
+            setNextBefore(data.nextBefore || null);
+        } catch (e) {
+            if (requestKeyRef.current === requestKey) setError(e.message);
+        } finally {
+            if (requestKeyRef.current === requestKey) setLoadingMore(false);
+        }
+    };
 
     return (
         <div className="relative min-h-screen w-full bg-app-bg text-white">
@@ -109,7 +167,7 @@ export default function GalleryClient() {
                         <div key={i} className="h-14 rounded-xl bg-white/[0.03] animate-pulse" />
                     ))}
                     {shown?.map((c) => (
-                        <CreatorCard key={c.id} c={c} me={me} selected={c.id === selected} onClick={() => setSelected(c.id)} />
+                        <CreatorCard key={c.id} c={c} me={me} selected={c.id === selected} onClick={() => chooseCreator(c.id)} />
                     ))}
                     {shown?.length === 0 && (
                         <p className="px-2 text-xs text-white/35">{query.trim() ? 'No creator matches that.' : 'No creators yet.'}</p>
@@ -132,7 +190,7 @@ export default function GalleryClient() {
                             <button
                                 key={c.id}
                                 type="button"
-                                onClick={() => setSelected(c.id)}
+                                onClick={() => chooseCreator(c.id)}
                                 className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-semibold whitespace-nowrap transition-colors ${c.id === selected ? 'border-primary/60 bg-primary/10 text-white' : 'border-white/10 bg-white/[0.03] text-white/60'}`}
                             >
                                 <span className={`w-5 h-5 rounded-full bg-gradient-to-br ${gradientFor(c.id)} flex items-center justify-center text-[10px] font-black text-black/80`}>{initialOf(c)}</span>
@@ -159,6 +217,29 @@ export default function GalleryClient() {
                         </div>
                     )}
 
+                    {creator && projects !== null && projects.length > 0 && (
+                        <div className="mb-4 flex flex-wrap items-center gap-2.5 rounded-xl border border-white/[0.08] bg-white/[0.025] px-3 py-2.5">
+                            <label htmlFor="gallery-project" className="text-[10px] font-bold uppercase tracking-wider text-white/35">Project</label>
+                            <select
+                                id="gallery-project"
+                                value={projectId}
+                                onChange={(event) => setProjectId(event.target.value)}
+                                className="min-w-52 max-w-full rounded-lg border border-white/10 bg-[#17171d] px-2.5 py-1.5 text-xs font-semibold text-white/85 outline-none transition-colors hover:border-white/20 focus:border-primary/60"
+                            >
+                                <option value="">All projects ({projects.reduce((sum, project) => sum + project.generations, 0)})</option>
+                                {projects.map((project) => (
+                                    <option key={project.id} value={project.id}>{project.name} ({project.generations})</option>
+                                ))}
+                            </select>
+                            <span className="text-[11px] text-white/40">
+                                {mediaTotals.images} image{mediaTotals.images === 1 ? '' : 's'} · {mediaTotals.videos} video{mediaTotals.videos === 1 ? '' : 's'}
+                            </span>
+                            <span className="ml-auto text-[11px] text-white/35">
+                                {items === null ? 'Loading…' : `Showing ${items.length} of ${total}`}
+                            </span>
+                        </div>
+                    )}
+
                     {error && <p className="mb-4 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-300">{error}</p>}
 
                     {items === null && selected && (
@@ -173,18 +254,33 @@ export default function GalleryClient() {
                                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" /></svg>
                             </div>
                             <p className="text-sm text-white/45">Nothing here yet.</p>
-                            <p className="text-xs text-white/25 mt-1">This creator hasn’t generated anything yet.</p>
+                            <p className="text-xs text-white/25 mt-1">{activeProject ? `No visible generations in ${activeProject.name}.` : 'This creator hasn’t generated anything yet.'}</p>
                         </div>
                     )}
 
                     {items?.length > 0 && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 pb-10">
-                            {items.map((item) => (
-                                item.mediaType === 'image'
-                                    ? <ImageCard key={item.taskId} item={item} onOpen={() => setLightbox(item)} />
-                                    : <VideoCard key={item.taskId} item={item} onOpen={() => setLightbox(item)} />
-                            ))}
-                        </div>
+                        <>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                                {items.map((item) => (
+                                    item.mediaType === 'image'
+                                        ? <ImageCard key={item.taskId} item={item} onOpen={() => setLightbox(item)} />
+                                        : <VideoCard key={item.taskId} item={item} onOpen={() => setLightbox(item)} />
+                                ))}
+                            </div>
+                            {nextBefore && (
+                                <div className="flex justify-center py-8">
+                                    <button
+                                        type="button"
+                                        onClick={loadMore}
+                                        disabled={loadingMore}
+                                        className="rounded-lg border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold text-white/65 transition-colors hover:border-white/25 hover:bg-white/[0.08] hover:text-white disabled:cursor-wait disabled:opacity-50"
+                                    >
+                                        {loadingMore ? 'Loading…' : `Load older${total > items.length ? ` · ${total - items.length} remaining` : ''}`}
+                                    </button>
+                                </div>
+                            )}
+                            {!nextBefore && <div className="h-10" />}
+                        </>
                     )}
                 </main>
             </div>
@@ -205,6 +301,13 @@ export default function GalleryClient() {
             })()}
         </div>
     );
+}
+
+function galleryUrl(userId, projectId = '', before = null) {
+    const params = new URLSearchParams({ user: userId });
+    if (projectId) params.set('project', projectId);
+    if (before) params.set('before', before);
+    return `/api/gallery?${params.toString()}`;
 }
 
 function CreatorCard({ c, me, selected, onClick }) {
