@@ -480,8 +480,12 @@ rest with `KEY_ENCRYPTION_KEY`; the env fallback exists for local development.
 #### 16-bit EXR output
 
 The Seedance preview can submit a finished video to BytePlus VOD AI MediaKit and
-download the enhanced 16-bit EXR result. Add the MediaKit key on the server when
-you are ready:
+download the enhanced 16-bit EXR result. The EXR window lets the user choose the
+enhancement tier, output resolution, and frame rate. The server validates those
+choices and stores them with the queued job. Bit depth remains 16-bit and the
+format remains OpenEXR.
+
+Add the MediaKit key on the server when you are ready:
 
 ```env
 BYTEPLUS_VOD_MEDIAKIT_API_KEY=your-vod-mediakit-key

@@ -31,6 +31,7 @@ import { preferredProjectId, resolveProjectId, rememberProjectId, syncProjectPar
 import { archiveKeyForTask } from '../../lib/seedance/archiveKey.mjs';
 import { resolveFreshVideoUrl } from '../../lib/seedance/videoUrl.js';
 import { downloadAsset } from '../../lib/seedance/downloadAssets.js';
+import { estimateExrCost, EXR_DEFAULT_OPTIONS, EXR_FPS, EXR_RESOLUTIONS, EXR_TIERS, normalizeExrOptions, pricePerExrMinute } from '../../lib/byteplus/exrPricing.mjs';
 import PromptBar from './PromptBar.jsx';
 import { UserButton } from '@clerk/nextjs';
 import MediaHoverPreview from './MediaHoverPreview.jsx';
@@ -708,20 +709,21 @@ export default function SeedanceStudio() {
         throw new Error('Timed out waiting for the EXR file.');
     };
 
-    const generateExr = async (job) => {
+    const generateExr = async (job, requestedOptions = {}) => {
         if (!job?.videoUrl || job.exrStatus === 'submitting' || job.exrStatus === 'processing') return;
+        const exrOptions = normalizeExrOptions(requestedOptions);
         patchJob(job.id, { exrStatus: 'submitting', exrError: null });
         try {
             const response = await fetch('/api/seedance/exr', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sourceUrl: job.videoUrl, projectId: job.projectId }),
+                body: JSON.stringify({ sourceUrl: job.videoUrl, projectId: job.projectId, options: exrOptions }),
             });
             const data = await response.json().catch(() => null);
             if (!response.ok || !data?.taskToken) {
                 throw new Error(data?.error || `EXR request failed (${response.status}).`);
             }
-            patchJob(job.id, { exrTaskToken: data.taskToken, exrStatus: 'processing' });
+            patchJob(job.id, { exrTaskToken: data.taskToken, exrStatus: 'processing', exrOptions });
             await pollExr(job, data.taskToken);
         } catch (error) {
             patchJob(job.id, { exrStatus: 'failed', exrError: error.message || 'EXR enhancement failed.' });
@@ -2740,13 +2742,13 @@ function Hero() {
 function AssetViewer({ job, onClose, onReuse, onGenerateExr, onToggleLike, onRefresh, onPrev, onNext }) {
     const [dlFormat, setDlFormat] = useState('mov'); // video download container — mov is the default
     const [showExrInfo, setShowExrInfo] = useState(false);
+    const [exrOptions, setExrOptions] = useState(() => normalizeExrOptions(job.exrOptions || EXR_DEFAULT_OPTIONS));
     const modelName = job.model ? (MODELS.find((m) => m.id === job.model)?.name ?? IMAGE_MODELS.find((m) => m.id === job.model)?.name ?? job.model) : null;
     const prompt = job.userPrompt || job.prompt || '';
     const exrDurationSeconds = Number(job.options?.duration);
-    const exrPricePerMinute = 16.5288; // BytePlus VOD Pro, 4K, up to 30 fps reference price
-    const exrEstimate = Number.isFinite(exrDurationSeconds) && exrDurationSeconds > 0
-        ? (exrDurationSeconds / 60 * exrPricePerMinute).toFixed(2)
-        : null;
+    const exrPricePerMinute = pricePerExrMinute(exrOptions);
+    const exrEstimateValue = estimateExrCost(exrOptions, exrDurationSeconds);
+    const exrEstimate = exrEstimateValue == null ? null : exrEstimateValue.toFixed(2);
     // Mannequin mode: the silent motion-source video plays beside the output
     // so the source action and the generated performance compare at a glance.
     const mannequinRef = (job.modeId || job.style) === 'mannequin' && !job.imageUrl ? job.refs?.find((r) => r.kind === 'video') : null;
@@ -2764,6 +2766,10 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, onToggleLike, onRef
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
     }, [onClose, onPrev, onNext]);
+
+    useEffect(() => {
+        setExrOptions(normalizeExrOptions(job.exrOptions || EXR_DEFAULT_OPTIONS));
+    }, [job.id]);
 
     return (
         <div className="fixed inset-0 z-[80] flex flex-col bg-app-bg animate-fade-in-up lg:flex-row">
@@ -2954,6 +2960,97 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, onToggleLike, onRef
                     </div>
                 </div>
             </aside>
+            {showExrInfo && (
+                <div
+                    className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+                    role="presentation"
+                    onMouseDown={(e) => { if (e.target === e.currentTarget) setShowExrInfo(false); }}
+                >
+                    <section
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="exr-dialog-title"
+                        className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl border border-line bg-paper-1 p-5 shadow-2xl"
+                    >
+                        <div className="flex items-start justify-between gap-4">
+                            <div>
+                                <p className="text-[11px] font-semibold uppercase tracking-wider text-accent">BytePlus VOD MediaKit</p>
+                                <h2 id="exr-dialog-title" className="mt-1 text-xl font-semibold text-ink">EXR output details</h2>
+                            </div>
+                            <button type="button" onClick={() => setShowExrInfo(false)} aria-label="Close EXR details" className="rounded-md p-1.5 text-ink-3 transition-colors hover:bg-paper-3 hover:text-ink">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                            </button>
+                        </div>
+
+                        <div className="mt-5 grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
+                            <DetailRow k="Format" v="OpenEXR" />
+                            <DetailRow k="Bit depth" v="16-bit Half Float" />
+                            <ExrSelect
+                                label="Enhancement"
+                                value={exrOptions.tier}
+                                onChange={(value) => setExrOptions((current) => normalizeExrOptions({ ...current, tier: value }))}
+                            >
+                                {EXR_TIERS.map((tier) => <option key={tier.value} value={tier.value}>{tier.label}</option>)}
+                            </ExrSelect>
+                            <ExrSelect
+                                label="Resolution"
+                                value={exrOptions.resolution}
+                                onChange={(value) => setExrOptions((current) => normalizeExrOptions({ ...current, resolution: value }))}
+                            >
+                                {EXR_RESOLUTIONS.map((resolution) => <option key={resolution.value} value={resolution.value}>{resolution.label}</option>)}
+                            </ExrSelect>
+                            <ExrSelect
+                                label="Frame rate"
+                                value={String(exrOptions.fps)}
+                                onChange={(value) => setExrOptions((current) => normalizeExrOptions({ ...current, fps: Number(value) }))}
+                            >
+                                {EXR_FPS.map((fps) => <option key={fps} value={fps}>{fps} FPS</option>)}
+                            </ExrSelect>
+                            <DetailRow k="Billing unit" v="USD per output minute" />
+                        </div>
+
+                        <div className="mt-5 space-y-3 text-xs leading-relaxed text-ink-2">
+                            <div className="rounded-lg border border-line bg-paper-2 p-3">
+                                <p className="font-semibold text-ink">How pricing works</p>
+                                <p className="mt-1">BytePlus VOD uses pay-as-you-go billing. Video enhancement is charged from the processed output duration, enhancement tier, resolution, and frame rate. Your current selection is <strong>${exrPricePerMinute.toFixed(4)} per minute</strong>.</p>
+                                {exrEstimate && <p className="mt-2 font-semibold text-ink">Estimated processing charge for {exrDurationSeconds}s: about ${exrEstimate}.</p>}
+                                <p className="mt-1 text-ink-3">This is an estimate from the public reference price. Your BytePlus account, region, contract, resource package, and any EXR-specific pricing can change the final bill.</p>
+                            </div>
+
+                            <div>
+                                <p className="font-semibold text-ink">Other possible charges</p>
+                                <ul className="mt-1 list-disc space-y-1 pl-5">
+                                    <li>Storage charges if the output is kept in a BytePlus/TOS bucket.</li>
+                                    <li>Data transfer charges when the output is downloaded.</li>
+                                    <li>The 16-bit EXR file can be much larger than the original video.</li>
+                                </ul>
+                            </div>
+
+                            <div>
+                                <p className="font-semibold text-ink">What will happen after confirmation</p>
+                                <p className="mt-1">The current finished video will be sent to BytePlus. The task runs asynchronously, so you can wait while the status is checked. The EXR result is then made available through the Download EXR button.</p>
+                            </div>
+
+                            <p className="text-ink-3">This action starts a paid BytePlus task. Check the final price in your BytePlus billing console before confirming.</p>
+                            <p>
+                                <a className="text-accent underline underline-offset-2" href="https://docs.byteplus.com/en/docs/byteplus-vod/docs-pay-as-you-go-pricing" target="_blank" rel="noreferrer">View BytePlus pricing documentation</a>
+                            </p>
+                        </div>
+
+                        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                            <button type="button" onClick={() => setShowExrInfo(false)} className="rounded-md border border-line px-4 py-2.5 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink">Cancel</button>
+                            <button
+                                type="button"
+                                disabled={job.exrStatus === 'submitting' || job.exrStatus === 'processing'}
+                                onClick={() => { setShowExrInfo(false); onGenerateExr(job, exrOptions); }}
+                                className="rounded-md bg-accent px-4 py-2.5 text-xs font-semibold text-accent-ink transition-colors hover:bg-accent-hi disabled:cursor-wait disabled:opacity-60"
+                            >
+                                {job.exrStatus === 'submitting' || job.exrStatus === 'processing' ? 'EXR is processing…' : 'Confirm and generate EXR'}
+                            </button>
+                        </div>
+                    </section>
+                </div>
+            )}
         </div>
     );
 }
@@ -2964,6 +3061,21 @@ function DetailRow({ k, v }) {
             <dt className="shrink-0 text-ink-3">{k}</dt>
             <dd className="text-right font-medium text-ink-2">{v}</dd>
         </div>
+    );
+}
+
+function ExrSelect({ label, value, onChange, children }) {
+    return (
+        <label className="flex items-center justify-between gap-3">
+            <span className="shrink-0 text-ink-3">{label}</span>
+            <select
+                value={value}
+                onChange={(event) => onChange(event.target.value)}
+                className="min-w-28 rounded-md border border-line bg-paper-2 px-2 py-1.5 text-right font-medium text-ink-2 outline-none transition-colors hover:bg-paper-3 focus:border-accent"
+            >
+                {children}
+            </select>
+        </label>
     );
 }
 
