@@ -13,6 +13,7 @@
   "scripts": {
     "dev": "next dev",
     "test": "node --test tests/*.test.mjs",
+    "worker:exr": "node --env-file=.env.local scripts/exr-queue-worker.mjs",
     "build": "npm run build:mcp-app && npm run build:agent && next build",
     "build:mcp-app": "node scripts/build-mcp-media-app.mjs",
     "start": "next start",

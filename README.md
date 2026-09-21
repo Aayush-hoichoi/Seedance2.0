@@ -477,6 +477,34 @@ project-scoped → workspace-wide → env fallback:
 Prefer storing keys in the console (**Keys → provider**), which encrypts them at
 rest with `KEY_ENCRYPTION_KEY`; the env fallback exists for local development.
 
+#### 16-bit EXR output
+
+The Seedance preview can submit a finished video to BytePlus VOD AI MediaKit and
+download the enhanced 16-bit EXR result. Add the MediaKit key on the server when
+you are ready:
+
+```env
+BYTEPLUS_VOD_MEDIAKIT_API_KEY=your-vod-mediakit-key
+# Recommended: keep queue task tokens valid when provider keys rotate.
+BYTEPLUS_VOD_TASK_TOKEN_SECRET=long-random-server-secret
+```
+
+The feature uses the Singapore MediaKit endpoint by default. If BytePlus gives
+your account a different endpoint or request fields, set
+`BYTEPLUS_VOD_MEDIAKIT_BASE_URL`, `BYTEPLUS_VOD_MEDIAKIT_ENHANCE_PATH`, or
+`BYTEPLUS_VOD_EXR_REQUEST_JSON` in the server environment. `ARK_AK` and `ARK_SK`
+are optional and let the app keep a durable copy in the existing TOS bucket;
+without them, the download uses BytePlus's temporary result URL.
+
+EXR requests are stored in a separate database-backed queue. Run its dedicated
+worker as a separate process alongside Next.js:
+
+```bash
+npm run worker:exr
+```
+
+Admins can inspect, cancel, and retry EXR jobs from **Console → EXR Queue**.
+
 Adding ChatGPT Image 2 to an already-seeded database is a one-off:
 
 ```bash

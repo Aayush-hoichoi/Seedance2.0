@@ -680,6 +680,54 @@ export default function SeedanceStudio() {
             .catch(() => {});
     };
 
+    // EXR enhancement is a separate asynchronous VOD MediaKit task. Keep the
+    // provider task behind a signed server token and store only the result URL
+    // in the local job history.
+    const pollExr = async (job, taskToken) => {
+        for (let attempt = 0; attempt < 360; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 5000));
+            const poll = await fetch(`/api/seedance/exr?task=${encodeURIComponent(taskToken)}`);
+            const result = await poll.json().catch(() => null);
+            if (!poll.ok) {
+                if (attempt < 359) continue;
+                throw new Error(result?.error || `EXR status failed (${poll.status}).`);
+            }
+            if (result?.status === 'queued' || result?.status === 'processing') continue;
+            if (result?.status === 'failed') throw new Error(result.error || 'BytePlus EXR enhancement failed.');
+            if (result?.status === 'cancelled') throw new Error('The EXR job was cancelled by an administrator.');
+            if (result?.status === 'succeeded' && result.url) {
+                patchJob(job.id, {
+                    exrUrl: result.url,
+                    exrStatus: 'succeeded',
+                    exrError: null,
+                    exrMetadata: result.metadata || null,
+                });
+                return;
+            }
+        }
+        throw new Error('Timed out waiting for the EXR file.');
+    };
+
+    const generateExr = async (job) => {
+        if (!job?.videoUrl || job.exrStatus === 'submitting' || job.exrStatus === 'processing') return;
+        patchJob(job.id, { exrStatus: 'submitting', exrError: null });
+        try {
+            const response = await fetch('/api/seedance/exr', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sourceUrl: job.videoUrl, projectId: job.projectId }),
+            });
+            const data = await response.json().catch(() => null);
+            if (!response.ok || !data?.taskToken) {
+                throw new Error(data?.error || `EXR request failed (${response.status}).`);
+            }
+            patchJob(job.id, { exrTaskToken: data.taskToken, exrStatus: 'processing' });
+            await pollExr(job, data.taskToken);
+        } catch (error) {
+            patchJob(job.id, { exrStatus: 'failed', exrError: error.message || 'EXR enhancement failed.' });
+        }
+    };
+
     // Assets registered for a submit are intentionally NOT deleted when the
     // batch finishes: asset writes share a 120 QPM zero-burst account quota
     // (QuotaWriteQPMExceeded), so resolveMediaRefs reuses them across submits —
@@ -773,6 +821,16 @@ export default function SeedanceStudio() {
         saveJobs(restored);
         const inFlight = restored.filter((j) => ACTIVE_STATUSES.includes(j.status) && j.taskId);
         for (const j of inFlight) watchJob(j.id, j.taskId);
+        const inFlightExr = restored.filter((j) => j.exrStatus === 'processing' && j.exrTaskToken);
+        for (const j of inFlightExr) {
+            pollExr(j, j.exrTaskToken).catch((error) => {
+                patchJob(j.id, { exrStatus: 'failed', exrError: error.message || 'EXR enhancement failed.' });
+            });
+        }
+        const interruptedExr = restored.filter((j) => j.exrStatus === 'submitting' && !j.exrTaskToken);
+        for (const j of interruptedExr) {
+            patchJob(j.id, { exrStatus: 'failed', exrError: 'EXR request was interrupted before BytePlus returned a task.' });
+        }
         // Resume polling image (Nano Banana) batches that were still rendering.
         const inFlightImages = restored.filter((j) => j.mediaType === 'image' && ACTIVE_STATUSES.includes(j.status) && j.genId);
         for (const j of inFlightImages) pollImageJob(j.id, j.genId);
@@ -2140,6 +2198,7 @@ export default function SeedanceStudio() {
                         job={viewerJob}
                         onClose={() => setSelectedId(null)}
                         onReuse={onReuseRefs}
+                        onGenerateExr={generateExr}
                         onToggleLike={onToggleLike}
                         onRefresh={() => refreshVideoUrl(viewerJob, { fromError: true })}
                         onPrev={i > 0 ? () => setSelectedId(viewable[i - 1].id) : null}
@@ -2678,10 +2737,16 @@ function Hero() {
 // Full-screen "big preview" for a finished generation (Higgsfield-style):
 // the video fills the left; a right panel carries the prompt, reference
 // thumbnails, generation details and the reuse / download / like actions.
-function AssetViewer({ job, onClose, onReuse, onToggleLike, onRefresh, onPrev, onNext }) {
+function AssetViewer({ job, onClose, onReuse, onGenerateExr, onToggleLike, onRefresh, onPrev, onNext }) {
     const [dlFormat, setDlFormat] = useState('mov'); // video download container — mov is the default
+    const [showExrInfo, setShowExrInfo] = useState(false);
     const modelName = job.model ? (MODELS.find((m) => m.id === job.model)?.name ?? IMAGE_MODELS.find((m) => m.id === job.model)?.name ?? job.model) : null;
     const prompt = job.userPrompt || job.prompt || '';
+    const exrDurationSeconds = Number(job.options?.duration);
+    const exrPricePerMinute = 16.5288; // BytePlus VOD Pro, 4K, up to 30 fps reference price
+    const exrEstimate = Number.isFinite(exrDurationSeconds) && exrDurationSeconds > 0
+        ? (exrDurationSeconds / 60 * exrPricePerMinute).toFixed(2)
+        : null;
     // Mannequin mode: the silent motion-source video plays beside the output
     // so the source action and the generated performance compare at a glance.
     const mannequinRef = (job.modeId || job.style) === 'mannequin' && !job.imageUrl ? job.refs?.find((r) => r.kind === 'video') : null;
@@ -2809,6 +2874,33 @@ function AssetViewer({ job, onClose, onReuse, onToggleLike, onRefresh, onPrev, o
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M1 4v6h6M23 20v-6h-6" /><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15" /></svg>
                         Reuse this setup
                     </button>
+                    {job.videoUrl && onGenerateExr && (
+                        <div className="space-y-1.5">
+                            <button
+                                type="button"
+                                onClick={() => setShowExrInfo(true)}
+                                title="View EXR settings, pricing, and confirmation"
+                                className="flex w-full items-center justify-center gap-1.5 rounded-md border border-accent/40 bg-accent/10 px-3 py-2.5 text-xs font-semibold text-ink transition-colors hover:bg-accent/20 disabled:cursor-wait disabled:opacity-60"
+                            >
+                                EXR
+                            </button>
+                            {(job.exrStatus === 'submitting' || job.exrStatus === 'processing') && (
+                                <p className="text-[11px] leading-relaxed text-ink-3">Generating 16-bit EXR…</p>
+                            )}
+                            {job.exrStatus === 'failed' && job.exrError && (
+                                <p className="text-[11px] leading-relaxed text-danger">{job.exrError}</p>
+                            )}
+                            {job.exrStatus === 'succeeded' && job.exrUrl && (
+                                <button
+                                    type="button"
+                                    onClick={() => downloadAsset(job.exrUrl, `${job.taskId || job.id}.exr`, job.taskId, { raw: true })}
+                                    className="w-full rounded-md border border-line px-3 py-2 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink"
+                                >
+                                    Download EXR
+                                </button>
+                            )}
+                        </div>
+                    )}
                     <div className="flex items-center gap-2">
                         <button
                             type="button"
