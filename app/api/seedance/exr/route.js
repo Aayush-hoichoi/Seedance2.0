@@ -52,6 +52,9 @@ export async function POST(request) {
         if (!projectId) return NextResponse.json({ error: 'A valid workspace project is required.' }, { status: 400 });
         const requestBody = buildEnhancementRequest({ options: body.options || {} });
         delete requestBody.video_url;
+        if (typeof body.sourceTaskId === 'string' && body.sourceTaskId.length <= 200) {
+            requestBody._gallery = { sourceTaskId: body.sourceTaskId };
+        }
         const job = await enqueueExrJob(sql, {
             userId: user.userId,
             projectId,

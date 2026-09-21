@@ -25,6 +25,10 @@ async function fixture() {
             style text, refs jsonb, liked boolean DEFAULT false,
             deleted boolean DEFAULT false
         );
+        CREATE TABLE exr_jobs (
+            id serial PRIMARY KEY, user_id text NOT NULL, request_body jsonb NOT NULL,
+            status text NOT NULL, result jsonb, finished_at timestamptz
+        );
         CREATE TABLE gallery_generations (
             task_id text, user_id text, model_id text, resolution text,
             duration integer, ratio text, mode text, status text,
@@ -42,6 +46,8 @@ async function fixture() {
             ('other-user', 'u2', 'image-model', 'succeeded', '2026-09-20T08:00:00Z', 'image', 'images/other.png', 'other', 10);
         INSERT INTO seedance_prompts (task_id, user_prompt, deleted)
         VALUES ('video-a', 'video A', false), ('video-b', 'video B', true);
+        INSERT INTO exr_jobs (user_id, request_body, status, result, finished_at)
+        VALUES ('u1', '{"_gallery":{"sourceTaskId":"video-a"}}', 'succeeded', '{"url":"https://byteplus.example/video-a.exr"}', '2026-09-20T13:00:00Z');
     `);
     return { db, sql: neonLike(db) };
 }
@@ -53,6 +59,7 @@ test('gallery project filtering includes image jobs without prompt rows and excl
         assert.deepEqual(rows.map((row) => row.task_id), ['image-a', 'video-a']);
         assert.deepEqual(rows.map((row) => row.project_id), [10, 10]);
         assert.deepEqual(rows.map((row) => row.project_name), ['Film A', 'Film A']);
+        assert.equal(rows.find((row) => row.task_id === 'video-a').exr_url, 'https://byteplus.example/video-a.exr');
 
         const projects = await queryUserGenerationProjects(sql, { userId: 'u1' });
         assert.deepEqual(projects.map((project) => ({

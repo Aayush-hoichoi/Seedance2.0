@@ -717,7 +717,7 @@ export default function SeedanceStudio() {
             const response = await fetch('/api/seedance/exr', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sourceUrl: job.videoUrl, projectId: job.projectId, options: exrOptions }),
+                body: JSON.stringify({ sourceUrl: job.videoUrl, sourceTaskId: job.taskId, projectId: job.projectId, options: exrOptions }),
             });
             const data = await response.json().catch(() => null);
             if (!response.ok || !data?.taskToken) {
