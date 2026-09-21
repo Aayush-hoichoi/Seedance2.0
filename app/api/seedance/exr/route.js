@@ -50,7 +50,7 @@ export async function POST(request) {
         if (!sql) return NextResponse.json({ error: 'Database is not configured.' }, { status: 503 });
         const projectId = await projectForUser(sql, user, body.projectId);
         if (!projectId) return NextResponse.json({ error: 'A valid workspace project is required.' }, { status: 400 });
-        const requestBody = buildEnhancementRequest();
+        const requestBody = buildEnhancementRequest({ options: body.options || {} });
         delete requestBody.video_url;
         const job = await enqueueExrJob(sql, {
             userId: user.userId,
