@@ -109,27 +109,33 @@ export default function ExrQueueClient() {
                 : <EmptyState icon={FileOutput} title="No EXR jobs" hint="EXR jobs appear here after a user confirms an EXR request." />}
 
             {selected && (
-                <Modal open={Boolean(selected)} onOpenChange={(open) => { if (!open) setSelected(null); }} title={`EXR-${selected.id} details`} footer={(
+                <Modal
+                    open={Boolean(selected)}
+                    onOpenChange={(open) => { if (!open) setSelected(null); }}
+                    title={`EXR-${selected.id} details`}
+                    className="max-h-[90vh] w-[min(94vw,880px)] overflow-y-auto sm:max-w-[880px]"
+                    footer={(
                     <>
                         {(selected.status === 'queued' || selected.status === 'processing') && <Button variant="danger" onClick={() => change(selected.id, 'cancel')}>Cancel job</Button>}
                         {(selected.status === 'failed' || selected.status === 'cancelled') && <Button variant="primary" onClick={() => change(selected.id, 'retry')}>Retry job</Button>}
                         {selected.status === 'succeeded' && selected.result?.durable === false && selected.result?.url && <Button variant="outline" onClick={() => change(selected.id, 'rearchive')}>Archive again</Button>}
                     </>
-                )}>
+                    )}
+                >
                     <div className="space-y-3 text-xs">
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                             <div><div className="text-ink-3">Status</div><div className="mt-1"><Badge tone={STATUS_TONE[selected.status] || 'zinc'}>{selected.status}</Badge></div></div>
                             <div><div className="text-ink-3">Created</div><div className="mt-1 text-ink-2">{fmtDate(selected.created_at)}</div></div>
                             <div><div className="text-ink-3">User</div><div className="mt-1 break-all text-ink-2">{selected.user_email || selected.user_id}</div></div>
-                            <div><div className="text-ink-3">Project</div><div className="mt-1 text-ink-2">{selected.project_name || selected.project_id || '—'}</div></div>
+                            <div><div className="text-ink-3">Project</div><div className="mt-1 break-words text-ink-2">{selected.project_name || selected.project_id || '—'}</div></div>
                             <div><div className="text-ink-3">Provider task</div><div className="mt-1 break-all font-mono text-ink-2">{selected.provider_task_id || 'Not submitted yet'}</div></div>
                             <div><div className="text-ink-3">Provider request</div><div className="mt-1 break-all font-mono text-ink-2">{selected.provider_request_id || '—'}</div></div>
                         </div>
-                        <div><div className="text-ink-3">Source URL</div><div className="mt-1 max-h-20 overflow-auto break-all rounded-md bg-paper-3 p-2 font-mono text-[10px] text-ink-2">{selected.source_url}</div></div>
+                        <div><div className="text-ink-3">Source URL</div><div className="mt-1 max-h-20 overflow-auto break-all rounded-md bg-paper-3 p-2 font-mono text-[10px] leading-relaxed text-ink-2">{selected.source_url}</div></div>
                         <div className="rounded-md border border-line bg-paper-2 p-3">
                             <div className="font-semibold text-ink">Billing details</div>
                             {billing ? (
-                                <div className="mt-2 grid grid-cols-2 gap-3">
+                                <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 lg:grid-cols-4">
                                     <div><div className="text-ink-3">Tier</div><div className="mt-1 text-ink-2">{billing.tier || '—'}</div></div>
                                     <div><div className="text-ink-3">Resolution</div><div className="mt-1 text-ink-2">{billing.resolution || '—'}</div></div>
                                     <div><div className="text-ink-3">Frame rate</div><div className="mt-1 text-ink-2">{billing.fps ? `${billing.fps} FPS` : '—'}</div></div>
@@ -141,9 +147,11 @@ export default function ExrQueueClient() {
                                 </div>
                             ) : <p className="mt-1 text-ink-3">Billing details were not recorded for this older job.</p>}
                         </div>
-                        <div><div className="text-ink-3">Request settings</div><pre className="mt-1 max-h-40 overflow-auto rounded-md bg-paper-3 p-2 text-[10px] text-ink-2">{JSON.stringify(selected.request_body, null, 2)}</pre></div>
-                        {selected.result && <div><div className="text-ink-3">Result</div><pre className="mt-1 max-h-40 overflow-auto rounded-md bg-paper-3 p-2 text-[10px] text-ink-2">{JSON.stringify(selected.result, null, 2)}</pre></div>}
-                        {selected.error && <div><div className="text-ink-3">Error</div><pre className="mt-1 max-h-28 overflow-auto rounded-md bg-danger/10 p-2 text-[10px] text-danger">{JSON.stringify(selected.error, null, 2)}</pre></div>}
+                        <div className="grid min-w-0 gap-3 lg:grid-cols-2">
+                            <div className="min-w-0"><div className="text-ink-3">Request settings</div><pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-paper-3 p-3 text-[10px] leading-relaxed text-ink-2">{JSON.stringify(selected.request_body, null, 2)}</pre></div>
+                            {selected.result && <div className="min-w-0"><div className="text-ink-3">Result</div><pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-paper-3 p-3 text-[10px] leading-relaxed text-ink-2">{JSON.stringify(selected.result, null, 2)}</pre></div>}
+                        </div>
+                        {selected.error && <div><div className="text-ink-3">Error</div><pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-all rounded-md bg-danger/10 p-3 text-[10px] leading-relaxed text-danger">{JSON.stringify(selected.error, null, 2)}</pre></div>}
                     </div>
                 </Modal>
             )}
