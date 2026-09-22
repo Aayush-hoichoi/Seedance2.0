@@ -38,7 +38,10 @@ async function runOne(sql) {
     if (!job.provider_task_id) {
         try {
             const submitted = await submitEnhancement({ videoUrl: job.source_url, requestBody: job.request_body });
-            await markExrSubmitted(sql, job.id, submitted);
+            await markExrSubmitted(sql, job.id, {
+                providerTaskId: submitted.taskId,
+                requestId: submitted.requestId,
+            });
         } catch (error) {
             const details = errorDetails(error);
             if (isPermanent(error) || job.attempt >= EXR_MAX_SUBMIT_ATTEMPTS) {
@@ -65,6 +68,7 @@ async function runOne(sql) {
                     archiveKey: archived.key,
                     durable: archived.durable,
                     bytes: archived.bytes || null,
+                    archiveError: archived.archiveError || null,
                     metadata: result.metadata || null,
                     expiresAt: result.expiresAt || null,
                 },
