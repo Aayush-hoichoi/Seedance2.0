@@ -57,7 +57,10 @@ test('EXR submission sends the professional 16-bit request', async () => {
         });
     };
     try {
-        const result = await submitEnhancement({ videoUrl: 'https://cdn.bytepluses.com/video.mp4' });
+        const result = await submitEnhancement({
+            videoUrl: 'https://cdn.bytepluses.com/video.mp4',
+            requestBody: { _billing: { durationSeconds: 10, estimatedCostUsd: 2.7548 } },
+        });
         assert.deepEqual(result, { taskId: 'task-exr-1', requestId: 'request-1' });
         assert.equal(call.url, 'https://mediakit.ap-southeast-1.bytepluses.com/api/v1/tools/enhance-video');
         assert.equal(call.init.method, 'POST');

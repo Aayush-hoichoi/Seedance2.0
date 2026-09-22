@@ -7,6 +7,7 @@ import {
     readQueueTaskToken,
     validateSourceUrl,
 } from '../../../../lib/byteplus/vodEnhance.mjs';
+import { estimateExrCost, normalizeExrOptions, pricePerExrMinute } from '../../../../lib/byteplus/exrPricing.mjs';
 import {
     enqueueExrJob,
     getExrJobForUser,
@@ -50,11 +51,24 @@ export async function POST(request) {
         if (!sql) return NextResponse.json({ error: 'Database is not configured.' }, { status: 503 });
         const projectId = await projectForUser(sql, user, body.projectId);
         if (!projectId) return NextResponse.json({ error: 'A valid workspace project is required.' }, { status: 400 });
-        const requestBody = buildEnhancementRequest({ options: body.options || {} });
+        const options = normalizeExrOptions(body.options || {}, { strict: true });
+        const requestBody = buildEnhancementRequest({ options });
         delete requestBody.video_url;
         if (typeof body.sourceTaskId === 'string' && body.sourceTaskId.length <= 200) {
             requestBody._gallery = { sourceTaskId: body.sourceTaskId };
         }
+        const durationSeconds = Number(body.durationSeconds);
+        requestBody._billing = {
+            sourceTaskId: typeof body.sourceTaskId === 'string' && body.sourceTaskId.length <= 200 ? body.sourceTaskId : null,
+            durationSeconds: Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : null,
+            unitPriceUsd: pricePerExrMinute(options),
+            estimatedCostUsd: estimateExrCost(options, durationSeconds),
+            tier: options.tier,
+            resolution: options.resolution,
+            fps: options.fps,
+            bitDepth: options.bitDepth,
+            outputFormat: options.outputFormat,
+        };
         const job = await enqueueExrJob(sql, {
             userId: user.userId,
             projectId,
