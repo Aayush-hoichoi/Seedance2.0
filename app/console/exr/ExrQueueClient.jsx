@@ -17,6 +17,31 @@ export default function ExrQueueClient() {
     const accessRequests = (queue.data?.accessRequests ?? []).filter((request) => request.status === 'pending');
     const billing = selected?.request_body?._billing || null;
 
+    // Ledger rows: every job that recorded billing details, following the same
+    // status filter as the queue table. Older jobs without _billing are skipped.
+    const ledgerRows = items
+        .filter((job) => job.request_body?._billing)
+        .map((job) => ({ ...job, billing: job.request_body._billing }));
+    const totalSpendUsd = ledgerRows.reduce((sum, row) => sum + (Number(row.billing.estimatedCostUsd) || 0), 0);
+    const totalMinutes = ledgerRows.reduce((sum, row) => sum + (Number(row.billing.durationSeconds) || 0), 0) / 60;
+
+    function exportLedgerCsv() {
+        const header = ['job', 'date', 'status', 'user', 'project', 'tier', 'resolution', 'fps', 'duration_seconds', 'rate_usd_per_minute', 'estimated_cost_usd'];
+        const cell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+        const lines = ledgerRows.map((row) => [
+            `EXR-${row.id}`, row.created_at, row.status,
+            row.user_email || row.user_id, row.project_name || row.project_id || '',
+            row.billing.tier || '', row.billing.resolution || '', row.billing.fps || '',
+            row.billing.durationSeconds ?? '', row.billing.unitPriceUsd ?? '', row.billing.estimatedCostUsd ?? '',
+        ].map(cell).join(','));
+        const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `exr-ledger-${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    }
+
     async function change(id, action) {
         const result = await sendJson('/api/admin/exr-queue', 'PATCH', { id, action });
         if (!result.ok) {
@@ -54,6 +79,35 @@ export default function ExrQueueClient() {
         {
             id: 'actions', header: '', enableSorting: false,
             cell: ({ row }) => <Button variant="ghost" size="xs" onClick={() => setSelected(row.original)}>Inspect</Button>,
+        },
+    ];
+
+    const ledgerColumns = [
+        { accessorKey: 'id', header: '#', cell: ({ getValue }) => <span className="font-mono tabular-nums text-ink-3">EXR-{getValue()}</span> },
+        { accessorKey: 'created_at', header: 'Date', cell: ({ getValue }) => <span className="font-mono text-xs text-ink-3" title={fmtDate(getValue())}>{timeAgo(getValue())}</span> },
+        {
+            id: 'owner', header: 'User / project',
+            cell: ({ row }) => <div><div className="text-ink-2">{row.original.user_name || row.original.user_email || row.original.user_id}</div><div className="text-xs text-ink-3">{row.original.project_name || `Project ${row.original.project_id || '—'}`}</div></div>,
+        },
+        {
+            id: 'spec', header: 'Output',
+            cell: ({ row }) => <span className="text-xs text-ink-2">{[row.original.billing.resolution, row.original.billing.fps && `${row.original.billing.fps} FPS`, row.original.billing.tier].filter(Boolean).join(' · ') || '—'}</span>,
+        },
+        {
+            id: 'duration', header: 'Length',
+            cell: ({ row }) => <span className="font-mono tabular-nums text-xs text-ink-3">{row.original.billing.durationSeconds ? `${Number(row.original.billing.durationSeconds).toFixed(1)}s` : '—'}</span>,
+        },
+        {
+            id: 'rate', header: 'Rate / min',
+            cell: ({ row }) => <span className="font-mono tabular-nums text-xs text-ink-3">{row.original.billing.unitPriceUsd == null ? '—' : `$${Number(row.original.billing.unitPriceUsd).toFixed(4)}`}</span>,
+        },
+        {
+            id: 'cost', header: 'Est. cost',
+            cell: ({ row }) => <span className="font-mono tabular-nums font-semibold text-ink">{row.original.billing.estimatedCostUsd == null ? '—' : `$${Number(row.original.billing.estimatedCostUsd).toFixed(4)}`}</span>,
+        },
+        {
+            accessorKey: 'status', header: 'Status',
+            cell: ({ getValue }) => <Badge tone={STATUS_TONE[getValue()] || 'zinc'}>{getValue()}</Badge>,
         },
     ];
 
@@ -107,6 +161,24 @@ export default function ExrQueueClient() {
             {items.length
                 ? <DataTable columns={columns} data={items} pageSize={15} empty="No EXR jobs match this filter." />
                 : <EmptyState icon={FileOutput} title="No EXR jobs" hint="EXR jobs appear here after a user confirms an EXR request." />}
+
+            <div className="mt-8">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                        <h2 className="text-sm font-semibold text-ink">EXR generation ledger</h2>
+                        <p className="text-xs text-ink-3">Billing record for every EXR job with recorded pricing{status ? ' (following the status filter above)' : ''}.</p>
+                    </div>
+                    {ledgerRows.length > 0 && <Button variant="outline" size="xs" onClick={exportLedgerCsv}>Export CSV</Button>}
+                </div>
+                <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3">
+                    <StatCard label="Billed jobs" value={ledgerRows.length} />
+                    <StatCard label="Video minutes" value={totalMinutes.toFixed(2)} tone="blue" />
+                    <StatCard label="Estimated spend" value={`$${totalSpendUsd.toFixed(2)}`} tone="green" />
+                </div>
+                {ledgerRows.length
+                    ? <DataTable columns={ledgerColumns} data={ledgerRows} pageSize={15} empty="No billed EXR jobs match this filter." />
+                    : <EmptyState icon={FileOutput} title="No billed EXR jobs" hint="Jobs appear in the ledger once they carry billing details (all new EXR requests do)." />}
+            </div>
 
             {selected && (
                 <Modal
