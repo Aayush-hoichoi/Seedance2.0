@@ -4,8 +4,9 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import ffmpegPath from 'ffmpeg-static';
-import { ensureH264 } from '../lib/seedance/ensureH264.mjs';
+import { ensureH264, transcodeUrlToQuickTime } from '../lib/seedance/ensureH264.mjs';
 
 const dir = mkdtempSync(join(tmpdir(), 'h264test-'));
 
@@ -38,4 +39,18 @@ test('h264 input passes through untouched', async () => {
 test('non-video names pass through', async () => {
     const buf = Buffer.from('not a video');
     assert.equal(await ensureH264(buf, 'image.png'), buf);
+});
+
+test('large video can be streamed into a QuickTime-compatible MOV', async () => {
+    make('ffv1', 'in-ffv1.mov');
+    const conversion = transcodeUrlToQuickTime(pathToFileURL(join(dir, 'in-ffv1.mov')).href);
+    const chunks = [];
+    try {
+        for await (const chunk of conversion.stream) chunks.push(chunk);
+    } finally {
+        conversion.cancel();
+    }
+    const output = Buffer.concat(chunks);
+    assert.ok(output.length > 0);
+    assert.equal(codecOf(output), 'h264');
 });

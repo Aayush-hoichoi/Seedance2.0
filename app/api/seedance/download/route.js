@@ -2,7 +2,7 @@ import { Readable } from 'node:stream';
 import { NextResponse } from 'next/server';
 import { zipStream } from '../../../../lib/seedance/zip.mjs';
 import { safeName } from '../../../../lib/seedance/downloadName.mjs';
-import { ensureH264, remuxToMov } from '../../../../lib/seedance/ensureH264.mjs';
+import { ensureH264, remuxToMov, transcodeUrlToQuickTime } from '../../../../lib/seedance/ensureH264.mjs';
 import { getUser } from '../../../../lib/auth/user.js';
 import { getDb } from '../../../../lib/db/neon.js';
 import { recordGenerationEvent } from '../../../../lib/access/db.js';
@@ -93,6 +93,20 @@ async function streamRawExr(item) {
     }
 }
 
+async function streamQuickTime(item, request) {
+    const conversion = transcodeUrlToQuickTime(item.url);
+    if (!conversion) return bad('QuickTime conversion is not available on this server.', 503);
+    request.signal?.addEventListener('abort', conversion.cancel, { once: true });
+    const name = /\.(?:exr|mp4|m4v|mov)$/i.test(item.name) ? item.name.replace(/\.(?:exr|mp4|m4v|mov)$/i, '.mov') : `${item.name}.mov`;
+    return new Response(Readable.toWeb(conversion.stream), {
+        headers: {
+            'Content-Type': 'video/quicktime',
+            'Content-Disposition': contentDisposition(name),
+            'Cache-Control': 'no-store',
+        },
+    });
+}
+
 // Download one asset into a Buffer, enforcing the size cap. Returns null on any
 // failure so a single expired/broken link never aborts the whole archive.
 async function fetchAsset(url, name = '') {
@@ -121,6 +135,7 @@ export async function POST(request) {
     // raw: skip the H.264 compatibility re-encode and the mov remux — return
     // the exact stored bytes (bit-identical original — 4k files stay H.265).
     const raw = body?.raw === true;
+    const quickTime = body?.format === 'quicktime';
     // format: 'mp4' opts back into the plain mp4 (codec fix still applies —
     // only the mov rewrap is skipped). Anything else means the default, mov.
     const wantMov = body?.format !== 'mp4';
@@ -137,6 +152,13 @@ export async function POST(request) {
     }
 
     await logDownloads(items);
+
+    // EXR results from BytePlus may be delivered as a MOV containing FFV1.
+    // QuickTime cannot play FFV1, so provide a streamed H.264 MOV derivative
+    // when the user asks for a QuickTime-compatible download.
+    if (items.length === 1 && quickTime) {
+        return streamQuickTime(items[0], request);
+    }
 
     // EXR files can be larger than 1 GB. Stream the exact bytes through the
     // download endpoint instead of buffering the whole file in server memory.

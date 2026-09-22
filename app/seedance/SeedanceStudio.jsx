@@ -2961,13 +2961,22 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                                 <p className="text-[11px] leading-relaxed text-danger">{job.exrError}</p>
                             )}
                             {exrAccess?.granted && job.exrStatus === 'succeeded' && job.exrUrl && (
-                                <button
-                                    type="button"
-                                    onClick={() => downloadArchivedAsset(job.exrArchiveKey, job.exrUrl, `${job.taskId || job.id}.exr`, job.taskId, { raw: true })}
-                                    className="w-full rounded-md border border-line px-3 py-2 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink"
-                                >
-                                    Download EXR
-                                </button>
+                                <div className="space-y-1.5">
+                                    <button
+                                        type="button"
+                                        onClick={() => downloadArchivedAsset(job.exrArchiveKey, job.exrUrl, `${job.taskId || job.id}.mov`, job.taskId, { format: 'quicktime' })}
+                                        className="w-full rounded-md border border-line px-3 py-2 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink"
+                                    >
+                                        Download QuickTime MOV
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => downloadArchivedAsset(job.exrArchiveKey, job.exrUrl, `${job.taskId || job.id}.exr`, job.taskId, { raw: true })}
+                                        className="w-full rounded-md border border-line px-3 py-2 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink"
+                                    >
+                                        Download original 16-bit output
+                                    </button>
+                                </div>
                             )}
                         </div>
                     )}

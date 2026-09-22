@@ -21,6 +21,8 @@ test('image names keep their real extension; video names keep .mp4', () => {
     assert.equal(safeName('clip', `${TOS}/videos/t.mp4`, 'asset-1'), 'clip.mp4');
     // Already-suffixed names aren't double-suffixed, case-insensitively.
     assert.equal(safeName('shot.PNG', `${TOS}/images/a.png`, 'asset-1'), 'shot.PNG');
+    assert.equal(safeName('render.exr', `${TOS}/videos/a.mov`, 'asset-1'), 'render.exr');
+    assert.equal(safeName('render.mov', `${TOS}/videos/a.mp4`, 'asset-1'), 'render.mov');
 });
 
 test('names are sanitized for the filesystem and the Content-Disposition header', () => {
