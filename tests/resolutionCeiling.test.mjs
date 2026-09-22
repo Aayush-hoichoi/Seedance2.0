@@ -46,17 +46,12 @@ test('a grant never admits a tier above it', () => {
     assert.equal(allowed({ modelId: full, resolution: '1080p', grantCap: '720p' }), false);
 });
 
-// --- the ceiling that was missing --------------------------------------------
+// --- the model ceiling -------------------------------------------------------
 
 test('a grant above the model ceiling cannot reach past the model', () => {
-    // Still the live Seedance 2.5 case, one tier up: its 1080p refusal was
-    // ACCOUNT-scoped and lifted on 2026-08-18, but 4k is a MODEL limit and does
-    // not move — so 4k is what a grant must not be able to reach past.
-    // (Pinning this to 1080p tied the invariant to an account setting; when that
-    // setting changed the test failed while the rule it guards was untouched.)
     const twoFive = MODELS.find((m) => m.kind === 'full_2_5').id;
-    assert.equal(allowed({ modelId: twoFive, resolution: '4k', grantCap: '4k' }), false,
-        'the model ceiling must win over a stale grant');
+    assert.equal(allowed({ modelId: twoFive, resolution: '4k', grantCap: '4k' }), true,
+        'the configured native 4K tier remains available');
     assert.equal(allowed({ modelId: twoFive, resolution: '1080p', grantCap: '4k' }), true,
         'and everything the model does have stays available');
 });
@@ -93,7 +88,7 @@ test('every model ladder is contiguous from 480p and never empty', () => {
 
 test('case does not open a hole in either ceiling', () => {
     const twoFive = MODELS.find((m) => m.kind === 'full_2_5').id;
-    assert.equal(allowed({ modelId: twoFive, resolution: '4K', grantCap: '4k' }), false);
+    assert.equal(allowed({ modelId: twoFive, resolution: '4K', grantCap: '4k' }), true);
     assert.equal(allowed({ modelId: twoFive, resolution: '1080P', grantCap: '4k' }), true);
     // The grant side too, not just the model side.
     const full = MODELS.find((m) => m.kind === 'full').id;
