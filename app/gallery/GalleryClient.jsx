@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { UserButton } from '@clerk/nextjs';
 import { VideoCard, ImageCard, Lightbox, reuseInStudio, gradientFor, initialOf, timeAgo } from './shared.jsx';
+import { useExrAccess } from '../components/ExrAccess.jsx';
 
 export default function GalleryClient() {
     const router = useRouter();
@@ -26,6 +27,12 @@ export default function GalleryClient() {
     const [error, setError] = useState(null);
     const [query, setQuery] = useState('');
     const requestKeyRef = useRef('');
+    const { access: exrAccess, requesting: exrAccessRequesting, request: requestExrAccess } = useExrAccess();
+
+    const askForExrAccess = async () => {
+        const result = await requestExrAccess();
+        if (!result.ok) setError(result.data?.error || 'Could not request EXR access.');
+    };
 
     useEffect(() => {
         let alive = true;
@@ -100,9 +107,9 @@ export default function GalleryClient() {
         setProjects(null);
     };
 
-    const markExrReady = (taskId, exrUrl) => {
-        setItems((current) => current?.map((item) => item.taskId === taskId ? { ...item, exrUrl } : item));
-        setLightbox((current) => current?.taskId === taskId ? { ...current, exrUrl } : current);
+    const markExrReady = (taskId, exrUrl, exrArchiveKey = null) => {
+        setItems((current) => current?.map((item) => item.taskId === taskId ? { ...item, exrUrl, exrArchiveKey } : item));
+        setLightbox((current) => current?.taskId === taskId ? { ...current, exrUrl, exrArchiveKey } : current);
     };
 
     const loadMore = async () => {
@@ -269,7 +276,7 @@ export default function GalleryClient() {
                                 {items.map((item) => (
                                     item.mediaType === 'image'
                                         ? <ImageCard key={item.taskId} item={item} onOpen={() => setLightbox(item)} />
-                                        : <VideoCard key={item.taskId} item={item} onOpen={() => setLightbox(item)} />
+                                        : <VideoCard key={item.taskId} item={item} exrAccess={exrAccess} onOpen={() => setLightbox(item)} />
                                 ))}
                             </div>
                             {nextBefore && (
@@ -300,6 +307,9 @@ export default function GalleryClient() {
                         onClose={() => setLightbox(null)}
                         onReuse={() => reuseInStudio(router, lightbox)}
                         onExrReady={markExrReady}
+                        exrAccess={exrAccess}
+                        exrAccessRequesting={exrAccessRequesting}
+                        onRequestExrAccess={askForExrAccess}
                         onPrev={idx > 0 ? () => setLightbox(items[idx - 1]) : null}
                         onNext={items && idx >= 0 && idx < items.length - 1 ? () => setLightbox(items[idx + 1]) : null}
                     />

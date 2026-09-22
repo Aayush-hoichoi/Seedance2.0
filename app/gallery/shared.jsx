@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { MODES } from '../../lib/seedance/constants.js';
-import { downloadAsset } from '../../lib/seedance/downloadAssets.js';
+import { downloadArchivedAsset, downloadAsset } from '../../lib/seedance/downloadAssets.js';
 import { estimateExrCost, EXR_DEFAULT_OPTIONS, EXR_FPS, EXR_RESOLUTIONS, EXR_TIERS, normalizeExrOptions, pricePerExrMinute } from '../../lib/byteplus/exrPricing.mjs';
 
 export const modeNameOf = (id) => MODES.find((m) => m.id === id)?.name ?? null;
@@ -85,7 +85,7 @@ export async function reuseInStudio(router, item) {
 // One generation in the grid: hover to preview, click for the full view.
 // `creator` (optional) puts the maker's avatar chip on the card — used on
 // pages that mix creators (/liked); the per-creator gallery omits it.
-export function VideoCard({ item, creator, onOpen }) {
+export function VideoCard({ item, creator, onOpen, exrAccess }) {
     const videoRef = useRef(null);
     const [wrapRef, inView] = useInView();
     const prompt = item.userPrompt || item.prompt || '';
@@ -124,12 +124,12 @@ export function VideoCard({ item, creator, onOpen }) {
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" /></svg>
                 </span>
             )}
-            {item.exrUrl && (
+            {exrAccess?.granted && item.exrUrl && (
                 <button
                     type="button"
                     onClick={(event) => {
                         event.stopPropagation();
-                        downloadAsset(item.exrUrl, `${item.taskId || 'generation'}.exr`, item.taskId, { raw: true });
+                        downloadArchivedAsset(item.exrArchiveKey, item.exrUrl, `${item.taskId || 'generation'}.exr`, item.taskId, { raw: true });
                     }}
                     title="Download 16-bit EXR"
                     aria-label="Download 16-bit EXR"
@@ -246,7 +246,7 @@ export function SmartVideo({ item, videoRef, onUrl, className, ...videoProps }) 
 
 // Full view: the video big, everything about the generation beside it, and
 // the Reuse action that loads this exact setup back into the studio.
-export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext, onExrReady }) {
+export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext, onExrReady, exrAccess, exrAccessRequesting, onRequestExrAccess }) {
     const isImage = item.mediaType === 'image';
     const [dlUrl, setDlUrl] = useState(isImage ? item.imageUrl || null : null);
     const [videoDuration, setVideoDuration] = useState(Number(item.duration) > 0 ? Number(item.duration) : null);
@@ -363,15 +363,22 @@ export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext, onEx
                         {!isImage && (
                             <button
                                 type="button"
-                                onClick={() => item.exrUrl
-                                    ? downloadAsset(item.exrUrl, `${item.taskId || 'generation'}.exr`, item.taskId, { raw: true })
-                                    : setShowExrDialog(true)}
-                                title={item.exrUrl ? 'Download the 16-bit EXR output' : 'Generate a 16-bit EXR output'}
-                                aria-label={item.exrUrl ? 'Download the 16-bit EXR output' : 'Generate a 16-bit EXR output'}
-                                className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-amber-300/25 bg-amber-300/10 text-amber-200 hover:bg-amber-300/20 hover:border-amber-300/45 transition-colors text-xs font-semibold"
+                                disabled={exrAccessRequesting}
+                                onClick={() => {
+                                    if (!exrAccess?.granted) return onRequestExrAccess?.();
+                                    if (item.exrUrl) return downloadArchivedAsset(item.exrArchiveKey, item.exrUrl, `${item.taskId || 'generation'}.exr`, item.taskId, { raw: true });
+                                    return setShowExrDialog(true);
+                                }}
+                                title={exrAccess?.granted ? (item.exrUrl ? 'Download the 16-bit EXR output' : 'Generate a 16-bit EXR output') : 'Request EXR access'}
+                                aria-label={exrAccess?.granted ? (item.exrUrl ? 'Download the 16-bit EXR output' : 'Generate a 16-bit EXR output') : 'Request EXR access'}
+                                className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border transition-colors text-xs font-semibold ${exrAccess?.granted
+                                    ? 'border-amber-300/25 bg-amber-300/10 text-amber-200 hover:bg-amber-300/20 hover:border-amber-300/45'
+                                    : exrAccess?.status === 'pending'
+                                        ? 'border-white/10 bg-white/[0.04] text-white/45'
+                                        : 'border-amber-300/25 bg-amber-300/5 text-amber-200 hover:bg-amber-300/15'}`}
                             >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
-                                {item.exrUrl ? '16-bit EXR' : 'Generate EXR'}
+                                {exrAccess?.granted ? (item.exrUrl ? '16-bit EXR' : 'Generate EXR') : exrAccess?.status === 'pending' ? 'EXR access pending' : 'Request EXR access'}
                             </button>
                         )}
                     </div>
@@ -382,6 +389,7 @@ export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext, onEx
                     item={item}
                     sourceUrl={dlUrl}
                     durationSeconds={videoDuration}
+                    projectId={exrAccess?.projectId}
                     onClose={() => setShowExrDialog(false)}
                     onReady={(url) => {
                         setShowExrDialog(false);
@@ -393,7 +401,7 @@ export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext, onEx
     );
 }
 
-function GalleryExrDialog({ item, sourceUrl, durationSeconds, onClose, onReady }) {
+function GalleryExrDialog({ item, sourceUrl, durationSeconds, projectId, onClose, onReady }) {
     const [options, setOptions] = useState(() => normalizeExrOptions(EXR_DEFAULT_OPTIONS));
     const [status, setStatus] = useState('idle');
     const [error, setError] = useState(null);
@@ -422,6 +430,7 @@ function GalleryExrDialog({ item, sourceUrl, durationSeconds, onClose, onReady }
                 body: JSON.stringify({
                     sourceUrl,
                     sourceTaskId: item.taskId,
+                    projectId,
                     options,
                     durationSeconds: Number.isFinite(duration) && duration > 0 ? duration : null,
                 }),
@@ -441,7 +450,7 @@ function GalleryExrDialog({ item, sourceUrl, durationSeconds, onClose, onReady }
                     throw new Error(result.error || 'EXR generation failed.');
                 }
                 if (result?.status === 'succeeded' && result.url) {
-                    onReady(result.url);
+                    onReady(result.url, result.archiveKey || null);
                     return;
                 }
                 throw new Error('EXR generation returned no output file.');

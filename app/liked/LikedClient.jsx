@@ -8,12 +8,19 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { UserButton } from '@clerk/nextjs';
 import { VideoCard, Lightbox, reuseInStudio } from '../gallery/shared.jsx';
+import { useExrAccess } from '../components/ExrAccess.jsx';
 
 export default function LikedClient() {
     const router = useRouter();
     const [items, setItems] = useState(null); // null = loading
     const [lightbox, setLightbox] = useState(null);
     const [error, setError] = useState(null);
+    const { access: exrAccess, requesting: exrAccessRequesting, request: requestExrAccess } = useExrAccess();
+
+    const askForExrAccess = async () => {
+        const result = await requestExrAccess();
+        if (!result.ok) setError(result.data?.error || 'Could not request EXR access.');
+    };
 
     useEffect(() => {
         let alive = true;
@@ -24,9 +31,9 @@ export default function LikedClient() {
         return () => { alive = false; };
     }, []);
 
-    const markExrReady = (taskId, exrUrl) => {
-        setItems((current) => current?.map((item) => item.taskId === taskId ? { ...item, exrUrl } : item));
-        setLightbox((current) => current?.taskId === taskId ? { ...current, exrUrl } : current);
+    const markExrReady = (taskId, exrUrl, exrArchiveKey = null) => {
+        setItems((current) => current?.map((item) => item.taskId === taskId ? { ...item, exrUrl, exrArchiveKey } : item));
+        setLightbox((current) => current?.taskId === taskId ? { ...current, exrUrl, exrArchiveKey } : current);
     };
 
     return (
@@ -87,7 +94,7 @@ export default function LikedClient() {
                 {items?.length > 0 && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                         {items.map((item) => (
-                            <VideoCard key={item.taskId} item={item} creator={item.creator} onOpen={() => setLightbox(item)} />
+                            <VideoCard key={item.taskId} item={item} creator={item.creator} exrAccess={exrAccess} onOpen={() => setLightbox(item)} />
                         ))}
                     </div>
                 )}
@@ -103,6 +110,9 @@ export default function LikedClient() {
                         onClose={() => setLightbox(null)}
                         onReuse={() => reuseInStudio(router, lightbox)}
                         onExrReady={markExrReady}
+                        exrAccess={exrAccess}
+                        exrAccessRequesting={exrAccessRequesting}
+                        onRequestExrAccess={askForExrAccess}
                         onPrev={idx > 0 ? () => setLightbox(items[idx - 1]) : null}
                         onNext={items && idx >= 0 && idx < items.length - 1 ? () => setLightbox(items[idx + 1]) : null}
                     />
