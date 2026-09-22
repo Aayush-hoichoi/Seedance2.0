@@ -132,15 +132,15 @@ test('Seedance 2.5 is gated, so activation alone never grants anyone access', ()
     assert.equal(model.gated, true, 'ungated would make it open the moment it is activated');
 });
 
-// The studio exposes the requested 2.5 native-4K tier consistently across the
-// picker, catalog, grants, pricing, and payload. Provider availability remains
-// endpoint/account dependent and is surfaced if the endpoint rejects it.
-test('Seedance 2.5 exposes the configured native 4K tier', () => {
+// The 2.5 ladder tops out at 1080p: ModelArk rejected 4k on the live endpoint
+// (probed 2026-09-22, "not supported for this account and model" — see the
+// ledger in constants.js). Re-probe before ever flipping 4k back on.
+test('Seedance 2.5 tops out at 1080p until the account is enabled for 4K', () => {
     const model = MODELS.find((m) => m.kind === 'full_2_5');
     assert.equal(model.supports1080p, true);
-    assert.equal(model.supports4k, true);
-    assert.deepEqual(supportedResolutionsFor('seedance-2.5'), ['480p', '720p', '1080p', '4k']);
-    assert.deepEqual(supportedResolutionsFor(model.id), ['480p', '720p', '1080p', '4k']);
+    assert.equal(model.supports4k, false);
+    assert.deepEqual(supportedResolutionsFor('seedance-2.5'), ['480p', '720p', '1080p']);
+    assert.deepEqual(supportedResolutionsFor(model.id), ['480p', '720p', '1080p']);
 });
 
 test('the catalog caps agree with the studio capability flags', () => {

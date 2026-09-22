@@ -21,13 +21,15 @@ test('studio payload preserves native 4K for standard Seedance 2.0', () => {
     assert.equal(payload.resolution, '4k');
 });
 
-test('studio preserves native 4K for Seedance 2.5', () => {
-    assert.equal(twoFive.supports4k, true);
-    const payload = buildPayload({
+// Live-probed 2026-09-22: ModelArk rejects 4k on the 2.5 endpoint ("not
+// supported for this account and model"). See the ledger in constants.js.
+test('Seedance 2.5 does not advertise 4K until the account is enabled for it', () => {
+    assert.equal(twoFive.supports4k, false);
+    assert.ok(!supportedResolutionsFor(twoFive.id).includes('4k'));
+    assert.ok(supportedResolutionsFor(twoFive.id).includes('1080p'));
+    assert.throws(() => buildPayload({
         options: { model: twoFive.id, resolution: '4k', ratio: '16:9', duration: 8, generate_audio: true, watermark: false },
         prompt: 'A cinematic mountain landscape',
         mediaItems: [],
-    });
-    assert.equal(payload.model, twoFive.id);
-    assert.equal(payload.resolution, '4k');
+    }), /does not support 4k/);
 });
