@@ -49,9 +49,11 @@ test('a grant never admits a tier above it', () => {
 // --- the model ceiling -------------------------------------------------------
 
 test('a grant above the model ceiling cannot reach past the model', () => {
+    // 2.5 tops out at 1080p (4k live-probed and rejected 2026-09-22), so even
+    // a 4k grant must stop at the model ceiling.
     const twoFive = MODELS.find((m) => m.kind === 'full_2_5').id;
-    assert.equal(allowed({ modelId: twoFive, resolution: '4k', grantCap: '4k' }), true,
-        'the configured native 4K tier remains available');
+    assert.equal(allowed({ modelId: twoFive, resolution: '4k', grantCap: '4k' }), false,
+        'the model ceiling blocks a tier the model does not have');
     assert.equal(allowed({ modelId: twoFive, resolution: '1080p', grantCap: '4k' }), true,
         'and everything the model does have stays available');
 });
@@ -88,7 +90,7 @@ test('every model ladder is contiguous from 480p and never empty', () => {
 
 test('case does not open a hole in either ceiling', () => {
     const twoFive = MODELS.find((m) => m.kind === 'full_2_5').id;
-    assert.equal(allowed({ modelId: twoFive, resolution: '4K', grantCap: '4k' }), true);
+    assert.equal(allowed({ modelId: twoFive, resolution: '4K', grantCap: '4k' }), false);
     assert.equal(allowed({ modelId: twoFive, resolution: '1080P', grantCap: '4k' }), true);
     // The grant side too, not just the model side.
     const full = MODELS.find((m) => m.kind === 'full').id;

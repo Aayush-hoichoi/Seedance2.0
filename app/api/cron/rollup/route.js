@@ -3,6 +3,7 @@ import { getDb } from '../../../../lib/db/neon.js';
 import { sweep } from '../../../../lib/gateway/sweep.mjs';
 import { cleanupOldAssets } from '../../../../lib/byteplus/assetsServer.js';
 import { backfillTeamsCards } from '../../../../lib/notify/teamsBackfill.mjs';
+import { drainExrQueue } from '../../../../scripts/exr-queue-worker.mjs';
 
 // The single daily Vercel cron (Hobby plan allows 1/day): materializes
 // yesterday's billing events into usage_rollups_daily and runs a forced
@@ -63,6 +64,13 @@ export async function GET(request) {
     // poor for an approval, but the alternative was never.
     const teamsCards = await backfillTeamsCards({ sql })
         .catch((error) => { console.error('[teams] cron backfill failed:', error.message); return null; });
+
+    // EXR jobs only progress when something works the queue; the submit-time
+    // drain dies with its function invocation, so an unwatched job can still
+    // freeze in 'processing'. This is the safety net. Riding this job because
+    // vercel.json is on the Hobby one-cron-per-day limit.
+    await drainExrQueue({ maxMs: 60_000 })
+        .catch((error) => { console.error('[exr-worker] cron drain failed:', error.message); });
 
     return NextResponse.json({ ok: true, rolledUp: rows.length, sweptAssets, teamsCards });
 }

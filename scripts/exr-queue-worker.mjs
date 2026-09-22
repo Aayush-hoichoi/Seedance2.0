@@ -99,6 +99,26 @@ export async function runExrQueue({ once = false } = {}) {
     } while (true);
 }
 
+// Work the queue until every EXR job is terminal or the time budget runs out.
+// A single once-pass only advances a job one step, so with no long-lived
+// worker a job used to freeze in 'processing' the moment the browser stopped
+// polling the status route (EXR-4 sat "processing" for 20 minutes after
+// BytePlus had already finished). The submit route drains after responding,
+// and the daily cron drains as the safety net for anything that outlives it.
+export async function drainExrQueue({ maxMs = 240_000 } = {}) {
+    const sql = await getDb();
+    if (!sql) throw new Error('DATABASE_URL is not configured.');
+    const deadline = Date.now() + maxMs;
+    while (Date.now() < deadline) {
+        const worked = await runOne(sql);
+        if (!worked) {
+            const [pending] = await sql`SELECT count(*)::int AS n FROM exr_jobs WHERE status IN ('queued', 'processing')`;
+            if (!pending?.n) return;
+            await new Promise((resolve) => setTimeout(resolve, IDLE_DELAY_MS));
+        }
+    }
+}
+
 if (process.argv[1]?.endsWith('exr-queue-worker.mjs')) {
     runExrQueue({ once: process.env.BYTEPLUS_EXR_WORKER_ONCE === 'true' })
         .catch((error) => { console.error(`[exr-worker] ${error.message}`); process.exitCode = 1; });

@@ -15,14 +15,25 @@ import {
 } from '../../../../lib/byteplus/exrQueue.mjs';
 import { exrProjectForUser, getExrAccess } from '../../../../lib/byteplus/exrAccess.mjs';
 import { presignKey } from '../../../../lib/seedance/galleryItem.mjs';
-import { runExrQueue } from '../../../../scripts/exr-queue-worker.mjs';
+import { drainExrQueue, runExrQueue } from '../../../../scripts/exr-queue-worker.mjs';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
+// One pass per status poll: enough to advance a watched job, and a terminal
+// provider state is picked up in a single pass when someone looks again.
 function kickExrWorker() {
     after(() => runExrQueue({ once: true }).catch((error) => {
         console.error('[exr-worker] automatic queue pass failed:', error.message);
+    }));
+}
+
+// After a submit, keep working the queue so the job finishes even if the
+// user closes the page. Budget stays under maxDuration; the daily cron
+// catches anything that outlives it.
+function drainExrWorker() {
+    after(() => drainExrQueue({ maxMs: 240_000 }).catch((error) => {
+        console.error('[exr-worker] automatic queue drain failed:', error.message);
     }));
 }
 
@@ -80,7 +91,7 @@ export async function POST(request) {
             sourceUrl: body.sourceUrl,
             requestBody,
         });
-        kickExrWorker();
+        drainExrWorker();
         return NextResponse.json({
             status: 'queued',
             queueId: job.id,
