@@ -14,6 +14,7 @@ export default function ExrQueueClient() {
     const queue = useApi(`/api/admin/exr-queue${status ? `?status=${status}` : ''}`, { refreshInterval: 5000 });
     const items = queue.data?.items ?? [];
     const counts = Object.fromEntries((queue.data?.counts ?? []).map((item) => [item.status, item.count]));
+    const billing = selected?.request_body?._billing || null;
 
     async function change(id, action) {
         const result = await sendJson('/api/admin/exr-queue', 'PATCH', { id, action });
@@ -87,6 +88,21 @@ export default function ExrQueueClient() {
                             <div><div className="text-ink-3">Provider request</div><div className="mt-1 break-all font-mono text-ink-2">{selected.provider_request_id || '—'}</div></div>
                         </div>
                         <div><div className="text-ink-3">Source URL</div><div className="mt-1 max-h-20 overflow-auto break-all rounded-md bg-paper-3 p-2 font-mono text-[10px] text-ink-2">{selected.source_url}</div></div>
+                        <div className="rounded-md border border-line bg-paper-2 p-3">
+                            <div className="font-semibold text-ink">Billing details</div>
+                            {billing ? (
+                                <div className="mt-2 grid grid-cols-2 gap-3">
+                                    <div><div className="text-ink-3">Tier</div><div className="mt-1 text-ink-2">{billing.tier || '—'}</div></div>
+                                    <div><div className="text-ink-3">Resolution</div><div className="mt-1 text-ink-2">{billing.resolution || '—'}</div></div>
+                                    <div><div className="text-ink-3">Frame rate</div><div className="mt-1 text-ink-2">{billing.fps ? `${billing.fps} FPS` : '—'}</div></div>
+                                    <div><div className="text-ink-3">Bit depth</div><div className="mt-1 text-ink-2">{billing.bitDepth ? `${billing.bitDepth}-bit` : '—'}</div></div>
+                                    <div><div className="text-ink-3">Format</div><div className="mt-1 text-ink-2">{billing.outputFormat || '—'}</div></div>
+                                    <div><div className="text-ink-3">Video length</div><div className="mt-1 text-ink-2">{billing.durationSeconds ? `${Number(billing.durationSeconds).toFixed(3)} seconds` : 'Unavailable'}</div></div>
+                                    <div><div className="text-ink-3">Rate</div><div className="mt-1 text-ink-2">{billing.unitPriceUsd == null ? '—' : `$${Number(billing.unitPriceUsd).toFixed(4)} / minute`}</div></div>
+                                    <div><div className="text-ink-3">Estimated total</div><div className="mt-1 font-semibold text-ink">{billing.estimatedCostUsd == null ? 'Unavailable' : `$${Number(billing.estimatedCostUsd).toFixed(4)}`}</div></div>
+                                </div>
+                            ) : <p className="mt-1 text-ink-3">Billing details were not recorded for this older job.</p>}
+                        </div>
                         <div><div className="text-ink-3">Request settings</div><pre className="mt-1 max-h-40 overflow-auto rounded-md bg-paper-3 p-2 text-[10px] text-ink-2">{JSON.stringify(selected.request_body, null, 2)}</pre></div>
                         {selected.result && <div><div className="text-ink-3">Result</div><pre className="mt-1 max-h-40 overflow-auto rounded-md bg-paper-3 p-2 text-[10px] text-ink-2">{JSON.stringify(selected.result, null, 2)}</pre></div>}
                         {selected.error && <div><div className="text-ink-3">Error</div><pre className="mt-1 max-h-28 overflow-auto rounded-md bg-danger/10 p-2 text-[10px] text-danger">{JSON.stringify(selected.error, null, 2)}</pre></div>}

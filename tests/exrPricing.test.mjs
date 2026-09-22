@@ -12,6 +12,11 @@ test('uses the Pro 4K 24 FPS reference price', () => {
     assert.equal(estimateExrCost(EXR_DEFAULT_OPTIONS, 60), 16.5288);
 });
 
+test('calculates the exact total from video length', () => {
+    assert.equal(estimateExrCost(EXR_DEFAULT_OPTIONS, 5), 1.3774);
+    assert.equal(estimateExrCost({ tier: 'pro', resolution: '4k', fps: 60 }, 5), 2.7548);
+});
+
 test('uses the correct FPS price band', () => {
     assert.equal(pricePerExrMinute({ tier: 'pro', resolution: '4k', fps: 30 }), 16.5288);
     assert.equal(pricePerExrMinute({ tier: 'pro', resolution: '4k', fps: 60 }), 33.0576);

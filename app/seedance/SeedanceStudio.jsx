@@ -709,15 +709,16 @@ export default function SeedanceStudio() {
         throw new Error('Timed out waiting for the EXR file.');
     };
 
-    const generateExr = async (job, requestedOptions = {}) => {
+    const generateExr = async (job, requestedOptions = {}, durationSeconds = null) => {
         if (!job?.videoUrl || job.exrStatus === 'submitting' || job.exrStatus === 'processing') return;
         const exrOptions = normalizeExrOptions(requestedOptions);
+        const videoDurationSeconds = Number(durationSeconds ?? job.options?.duration);
         patchJob(job.id, { exrStatus: 'submitting', exrError: null });
         try {
             const response = await fetch('/api/seedance/exr', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sourceUrl: job.videoUrl, sourceTaskId: job.taskId, projectId: job.projectId, options: exrOptions }),
+                body: JSON.stringify({ sourceUrl: job.videoUrl, sourceTaskId: job.taskId, projectId: job.projectId, options: exrOptions, durationSeconds: videoDurationSeconds }),
             });
             const data = await response.json().catch(() => null);
             if (!response.ok || !data?.taskToken) {
@@ -2743,12 +2744,19 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, onToggleLike, onRef
     const [dlFormat, setDlFormat] = useState('mov'); // video download container — mov is the default
     const [showExrInfo, setShowExrInfo] = useState(false);
     const [exrOptions, setExrOptions] = useState(() => normalizeExrOptions(job.exrOptions || EXR_DEFAULT_OPTIONS));
+    const [measuredVideoDuration, setMeasuredVideoDuration] = useState(null);
     const modelName = job.model ? (MODELS.find((m) => m.id === job.model)?.name ?? IMAGE_MODELS.find((m) => m.id === job.model)?.name ?? job.model) : null;
     const prompt = job.userPrompt || job.prompt || '';
-    const exrDurationSeconds = Number(job.options?.duration);
+    const requestedDurationSeconds = Number(job.options?.duration);
+    const exrDurationSeconds = Number.isFinite(measuredVideoDuration) && measuredVideoDuration > 0
+        ? measuredVideoDuration
+        : requestedDurationSeconds;
     const exrPricePerMinute = pricePerExrMinute(exrOptions);
     const exrEstimateValue = estimateExrCost(exrOptions, exrDurationSeconds);
-    const exrEstimate = exrEstimateValue == null ? null : exrEstimateValue.toFixed(2);
+    const exrEstimate = exrEstimateValue == null ? null : exrEstimateValue.toFixed(4);
+    const exrDurationLabel = Number.isFinite(exrDurationSeconds) && exrDurationSeconds > 0
+        ? `${exrDurationSeconds.toFixed(3)} seconds`
+        : 'Video length unavailable';
     // Mannequin mode: the silent motion-source video plays beside the output
     // so the source action and the generated performance compare at a glance.
     const mannequinRef = (job.modeId || job.style) === 'mannequin' && !job.imageUrl ? job.refs?.find((r) => r.kind === 'video') : null;
@@ -2769,7 +2777,13 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, onToggleLike, onRef
 
     useEffect(() => {
         setExrOptions(normalizeExrOptions(job.exrOptions || EXR_DEFAULT_OPTIONS));
-    }, [job.id]);
+        setMeasuredVideoDuration(null);
+    }, [job.id, job.videoUrl]);
+
+    const onVideoMetadata = (event) => {
+        const duration = event.currentTarget.duration;
+        if (Number.isFinite(duration) && duration > 0) setMeasuredVideoDuration(duration);
+    };
 
     return (
         <div className="fixed inset-0 z-[80] flex flex-col bg-app-bg animate-fade-in-up lg:flex-row">
@@ -2787,6 +2801,7 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, onToggleLike, onRef
                             autoPlay
                             loop
                             playsInline
+                            onLoadedMetadata={onVideoMetadata}
                             onError={onRefresh}
                             className="min-h-0 min-w-0 max-h-full flex-1 object-contain"
                         />
@@ -2799,6 +2814,7 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, onToggleLike, onRef
                         autoPlay
                         loop
                         playsInline
+                        onLoadedMetadata={onVideoMetadata}
                         onError={onRefresh}
                         className="max-h-full max-w-full object-contain"
                     />
@@ -3010,31 +3026,22 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, onToggleLike, onRef
                         </div>
 
                         <div className="mt-5 space-y-3 text-xs leading-relaxed text-ink-2">
-                            <div className="rounded-lg border border-line bg-paper-2 p-3">
-                                <p className="font-semibold text-ink">How pricing works</p>
-                                <p className="mt-1">BytePlus VOD uses pay-as-you-go billing. Video enhancement is charged from the processed output duration, enhancement tier, resolution, and frame rate. Your current selection is <strong>${exrPricePerMinute.toFixed(4)} per minute</strong>.</p>
-                                {exrEstimate && <p className="mt-2 font-semibold text-ink">Estimated processing charge for {exrDurationSeconds}s: about ${exrEstimate}.</p>}
-                                <p className="mt-1 text-ink-3">This is an estimate from the public reference price. Your BytePlus account, region, contract, resource package, and any EXR-specific pricing can change the final bill.</p>
+                            <div className="rounded-lg border border-line bg-paper-2 p-4">
+                                <div className="flex items-center justify-between gap-3">
+                                    <p className="font-semibold text-ink">Price preview</p>
+                                    <span className="rounded-full bg-accent/10 px-2 py-1 text-[10px] font-semibold text-accent">USD</span>
+                                </div>
+                                <dl className="mt-3 space-y-2">
+                                    <DetailRow k="Video length" v={exrDurationLabel} />
+                                    <DetailRow k="Rate" v={`$${exrPricePerMinute.toFixed(4)} / minute`} />
+                                    <DetailRow k="Calculation" v={exrEstimateValue == null ? 'Waiting for video length' : `(${exrDurationSeconds.toFixed(3)} ÷ 60) × $${exrPricePerMinute.toFixed(4)}`} />
+                                </dl>
+                                <div className="mt-4 flex items-end justify-between border-t border-line pt-3">
+                                    <span className="font-semibold text-ink">Estimated total</span>
+                                    <strong className="text-lg text-accent">{exrEstimate == null ? '—' : `$${exrEstimate}`}</strong>
+                                </div>
                             </div>
-
-                            <div>
-                                <p className="font-semibold text-ink">Other possible charges</p>
-                                <ul className="mt-1 list-disc space-y-1 pl-5">
-                                    <li>Storage charges if the output is kept in a BytePlus/TOS bucket.</li>
-                                    <li>Data transfer charges when the output is downloaded.</li>
-                                    <li>The 16-bit EXR file can be much larger than the original video.</li>
-                                </ul>
-                            </div>
-
-                            <div>
-                                <p className="font-semibold text-ink">What will happen after confirmation</p>
-                                <p className="mt-1">The current finished video will be sent to BytePlus. The task runs asynchronously, so you can wait while the status is checked. The EXR result is then made available through the Download EXR button.</p>
-                            </div>
-
-                            <p className="text-ink-3">This action starts a paid BytePlus task. Check the final price in your BytePlus billing console before confirming.</p>
-                            <p>
-                                <a className="text-accent underline underline-offset-2" href="https://docs.byteplus.com/en/docs/byteplus-vod/docs-pay-as-you-go-pricing" target="_blank" rel="noreferrer">View BytePlus pricing documentation</a>
-                            </p>
+                            <p className="text-[11px] text-ink-3">The final amount is based on your selected settings and the finished video length.</p>
                         </div>
 
                         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -3042,7 +3049,7 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, onToggleLike, onRef
                             <button
                                 type="button"
                                 disabled={job.exrStatus === 'submitting' || job.exrStatus === 'processing'}
-                                onClick={() => { setShowExrInfo(false); onGenerateExr(job, exrOptions); }}
+                                onClick={() => { setShowExrInfo(false); onGenerateExr(job, exrOptions, exrDurationSeconds); }}
                                 className="rounded-md bg-accent px-4 py-2.5 text-xs font-semibold text-accent-ink transition-colors hover:bg-accent-hi disabled:cursor-wait disabled:opacity-60"
                             >
                                 {job.exrStatus === 'submitting' || job.exrStatus === 'processing' ? 'EXR is processing…' : 'Confirm and generate EXR'}
