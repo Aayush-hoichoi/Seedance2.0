@@ -1002,9 +1002,10 @@ export default function PromptBar({
                             options={resolutions.map((r) => {
                                 // Above the granted cap: locked, and picking it asks for an upgrade.
                                 const locked = !resolutionWithinTier(r, tierCaps[options.model] ?? null, RESOLUTIONS);
-                                if (!locked) return { value: r, label: r };
+                                const label = r === '4k' && selectedModel?.supports4k ? '4K · native' : r;
+                                if (!locked) return { value: r, label };
                                 const requested = String(pendingTierFor(options.model) || '').toLowerCase() === r.toLowerCase();
-                                return { value: r, label: withLock(requested ? `${r} · requested` : r) };
+                                return { value: r, label: withLock(requested ? `${label} · requested` : label) };
                             })}
                             onSelect={(v) => {
                                 if (!resolutionWithinTier(v, tierCaps[options.model] ?? null, RESOLUTIONS)) {
