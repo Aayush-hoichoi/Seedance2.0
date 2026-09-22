@@ -24,6 +24,11 @@ export default function LikedClient() {
         return () => { alive = false; };
     }, []);
 
+    const markExrReady = (taskId, exrUrl) => {
+        setItems((current) => current?.map((item) => item.taskId === taskId ? { ...item, exrUrl } : item));
+        setLightbox((current) => current?.taskId === taskId ? { ...current, exrUrl } : current);
+    };
+
     return (
         <div className="relative min-h-screen w-full bg-app-bg text-white">
             {/* Top bar */}
@@ -97,6 +102,7 @@ export default function LikedClient() {
                         creator={lightbox.creator}
                         onClose={() => setLightbox(null)}
                         onReuse={() => reuseInStudio(router, lightbox)}
+                        onExrReady={markExrReady}
                         onPrev={idx > 0 ? () => setLightbox(items[idx - 1]) : null}
                         onNext={items && idx >= 0 && idx < items.length - 1 ? () => setLightbox(items[idx + 1]) : null}
                     />

@@ -100,6 +100,11 @@ export default function GalleryClient() {
         setProjects(null);
     };
 
+    const markExrReady = (taskId, exrUrl) => {
+        setItems((current) => current?.map((item) => item.taskId === taskId ? { ...item, exrUrl } : item));
+        setLightbox((current) => current?.taskId === taskId ? { ...current, exrUrl } : current);
+    };
+
     const loadMore = async () => {
         if (!selected || !nextBefore || loadingMore) return;
         const requestKey = requestKeyRef.current;
@@ -294,6 +299,7 @@ export default function GalleryClient() {
                         creator={creator}
                         onClose={() => setLightbox(null)}
                         onReuse={() => reuseInStudio(router, lightbox)}
+                        onExrReady={markExrReady}
                         onPrev={idx > 0 ? () => setLightbox(items[idx - 1]) : null}
                         onNext={items && idx >= 0 && idx < items.length - 1 ? () => setLightbox(items[idx + 1]) : null}
                     />
