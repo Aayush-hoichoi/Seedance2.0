@@ -22,7 +22,8 @@ export const maxDuration = 300;
 
 const MAX_ITEMS = 200;
 const MAX_ASSET_BYTES = 200 * 1024 * 1024; // mirrors the archive route's cap
-const MAX_EXR_BYTES = 1024 * 1024 * 1024;
+const configuredMaxExrBytes = Number(process.env.BYTEPLUS_MAX_EXR_BYTES);
+const MAX_EXR_BYTES = Number.isFinite(configuredMaxExrBytes) && configuredMaxExrBytes > 0 ? configuredMaxExrBytes : null;
 // Only fetch from BytePlus's own media hosts — this is not an open proxy (SSRF).
 const HOST_RE = /\.(volces\.com|bytepluses\.com|volcvideo\.com)$/;
 
@@ -66,6 +67,30 @@ function parseItems(raw) {
     });
     if (!items.length) return { error: 'No downloadable BytePlus media URLs in the request.' };
     return { items };
+}
+
+function isExr(name, url) {
+    return /\.exr(?:$|[?#])/i.test(name || '') || /\.exr(?:$|[?#])/i.test(url || '');
+}
+
+async function streamRawExr(item) {
+    try {
+        const res = await fetch(item.url);
+        if (!res.ok || !res.body) return bad('Could not download the EXR file — the link may have expired.', 502);
+        const length = Number(res.headers.get('content-length'));
+        if (MAX_EXR_BYTES && Number.isFinite(length) && length > MAX_EXR_BYTES) {
+            return bad(`The EXR file is larger than the configured ${Math.round(MAX_EXR_BYTES / 1024 / 1024)} MB download limit.`, 413);
+        }
+        const headers = {
+            'Content-Type': 'image/x-exr',
+            'Content-Disposition': contentDisposition(item.name),
+            'Cache-Control': 'no-store',
+        };
+        if (Number.isFinite(length)) headers['Content-Length'] = String(length);
+        return new Response(res.body, { headers });
+    } catch {
+        return bad('Could not download the EXR file — the link may have expired.', 502);
+    }
 }
 
 // Download one asset into a Buffer, enforcing the size cap. Returns null on any
@@ -112,6 +137,12 @@ export async function POST(request) {
     }
 
     await logDownloads(items);
+
+    // EXR files can be larger than 1 GB. Stream the exact bytes through the
+    // download endpoint instead of buffering the whole file in server memory.
+    if (items.length === 1 && raw && isExr(items[0].name, items[0].url)) {
+        return streamRawExr(items[0]);
+    }
 
     // Single asset → buffer it (so the codec can be fixed) and send it back.
     if (items.length === 1) {

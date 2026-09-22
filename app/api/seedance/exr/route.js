@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 import { getUser } from '../../../../lib/auth/user.js';
 import { getDb } from '../../../../lib/db/neon.js';
 import {
@@ -13,29 +13,22 @@ import {
     getExrJobForUser,
     publicExrStatus,
 } from '../../../../lib/byteplus/exrQueue.mjs';
+import { exrProjectForUser, getExrAccess } from '../../../../lib/byteplus/exrAccess.mjs';
+import { presignKey } from '../../../../lib/seedance/galleryItem.mjs';
+import { runExrQueue } from '../../../../scripts/exr-queue-worker.mjs';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+export const maxDuration = 300;
+
+function kickExrWorker() {
+    after(() => runExrQueue({ once: true }).catch((error) => {
+        console.error('[exr-worker] automatic queue pass failed:', error.message);
+    }));
+}
 
 function errorResponse(error) {
     const status = error.status === 400 || error.status === 503 ? error.status : 502;
     return NextResponse.json({ error: error.message || 'EXR queue request failed.' }, { status });
-}
-
-async function projectForUser(sql, user, requested) {
-    const projectId = Number(requested);
-    if (Number.isInteger(projectId) && projectId > 0) {
-        if (user.role === 'admin') {
-            const [project] = await sql`SELECT id FROM projects WHERE id = ${projectId} AND archived_at IS NULL`;
-            return project ? project.id : null;
-        }
-        const [membership] = await sql`SELECT project_id FROM project_memberships
-            WHERE project_id = ${projectId} AND user_id = ${user.userId}`;
-        return membership?.project_id || null;
-    }
-    const [membership] = await sql`SELECT project_id FROM project_memberships
-        WHERE user_id = ${user.userId} ORDER BY project_id LIMIT 1`;
-    return membership?.project_id || null;
 }
 
 export async function POST(request) {
@@ -49,8 +42,20 @@ export async function POST(request) {
     try {
         const sql = await getDb();
         if (!sql) return NextResponse.json({ error: 'Database is not configured.' }, { status: 503 });
-        const projectId = await projectForUser(sql, user, body.projectId);
+        const projectId = await exrProjectForUser(sql, user, body.projectId);
         if (!projectId) return NextResponse.json({ error: 'A valid workspace project is required.' }, { status: 400 });
+        if (user.role !== 'admin') {
+            const access = await getExrAccess(sql, { userId: user.userId, projectId });
+            if (!access.granted) {
+                return NextResponse.json({
+                    error: access.status === 'pending'
+                        ? 'EXR access is waiting for admin approval.'
+                        : 'EXR is locked for this workspace. Request EXR access first.',
+                    code: 'EXR_ACCESS_REQUIRED',
+                    access,
+                }, { status: 403 });
+            }
+        }
         const options = normalizeExrOptions(body.options || {}, { strict: true });
         const requestBody = buildEnhancementRequest({ options });
         delete requestBody.video_url;
@@ -75,6 +80,7 @@ export async function POST(request) {
             sourceUrl: body.sourceUrl,
             requestBody,
         });
+        kickExrWorker();
         return NextResponse.json({
             status: 'queued',
             queueId: job.id,
@@ -95,15 +101,23 @@ export async function GET(request) {
         if (!sql) return NextResponse.json({ error: 'Database is not configured.' }, { status: 503 });
         const job = await getExrJobForUser(sql, token.queueId, user.userId);
         if (!job) return NextResponse.json({ error: 'EXR task was not found.' }, { status: 404 });
+        if (job.status === 'queued' || job.status === 'processing') kickExrWorker();
+        if (user.role !== 'admin') {
+            const access = await getExrAccess(sql, { userId: user.userId, projectId: job.project_id });
+            if (!access.granted) {
+                return NextResponse.json({ error: 'EXR access is not enabled for this workspace.', code: 'EXR_ACCESS_REQUIRED' }, { status: 403 });
+            }
+        }
         const status = publicExrStatus(job);
         const result = status.result || {};
+        const durableUrl = result.archiveKey ? presignKey(result.archiveKey) : null;
         return NextResponse.json({
             status: status.status,
             queueId: status.id,
             attempt: status.attempt,
             providerTaskId: status.providerTaskId,
             providerRequestId: status.providerRequestId,
-            url: result.url || null,
+            url: durableUrl || result.url || null,
             archiveKey: result.archiveKey || null,
             durable: result.durable ?? false,
             bytes: result.bytes || null,

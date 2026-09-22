@@ -41,6 +41,7 @@ const REVALIDATE = {
     'access.revoked': ['/api/projects'],
     'access.expired': ['/api/projects'],
     'access.request.denied': ['/api/admin/requests'],
+    'exr.access.requested': ['/api/admin/exr-queue'],
     'budget.threshold_crossed': ['/api/admin/quotas?withUsage=1'],
     'budget.requested': ['/api/admin/budget-requests'],
     'budget.request.approved': ['/api/admin/budget-requests', '/api/admin/quotas?withUsage=1'],
@@ -65,6 +66,8 @@ export default function ConsoleShell({ children }) {
     const pendingBudgetRequests = (budgetRequests?.requests ?? []).filter((request) => request.status === 'pending').length;
     const { data: issues } = useApi(isAdmin ? '/api/admin/issues' : null);
     const openIssues = (issues?.issues ?? []).filter((issue) => issue.status === 'open').length;
+    const { data: exrQueue } = useApi(isAdmin ? '/api/admin/exr-queue?limit=1' : null, { refreshInterval: 10000 });
+    const pendingExrAccess = exrQueue?.accessRequestCount || 0;
     const nav = isAdmin ? NAV : NAV.filter((n) => n.managerOk);
     // A manager who reaches an admin-only console route by URL is bounced to
     // Projects (the APIs already deny the data; this hides the empty shell).
@@ -98,6 +101,7 @@ export default function ConsoleShell({ children }) {
         if (type === 'issue.reported') {
             toast(`${data?.userName || 'A user'} hit an issue on ${data?.modelName || 'a model'} in ${data?.projectName || 'a project'} — ${data?.errorSummary || 'generation failed'}`, { icon: '🐞', duration: 7000 });
         }
+        if (type === 'exr.access.requested') toast(`${data?.userName || 'A user'} requested EXR access.`, { icon: '🔔', duration: 7000 });
         if (type === 'access.revoked') toast(`Access revoked: ${data?.modelId}`, { icon: '🔒' });
         if (type === 'project.paused') toast('Project paused by an admin', { icon: '⏸️' });
     });
@@ -130,7 +134,8 @@ export default function ConsoleShell({ children }) {
                                 {!collapsed && <span className="min-w-0 flex-1 truncate">{label}</span>}
                                 {(() => {
                                     const badge = label === 'Budget requests' ? pendingBudgetRequests
-                                        : label === 'Issues' ? openIssues : 0;
+                                        : label === 'Issues' ? openIssues
+                                            : label === 'EXR Queue' ? pendingExrAccess : 0;
                                     return badge > 0 ? (
                                         <span className="grid min-w-5 place-items-center rounded-full bg-warn/15 px-1 text-[10px] font-semibold text-warn">
                                             {badge > 99 ? '99+' : badge}

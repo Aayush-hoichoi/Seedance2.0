@@ -54,7 +54,9 @@ async function runOne(sql) {
     }
 
     try {
-        const result = await pollEnhancement(job.provider_task_id);
+        const result = job.result?.url
+            ? { status: 'succeeded', url: job.result.url, metadata: job.result.metadata || null, expiresAt: job.result.expiresAt || null }
+            : await pollEnhancement(job.provider_task_id);
         if (result.status === 'processing') {
             await rescheduleExrJob(sql, job.id, { delayMs: EXR_POLL_DELAY_MS });
         } else if (result.status === 'failed') {

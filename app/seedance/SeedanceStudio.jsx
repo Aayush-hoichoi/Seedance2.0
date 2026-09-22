@@ -30,7 +30,7 @@ import { tosPresignExpired } from '../../lib/seedance/tosPresign.mjs';
 import { preferredProjectId, resolveProjectId, rememberProjectId, syncProjectParam } from '../../lib/seedance/projectChoice.mjs';
 import { archiveKeyForTask } from '../../lib/seedance/archiveKey.mjs';
 import { resolveFreshVideoUrl } from '../../lib/seedance/videoUrl.js';
-import { downloadAsset } from '../../lib/seedance/downloadAssets.js';
+import { downloadArchivedAsset, downloadAsset } from '../../lib/seedance/downloadAssets.js';
 import { estimateExrCost, EXR_DEFAULT_OPTIONS, EXR_FPS, EXR_RESOLUTIONS, EXR_TIERS, normalizeExrOptions, pricePerExrMinute } from '../../lib/byteplus/exrPricing.mjs';
 import PromptBar from './PromptBar.jsx';
 import { UserButton } from '@clerk/nextjs';
@@ -41,6 +41,7 @@ import MySpend from './MySpend.jsx';
 import BudgetRequestModal from './BudgetRequestModal.jsx';
 import IssueReportModal from './IssueReportModal.jsx';
 import ConfirmDialog from '../../components/ConfirmDialog.jsx';
+import { useExrAccess } from '../components/ExrAccess.jsx';
 import Link from 'next/link';
 import { ArrowLeft, Bug, ShieldCheck, WalletCards } from 'lucide-react';
 import AssetsPanel from './AssetsPanel.jsx';
@@ -242,6 +243,7 @@ export default function SeedanceStudio() {
     const [spendRank, setSpendRank] = useState(null); // workspace-wide current-month leaderboard position
     const [permsVersion, setPermsVersion] = useState(0); // bump → refetch access
     const [budgetVersion, setBudgetVersion] = useState(0); // settlement/release → refresh remaining balance
+    const { access: exrAccess, requesting: exrAccessRequesting, request: requestExrAccess, refresh: refreshExrAccess } = useExrAccess(projectId);
     const [budgetRequestOpen, setBudgetRequestOpen] = useState(false);
     const [issueJob, setIssueJob] = useState(null); // the failed job being reported to an admin
 
@@ -443,6 +445,10 @@ export default function SeedanceStudio() {
         if (type === 'access.request.denied') {
             setNotice(`Access request ${data?.upgradeDeclined ? 'for a higher quality tier ' : ''}denied for ${data?.modelId || 'the requested model'}${data?.reason ? ` — ${data.reason}` : '.'}`);
         }
+        if ((type === 'exr.access.approved' || type === 'exr.access.denied') && data?.projectId === projectId) {
+            refreshExrAccess();
+            setNotice(type === 'exr.access.approved' ? 'EXR access approved for this workspace.' : 'EXR access request denied for this workspace.');
+        }
         // Closing the loop on a report. The event is scoped to the reporter's
         // user id, so this only ever fires for the person who filed it. The
         // admin's note is the only thing that says WHY it was closed — Dismiss
@@ -471,6 +477,17 @@ export default function SeedanceStudio() {
         // the choice it described and every later reload reads it and drags the
         // user back to N, whatever they picked here.
         syncProjectParam(id, window.location, window.history);
+    };
+
+    const askForExrAccess = async () => {
+        const result = await requestExrAccess();
+        if (result.ok) {
+            setNotice(result.data?.status === 'pending'
+                ? 'EXR access request sent — an admin will review it in the EXR Queue.'
+                : 'EXR access is unlocked for this workspace.');
+        } else {
+            setNotice(result.data?.error || 'Could not request EXR access.');
+        }
     };
 
     // One-time backfill: history created before project tagging has no
@@ -682,8 +699,8 @@ export default function SeedanceStudio() {
     };
 
     // EXR enhancement is a separate asynchronous VOD MediaKit task. Keep the
-    // provider task behind a signed server token and store only the result URL
-    // in the local job history.
+    // provider task behind a signed server token and store the durable key plus
+    // the latest signed URL in the local job history.
     const pollExr = async (job, taskToken) => {
         for (let attempt = 0; attempt < 360; attempt += 1) {
             await new Promise((resolve) => setTimeout(resolve, 5000));
@@ -699,6 +716,7 @@ export default function SeedanceStudio() {
             if (result?.status === 'succeeded' && result.url) {
                 patchJob(job.id, {
                     exrUrl: result.url,
+                    exrArchiveKey: result.archiveKey || null,
                     exrStatus: 'succeeded',
                     exrError: null,
                     exrMetadata: result.metadata || null,
@@ -711,6 +729,12 @@ export default function SeedanceStudio() {
 
     const generateExr = async (job, requestedOptions = {}, durationSeconds = null) => {
         if (!job?.videoUrl || job.exrStatus === 'submitting' || job.exrStatus === 'processing') return;
+        if (!exrAccess?.granted) {
+            setNotice(exrAccess?.status === 'pending'
+                ? 'EXR access is still waiting for admin approval.'
+                : 'EXR is locked for this workspace. Request access before generating an EXR.');
+            return;
+        }
         const exrOptions = normalizeExrOptions(requestedOptions);
         const videoDurationSeconds = Number(durationSeconds ?? job.options?.duration);
         patchJob(job.id, { exrStatus: 'submitting', exrError: null });
@@ -2051,6 +2075,22 @@ export default function SeedanceStudio() {
                             <WalletCards size={13} /> <span className="hidden sm:inline">Request budget</span>
                         </button>
                     )}
+                    {!isAdmin && projectId && exrAccess && (
+                        <button
+                            type="button"
+                            disabled={exrAccess.granted || exrAccess.status === 'pending' || exrAccessRequesting}
+                            onClick={askForExrAccess}
+                            title={exrAccess.granted ? 'EXR is unlocked for this workspace' : 'Request EXR access for this workspace'}
+                            className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[11px] font-semibold transition-colors ${exrAccess.granted
+                                ? 'border-ok/30 bg-ok/10 text-ok'
+                                : exrAccess.status === 'pending'
+                                    ? 'border-warn/30 bg-warn/10 text-warn'
+                                    : 'border-accent/40 bg-accent/10 text-accent-hi hover:bg-accent/20'}`}
+                        >
+                            <span aria-hidden="true">{exrAccess.granted ? '✓' : exrAccess.status === 'pending' ? '◷' : '🔒'}</span>
+                            <span className="hidden sm:inline">{exrAccess.granted ? 'EXR unlocked' : exrAccess.status === 'pending' ? 'EXR request pending' : 'Request EXR access'}</span>
+                        </button>
+                    )}
                 </div>
                 <div className="flex items-center gap-2">
                     <MySpend project={projects.find((p) => p.id === projectId) ?? null} spendRank={spendRank} />
@@ -2202,6 +2242,9 @@ export default function SeedanceStudio() {
                         onClose={() => setSelectedId(null)}
                         onReuse={onReuseRefs}
                         onGenerateExr={generateExr}
+                        exrAccess={exrAccess}
+                        onRequestExrAccess={askForExrAccess}
+                        exrAccessRequesting={exrAccessRequesting}
                         onToggleLike={onToggleLike}
                         onRefresh={() => refreshVideoUrl(viewerJob, { fromError: true })}
                         onPrev={i > 0 ? () => setSelectedId(viewable[i - 1].id) : null}
@@ -2740,7 +2783,7 @@ function Hero() {
 // Full-screen "big preview" for a finished generation (Higgsfield-style):
 // the video fills the left; a right panel carries the prompt, reference
 // thumbnails, generation details and the reuse / download / like actions.
-function AssetViewer({ job, onClose, onReuse, onGenerateExr, onToggleLike, onRefresh, onPrev, onNext }) {
+function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onRequestExrAccess, exrAccessRequesting, onToggleLike, onRefresh, onPrev, onNext }) {
     const [dlFormat, setDlFormat] = useState('mov'); // video download container — mov is the default
     const [showExrInfo, setShowExrInfo] = useState(false);
     const [exrOptions, setExrOptions] = useState(() => normalizeExrOptions(job.exrOptions || EXR_DEFAULT_OPTIONS));
@@ -2900,11 +2943,16 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, onToggleLike, onRef
                         <div className="space-y-1.5">
                             <button
                                 type="button"
-                                onClick={() => setShowExrInfo(true)}
-                                title="View EXR settings, pricing, and confirmation"
-                                className="flex w-full items-center justify-center gap-1.5 rounded-md border border-accent/40 bg-accent/10 px-3 py-2.5 text-xs font-semibold text-ink transition-colors hover:bg-accent/20 disabled:cursor-wait disabled:opacity-60"
+                                disabled={exrAccessRequesting}
+                                onClick={() => exrAccess?.granted ? setShowExrInfo(true) : onRequestExrAccess?.()}
+                                title={exrAccess?.granted ? 'View EXR settings, pricing, and confirmation' : 'Request EXR access for this workspace'}
+                                className={`flex w-full items-center justify-center gap-1.5 rounded-md border px-3 py-2.5 text-xs font-semibold transition-colors disabled:cursor-wait disabled:opacity-60 ${exrAccess?.granted
+                                    ? 'border-accent/40 bg-accent/10 text-ink hover:bg-accent/20'
+                                    : exrAccess?.status === 'pending'
+                                        ? 'border-warn/30 bg-warn/10 text-warn'
+                                        : 'border-accent/30 bg-accent/5 text-accent-hi hover:bg-accent/15'}`}
                             >
-                                EXR
+                                {exrAccess?.granted ? 'EXR' : exrAccess?.status === 'pending' ? 'EXR access pending' : 'Request EXR access'}
                             </button>
                             {(job.exrStatus === 'submitting' || job.exrStatus === 'processing') && (
                                 <p className="text-[11px] leading-relaxed text-ink-3">Generating 16-bit EXR…</p>
@@ -2912,10 +2960,10 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, onToggleLike, onRef
                             {job.exrStatus === 'failed' && job.exrError && (
                                 <p className="text-[11px] leading-relaxed text-danger">{job.exrError}</p>
                             )}
-                            {job.exrStatus === 'succeeded' && job.exrUrl && (
+                            {exrAccess?.granted && job.exrStatus === 'succeeded' && job.exrUrl && (
                                 <button
                                     type="button"
-                                    onClick={() => downloadAsset(job.exrUrl, `${job.taskId || job.id}.exr`, job.taskId, { raw: true })}
+                                    onClick={() => downloadArchivedAsset(job.exrArchiveKey, job.exrUrl, `${job.taskId || job.id}.exr`, job.taskId, { raw: true })}
                                     className="w-full rounded-md border border-line px-3 py-2 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink"
                                 >
                                     Download EXR

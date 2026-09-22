@@ -13,7 +13,7 @@ export const runtime = 'nodejs';
 export const maxDuration = 120;
 
 const BUCKET = process.env.TOS_BUCKET?.trim() || 'seedance-studio-assets';
-const KEY_RE = /^(videos|uploads|images)\/[\w.-]+$/;
+const KEY_RE = /^(videos|uploads|images|exr)\/[\w.-]+$/;
 
 function credentials() {
     const ak = process.env.ARK_AK?.trim();
