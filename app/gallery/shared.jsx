@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { MODES } from '../../lib/seedance/constants.js';
 import { downloadAsset } from '../../lib/seedance/downloadAssets.js';
+import { estimateExrCost, EXR_DEFAULT_OPTIONS, EXR_FPS, EXR_RESOLUTIONS, EXR_TIERS, normalizeExrOptions, pricePerExrMinute } from '../../lib/byteplus/exrPricing.mjs';
 
 export const modeNameOf = (id) => MODES.find((m) => m.id === id)?.name ?? null;
 
@@ -245,9 +246,11 @@ export function SmartVideo({ item, videoRef, onUrl, className, ...videoProps }) 
 
 // Full view: the video big, everything about the generation beside it, and
 // the Reuse action that loads this exact setup back into the studio.
-export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext }) {
+export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext, onExrReady }) {
     const isImage = item.mediaType === 'image';
     const [dlUrl, setDlUrl] = useState(isImage ? item.imageUrl || null : null);
+    const [videoDuration, setVideoDuration] = useState(Number(item.duration) > 0 ? Number(item.duration) : null);
+    const [showExrDialog, setShowExrDialog] = useState(false);
     // Esc closes; ← / → step to the neighbouring generation in the grid.
     useEffect(() => {
         const onKey = (e) => {
@@ -289,7 +292,10 @@ export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext }) {
                     <div className="rounded-2xl overflow-hidden border border-white/10 bg-black shadow-2xl w-full">
                         {isImage
                             ? <img src={item.imageUrl} alt={item.userPrompt || item.prompt || ''} className="w-full max-h-[80vh] object-contain bg-black" />
-                            : <SmartVideo item={item} onUrl={setDlUrl} className="w-full max-h-[70vh] aspect-video object-contain bg-black" controls autoPlay loop playsInline />}
+                            : <SmartVideo item={item} onUrl={setDlUrl} onLoadedMetadata={(event) => {
+                                const duration = event.currentTarget.duration;
+                                if (Number.isFinite(duration) && duration > 0) setVideoDuration(duration);
+                            }} className="w-full max-h-[70vh] aspect-video object-contain bg-black" controls autoPlay loop playsInline />}
                     </div>
                 </div>
                 <div className="w-full lg:w-80 xl:w-96 shrink-0 flex flex-col rounded-2xl border border-white/10 bg-white/[0.02] backdrop-blur-sm overflow-hidden lg:max-h-[70vh]">
@@ -354,22 +360,182 @@ export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext }) {
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
                             </button>
                         )}
-                        {!isImage && item.exrUrl && (
+                        {!isImage && (
                             <button
                                 type="button"
-                                onClick={() => downloadAsset(item.exrUrl, `${item.taskId || 'generation'}.exr`, item.taskId, { raw: true })}
-                                title="Download the EXR output"
-                                aria-label="Download the EXR output"
+                                onClick={() => item.exrUrl
+                                    ? downloadAsset(item.exrUrl, `${item.taskId || 'generation'}.exr`, item.taskId, { raw: true })
+                                    : setShowExrDialog(true)}
+                                title={item.exrUrl ? 'Download the 16-bit EXR output' : 'Generate a 16-bit EXR output'}
+                                aria-label={item.exrUrl ? 'Download the 16-bit EXR output' : 'Generate a 16-bit EXR output'}
                                 className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-amber-300/25 bg-amber-300/10 text-amber-200 hover:bg-amber-300/20 hover:border-amber-300/45 transition-colors text-xs font-semibold"
                             >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
-                                16-bit EXR
+                                {item.exrUrl ? '16-bit EXR' : 'Generate EXR'}
                             </button>
                         )}
                     </div>
                 </div>
             </div>
+            {showExrDialog && !isImage && (
+                <GalleryExrDialog
+                    item={item}
+                    sourceUrl={dlUrl}
+                    durationSeconds={videoDuration}
+                    onClose={() => setShowExrDialog(false)}
+                    onReady={(url) => {
+                        setShowExrDialog(false);
+                        onExrReady?.(item.taskId, url);
+                    }}
+                />
+            )}
         </div>
+    );
+}
+
+function GalleryExrDialog({ item, sourceUrl, durationSeconds, onClose, onReady }) {
+    const [options, setOptions] = useState(() => normalizeExrOptions(EXR_DEFAULT_OPTIONS));
+    const [status, setStatus] = useState('idle');
+    const [error, setError] = useState(null);
+    const alive = useRef(true);
+    const duration = Number(durationSeconds);
+    const rate = pricePerExrMinute(options);
+    const estimate = estimateExrCost(options, duration);
+
+    useEffect(() => () => { alive.current = false; }, []);
+
+    const setOption = (key, value) => {
+        setOptions((current) => normalizeExrOptions({ ...current, [key]: value }));
+    };
+
+    const generate = async () => {
+        if (!sourceUrl) {
+            setError('The source video is still loading. Please wait a moment and try again.');
+            return;
+        }
+        setStatus('submitting');
+        setError(null);
+        try {
+            const response = await fetch('/api/seedance/exr', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sourceUrl,
+                    sourceTaskId: item.taskId,
+                    options,
+                    durationSeconds: Number.isFinite(duration) && duration > 0 ? duration : null,
+                }),
+            });
+            const data = await response.json().catch(() => null);
+            if (!response.ok || !data?.taskToken) throw new Error(data?.error || `EXR request failed (${response.status}).`);
+            setStatus('processing');
+
+            for (let attempt = 0; attempt < 360; attempt += 1) {
+                if (!alive.current) return;
+                if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 5000));
+                const poll = await fetch(`/api/seedance/exr?task=${encodeURIComponent(data.taskToken)}`);
+                const result = await poll.json().catch(() => null);
+                if (!poll.ok) throw new Error(result?.error || `EXR status failed (${poll.status}).`);
+                if (result?.status === 'queued' || result?.status === 'processing') continue;
+                if (result?.status === 'failed' || result?.status === 'cancelled') {
+                    throw new Error(result.error || 'EXR generation failed.');
+                }
+                if (result?.status === 'succeeded' && result.url) {
+                    onReady(result.url);
+                    return;
+                }
+                throw new Error('EXR generation returned no output file.');
+            }
+            throw new Error('Timed out waiting for the EXR file.');
+        } catch (caught) {
+            if (alive.current) {
+                setStatus('error');
+                setError(caught.message || 'EXR generation failed.');
+            }
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm" onClick={(event) => { event.stopPropagation(); if (event.target === event.currentTarget) onClose(); }}>
+            <section role="dialog" aria-modal="true" aria-labelledby="gallery-exr-dialog-title" className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-white/15 bg-[#111116] p-5 text-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+                <div className="flex items-start justify-between gap-4">
+                    <div>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-300">BytePlus VOD MediaKit</p>
+                        <h2 id="gallery-exr-dialog-title" className="mt-1 text-xl font-semibold">Generate 16-bit EXR</h2>
+                        <p className="mt-1 text-xs text-white/45">Create an OpenEXR file from this Gallery video.</p>
+                    </div>
+                    <button type="button" onClick={onClose} aria-label="Close EXR dialog" className="rounded-lg p-1.5 text-white/45 transition-colors hover:bg-white/10 hover:text-white">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                    </button>
+                </div>
+
+                <div className="mt-5 grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
+                    <GalleryDetailRow label="Format" value="OpenEXR" />
+                    <GalleryDetailRow label="Bit depth" value="16-bit Half Float" />
+                    <GalleryExrSelect label="Enhancement" value={options.tier} onChange={(value) => setOption('tier', value)}>
+                        {EXR_TIERS.map((tier) => <option key={tier.value} value={tier.value}>{tier.label}</option>)}
+                    </GalleryExrSelect>
+                    <GalleryExrSelect label="Resolution" value={options.resolution} onChange={(value) => setOption('resolution', value)}>
+                        {EXR_RESOLUTIONS.map((resolution) => <option key={resolution.value} value={resolution.value}>{resolution.label}</option>)}
+                    </GalleryExrSelect>
+                    <GalleryExrSelect label="Frame rate" value={String(options.fps)} onChange={(value) => setOption('fps', Number(value))}>
+                        {EXR_FPS.map((fps) => <option key={fps} value={fps}>{fps} FPS</option>)}
+                    </GalleryExrSelect>
+                    <GalleryDetailRow label="Billing unit" value="USD per output minute" />
+                </div>
+
+                <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.04] p-4 text-xs">
+                    <div className="flex items-center justify-between gap-3">
+                        <p className="font-semibold text-white">Price preview</p>
+                        <span className="rounded-full bg-amber-300/10 px-2 py-1 text-[10px] font-semibold text-amber-200">USD</span>
+                    </div>
+                    <dl className="mt-3 space-y-2 text-white/60">
+                        <GalleryDetailRow label="Video length" value={Number.isFinite(duration) && duration > 0 ? `${duration.toFixed(3)} seconds` : 'Video length unavailable'} />
+                        <GalleryDetailRow label="Rate" value={`$${rate.toFixed(4)} / minute`} />
+                        <GalleryDetailRow label="Calculation" value={estimate == null ? 'Waiting for video length' : `(${duration.toFixed(3)} ÷ 60) × $${rate.toFixed(4)}`} />
+                    </dl>
+                    <div className="mt-4 flex items-end justify-between border-t border-white/10 pt-3">
+                        <span className="font-semibold text-white">Estimated total</span>
+                        <strong className="text-lg text-amber-200">{estimate == null ? '—' : `$${estimate.toFixed(4)}`}</strong>
+                    </div>
+                </div>
+
+                {error && <p className="mt-4 rounded-lg border border-red-400/25 bg-red-400/10 px-3 py-2 text-xs text-red-200">{error}</p>}
+                {status === 'processing' && <p className="mt-4 text-xs text-amber-200">EXR is processing. You can keep this window open while we check the status.</p>}
+
+                <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                    <button type="button" onClick={onClose} className="rounded-lg border border-white/10 px-4 py-2.5 text-xs font-semibold text-white/65 transition-colors hover:bg-white/10 hover:text-white">Cancel</button>
+                    <button
+                        type="button"
+                        onClick={generate}
+                        disabled={status === 'submitting' || status === 'processing'}
+                        className="rounded-lg bg-amber-300 px-4 py-2.5 text-xs font-bold text-black transition-colors hover:bg-amber-200 disabled:cursor-wait disabled:opacity-50"
+                    >
+                        {status === 'submitting' ? 'Submitting…' : status === 'processing' ? 'Processing…' : 'Confirm and generate EXR'}
+                    </button>
+                </div>
+            </section>
+        </div>
+    );
+}
+
+function GalleryDetailRow({ label, value }) {
+    return (
+        <div className="flex items-start justify-between gap-3">
+            <dt className="shrink-0 text-white/40">{label}</dt>
+            <dd className="text-right font-medium text-white/75">{value}</dd>
+        </div>
+    );
+}
+
+function GalleryExrSelect({ label, value, onChange, children }) {
+    return (
+        <label className="flex items-center justify-between gap-3">
+            <span className="shrink-0 text-white/40">{label}</span>
+            <select value={value} onChange={(event) => onChange(event.target.value)} className="min-w-28 rounded-lg border border-white/10 bg-white/[0.06] px-2 py-1.5 text-right font-medium text-white/75 outline-none transition-colors hover:bg-white/10 focus:border-amber-300/60">
+                {children}
+            </select>
+        </label>
     );
 }
 
