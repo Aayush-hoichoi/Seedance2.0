@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Copy, Download, Film, Maximize2, RotateCcw, X } from 'lucide-react';
 import { UPSCALE_CODECS, UPSCALE_SCENES, UPSCALE_STYLES, UPSCALE_VERSIONS, bitrateApplies, proTier } from '../../../lib/byteplus/upscaleOptions.mjs';
 import { usd } from '../../../lib/seedance/money.mjs';
-import { ACTIVE, minutesLeft } from './UpscaleRail.jsx';
+import { ACTIVE, progressText } from './UpscaleRail.jsx';
 
 const label = (list, v) => list.find((x) => x.value === v)?.label ?? v ?? '—';
 const fmtDate = (v) => (v ? new Date(v).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : null);
@@ -91,11 +91,13 @@ export default function UpscalePreview({ job, onClose, onPrev, onNext, onReuse }
 
                     <Section title="Details" last>
                         <dl className="space-y-2 text-xs">
-                            <Row k="Status" v={ACTIVE.has(job.status) && minutesLeft(job) ? `${STATUS_TEXT[job.status]} · ~${minutesLeft(job)} min left` : STATUS_TEXT[job.status] || job.status} />
+                            <Row k="Status" v={STATUS_TEXT[job.status] || job.status} />
+                            {ACTIVE.has(job.status) && <Row k="Time" v={progressText(job, { long: true })} />}
                             <Row k="Estimated" v={job.estimateUsd != null ? usd(job.estimateUsd) : null} />
                             <Row k="Charged" v={job.costUsd != null ? usd(job.costUsd) : job.status === 'succeeded' ? null : '—'} />
                             <Row k="Created" v={fmtDate(job.createdAt)} />
                             <Row k="Finished" v={fmtDate(job.finishedAt)} />
+                            <Row k="Took" v={job.finishedAt && job.createdAt ? `${Math.max(1, Math.round((new Date(job.finishedAt) - new Date(job.createdAt)) / 60000))} min` : null} />
                             <Row k="Job" v={<span className="font-mono text-[10px]">UPS-{job.id}</span>} />
                             {job.providerTaskId && <Row k="Task" v={<span className="break-all font-mono text-[10px]">{job.providerTaskId}</span>} />}
                         </dl>
@@ -151,7 +153,8 @@ function Stage({ job }) {
                     <>
                         <span className="inline-block animate-spin text-2xl text-accent-hi">◌</span>
                         <span className="text-sm font-semibold text-ink">{job.status === 'queued' ? 'Queued' : 'Upscaling'}</span>
-                        {minutesLeft(job) && <span className="text-xs text-ink-3">About {minutesLeft(job)} min left · you can close this page</span>}
+                        <span className="text-xs text-ink-3">{progressText(job, { long: true })}</span>
+                        <span className="text-[11px] text-ink-3">BytePlus queue times vary · you can close this page</span>
                     </>
                 ) : (
                     <span className="max-w-xs text-sm text-danger">{job.error || `Upscale ${job.status}.`}</span>

@@ -1,14 +1,19 @@
 'use client';
 
 import { Film } from 'lucide-react';
+import { upscaleTiming } from '../../../lib/byteplus/upscaleOptions.mjs';
 
 export const ACTIVE = new Set(['queued', 'processing']);
 
-// Minutes left on the BytePlus RTF estimate, never below 1 while running.
-export function minutesLeft(job) {
-    if (!job.waitMin || !job.createdAt) return null;
-    const elapsed = (Date.now() - new Date(job.createdAt).getTime()) / 60000;
-    return Math.max(1, Math.round(job.waitMin - elapsed));
+// Short progress text for a running job: elapsed against the estimate, and an
+// honest "over" once it runs past it (short clips often do — queueing at
+// BytePlus is not in the estimate's control).
+export function progressText(job, { long = false } = {}) {
+    const t = upscaleTiming(job);
+    if (!t) return '';
+    if (t.over) return long ? `${t.elapsed} min elapsed — longer than the ~${t.est} min estimate` : `${t.elapsed}m · over est.`;
+    if (t.est) return long ? `${t.elapsed} min elapsed of ~${t.est} min` : `${t.elapsed}m / ~${t.est}m`;
+    return long ? `${t.elapsed} min elapsed` : `${t.elapsed}m`;
 }
 
 // Right-side history rail, same shape as the studio's: every upscale as a
@@ -62,7 +67,7 @@ function Tile({ job, selected, onClick }) {
                             <>
                                 <span className="inline-block animate-spin text-sm text-accent-hi">◌</span>
                                 <span className="text-[9px] font-semibold text-ink-2">
-                                    {job.status === 'queued' ? 'Queued' : 'Upscaling'}{minutesLeft(job) ? ` · ~${minutesLeft(job)}m` : ''}
+                                    {job.status === 'queued' ? 'Queued' : 'Upscaling'} · {progressText(job)}
                                 </span>
                             </>
                         ) : (
