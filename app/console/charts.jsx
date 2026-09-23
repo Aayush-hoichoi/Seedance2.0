@@ -38,6 +38,33 @@ export function SpendArea({ data, xKey = 'key', yKey = 'cost_usd', height = 220 
     );
 }
 
+// With every user drawn (no Others fold), the default tooltip lists one row
+// per series — 30 users made it taller than the chart. This one drops users
+// at zero that day, keeps the top 10 by value, and folds the rest into one
+// "+N more" line with their combined total.
+function SpendLinesTooltip({ active, payload, label, fmt }) {
+    if (!active || !payload?.length) return null;
+    const rows = payload.filter((p) => Number(p.value) > 0).sort((a, b) => b.value - a.value);
+    if (!rows.length) return null;
+    const top = rows.slice(0, 10);
+    const restSum = rows.slice(10).reduce((sum, p) => sum + Number(p.value || 0), 0);
+    return (
+        <div style={{ ...TOOLTIP_STYLE.contentStyle, padding: '8px 12px' }}>
+            <div style={TOOLTIP_STYLE.labelStyle}>{label}</div>
+            {top.map((p) => (
+                <div key={p.dataKey} style={{ color: p.stroke || p.color, marginTop: 3 }}>
+                    {String(p.dataKey).split('@')[0]} : {fmt(p.value)}
+                </div>
+            ))}
+            {rows.length > top.length && (
+                <div style={{ color: '#7C7A88', marginTop: 3 }}>
+                    +{rows.length - top.length} more : {fmt(restSum)}
+                </div>
+            )}
+        </div>
+    );
+}
+
 // One line per user (wide-format data from buildUserSpendSeries). money=false
 // renders plain counts (tasks) instead of dollars. Legend shows the email's
 // local part; the tooltip keeps the full email.
@@ -49,11 +76,7 @@ export function SpendLines({ data, series, xKey = 'key', height = 320, money = t
                 <CartesianGrid stroke="#2A2A34" vertical={false} />
                 <XAxis dataKey={xKey} {...AXIS} tickLine={false} axisLine={false} />
                 <YAxis {...AXIS} tickLine={false} axisLine={false} width={48} tickFormatter={(v) => (money ? `$${v}` : v)} />
-                {/* No shared itemStyle here: each tooltip row keeps its line's
-                    stroke color, so users map to lines at a glance. */}
-                <Tooltip contentStyle={TOOLTIP_STYLE.contentStyle} labelStyle={TOOLTIP_STYLE.labelStyle}
-                    formatter={(v, n) => [fmt(v), n]}
-                    itemSorter={(item) => -Number(item.value || 0)} />
+                <Tooltip content={<SpendLinesTooltip fmt={fmt} />} />
                 <Legend
                     wrapperStyle={{ fontSize: 11, color: '#B4B2C0' }}
                     formatter={(v) => <span style={{ color: '#B4B2C0' }}>{String(v).split('@')[0]}</span>}
