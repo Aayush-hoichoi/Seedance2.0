@@ -9,6 +9,7 @@ import {
     EDIT_CLIP_MAX_SEC,
     OMNI_TASK_TYPES,
     seedance25Constraints,
+    editClipDurationInvalid,
     editClipWarning,
 } from '../lib/seedance/constraints25.mjs';
 
@@ -88,4 +89,12 @@ test('edit-clip warning fires only for out-of-window clips on seedance models', 
     assert.equal(editClipWarning('pro_1_5', 3.6), null);
     assert.equal(editClipWarning(MODEL_25_KIND, null), null);
     assert.equal(editClipWarning(MODEL_25_KIND, undefined), null);
+});
+
+test('the submit-time edit gate shares the same duration boundaries', () => {
+    assert.equal(editClipDurationInvalid(EDIT_CLIP_MIN_SEC), false);
+    assert.equal(editClipDurationInvalid(EDIT_CLIP_MAX_SEC), false);
+    assert.equal(editClipDurationInvalid(3.9), true);
+    assert.equal(editClipDurationInvalid(30.1), true);
+    assert.equal(editClipDurationInvalid(null), false);
 });
