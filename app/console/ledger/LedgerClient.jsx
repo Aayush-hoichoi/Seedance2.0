@@ -13,6 +13,7 @@ import { Images, Video, Download, Layers, FileSpreadsheet, BarChart3, Table2 } f
 import { useApi, fmtInt } from '../lib.js';
 import { PageHeader, Card, Button, Input, Select, Badge, EmptyState, StatCard, DateRangePicker } from '../ui.jsx';
 import { buildLedgerStatusAnalytics, buildLedgerStatusAnalyticsFromCounts } from './ledgerAnalytics.mjs';
+import EnhanceLedger from './EnhanceLedger.jsx';
 
 const StatusDonut = dynamic(() => import('../charts.jsx').then((m) => m.StatusDonut), { ssr: false });
 const DailyOutcomeBars = dynamic(() => import('../charts.jsx').then((m) => m.DailyOutcomeBars), { ssr: false });
@@ -130,7 +131,16 @@ function Cell({ column, value }) {
     return <span>{text}</span>;
 }
 
+// Which money record is on screen: model generations (the workbooks below),
+// or the EXR / Upscale job ledgers that used to live on the Enhance Queue page.
+const SOURCES = [
+    { id: 'generations', label: 'Generations' },
+    { id: 'exr', label: 'EXR' },
+    { id: 'upscale', label: 'Upscale' },
+];
+
 export default function LedgerClient() {
+    const [source, setSource] = useState('generations');
     const [workbook, setWorkbook] = useState('master');
     const [media, setMedia] = useState('all');
     const [query, setQuery] = useState('');
@@ -231,7 +241,7 @@ export default function LedgerClient() {
                 {/* Plain navigation, not fetch(): the browser's own download
                     handling streams the file to disk and shows native progress,
                     which a blob round-trip through memory would not. */}
-                <div className="flex flex-wrap gap-2">
+                {source === 'generations' && <div className="flex flex-wrap gap-2">
                     {/* Only when the view is actually narrowed, and labelled
                         with what it holds — an unqualified "export" next to two
                         workbook buttons is how a filtered file gets passed on
@@ -251,8 +261,24 @@ export default function LedgerClient() {
                     <Button variant={narrowed ? 'outline' : 'primary'} onClick={() => { window.location.href = '/api/admin/ledger/export?workbook=video'; }}>
                         <Download size={14} /> video.xlsx
                     </Button>
-                </div>
+                </div>}
             </PageHeader>
+
+            <div className="flex gap-1 rounded-lg border border-line bg-paper-1 p-1 w-fit" role="tablist">
+                {SOURCES.map((s) => (
+                    <button
+                        key={s.id} type="button" role="tab" aria-selected={source === s.id}
+                        onClick={() => setSource(s.id)}
+                        className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+                            source === s.id ? 'bg-paper-3 font-medium text-ink' : 'text-ink-3 hover:text-ink-2'
+                        }`}
+                    >
+                        {s.label}
+                    </button>
+                ))}
+            </div>
+
+            {source !== 'generations' ? <EnhanceLedger kind={source} /> : <>
 
             <div className="flex flex-wrap items-center gap-2">
                 {Object.values(WORKBOOKS).map((w) => (
@@ -443,6 +469,7 @@ export default function LedgerClient() {
                     </div>
                 </>
             )}
+            </>}
         </div>
     );
 }
