@@ -5,8 +5,18 @@
 
 import {
     ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
-    PieChart, Pie, Cell, Label, BarChart, Bar, LineChart, Line, Legend,
+    PieChart, Pie, Cell, Label, BarChart, Bar, LineChart, Line, Legend, Brush,
 } from 'recharts';
+
+// Zoom control for congested line charts: drag the handles to narrow the day
+// window — the Y axis rescales to just the visible slice, so overlapping
+// low-value lines separate. Styled for the dark card surface.
+const brushProps = {
+    height: 20,
+    travellerWidth: 8,
+    stroke: '#8B7CF6',
+    fill: '#1A1A21',
+};
 
 const PALETTE = ['#8B7CF6', '#A599F8'];
 // One clearly-distinct hue per user line; 'Others' (always last) gets gray.
@@ -85,6 +95,7 @@ export function SpendLines({ data, series, xKey = 'key', height = 320, money = t
                     <Line key={s} type="monotone" dataKey={s} dot={false} strokeWidth={1.8}
                         stroke={s === 'Others' ? LINE_PALETTE[LINE_PALETTE.length - 1] : LINE_PALETTE[i % (LINE_PALETTE.length - 1)]} />
                 ))}
+                <Brush dataKey={xKey} {...brushProps} />
             </LineChart>
         </ResponsiveContainer>
     );
@@ -106,6 +117,7 @@ export function TaskCostLines({ data, height = 280 }) {
                 <Legend wrapperStyle={{ fontSize: 11 }} formatter={(v) => <span style={{ color: '#B4B2C0' }}>{v}</span>} />
                 <Line yAxisId="usd" type="monotone" dataKey="cost_usd" name="spend" stroke="#8B7CF6" strokeWidth={2} dot={false} />
                 <Line yAxisId="tasks" type="monotone" dataKey="tasks" name="tasks" stroke="#5EEAD4" strokeWidth={2} dot={false} />
+                <Brush dataKey="key" {...brushProps} />
             </LineChart>
         </ResponsiveContainer>
     );
