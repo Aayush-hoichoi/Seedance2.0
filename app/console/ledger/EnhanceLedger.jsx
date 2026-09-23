@@ -4,24 +4,56 @@
 // admin queue endpoint the Enhance Queue page uses. Lives on the Ledger page
 // so every money record is read in one place.
 
+import { useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { FileOutput } from 'lucide-react';
+import { BarChart3, FileOutput, Table2 } from 'lucide-react';
 import { Badge, Button, DataTable, EmptyState, StatCard } from '../ui.jsx';
 import { useApi, fmtDate, timeAgo } from '../lib.js';
 import { downloadArchivedAsset } from '../../../lib/seedance/downloadAssets.js';
+import { buildLedgerStatusAnalyticsFromCounts } from './ledgerAnalytics.mjs';
+import { LedgerAnalytics } from './LedgerClient.jsx';
 
 const STATUS_TONE = { queued: 'amber', processing: 'blue', succeeded: 'green', failed: 'red', rejected: 'red', cancelled: 'zinc' };
 
 export default function EnhanceLedger({ kind }) {
     const upscale = kind === 'upscale';
     const kindLabel = upscale ? 'Upscale' : 'EXR';
+    const [section, setSection] = useState('table');
     const queue = useApi('/api/admin/exr-queue', { refreshInterval: 20_000, keepPreviousData: true, revalidateOnFocus: true });
 
-    const rows = (queue.data?.items ?? [])
-        .filter((job) => Boolean(job.request_body?._upscale) === upscale && job.request_body?._billing)
+    const jobs = (queue.data?.items ?? []).filter((job) => Boolean(job.request_body?._upscale) === upscale);
+    const rows = jobs
+        .filter((job) => job.request_body?._billing)
         .map((job) => ({ ...job, billing: job.request_body._billing }));
     const totalSpendUsd = rows.reduce((sum, row) => sum + (Number(row.billing.estimatedCostUsd) || 0), 0);
     const totalMinutes = rows.reduce((sum, row) => sum + (Number(row.billing.durationSeconds) || 0), 0) / 60;
+
+    // Same shapes the generations analytics section eats: status counts over
+    // every job of this kind ('processing' maps to the donut's 'running',
+    // 'rejected' to its failure bucket), and one rollup per IST day carrying
+    // outcomes + estimated spend for the bars and the tasks-vs-spend lines.
+    const analytics = useMemo(() => {
+        const counts = {};
+        for (const job of jobs) {
+            const status = job.status === 'processing' ? 'running' : job.status;
+            counts[status] = (counts[status] || 0) + 1;
+        }
+        return buildLedgerStatusAnalyticsFromCounts(counts, jobs.length);
+    }, [jobs]);
+    const days = useMemo(() => {
+        const byDay = new Map();
+        for (const job of jobs) {
+            const key = new Date(job.created_at).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+            const day = byDay.get(key) || { key, total: 0, succeeded: 0, failed: 0, active: 0, cost_usd: 0 };
+            day.total += 1;
+            if (job.status === 'succeeded') day.succeeded += 1;
+            else if (job.status === 'queued' || job.status === 'processing') day.active += 1;
+            else day.failed += 1;
+            day.cost_usd += Number(job.request_body?._billing?.estimatedCostUsd) || 0;
+            byDay.set(key, day);
+        }
+        return [...byDay.values()].sort((a, b) => a.key.localeCompare(b.key));
+    }, [jobs]);
 
     const jobLabel = (job) => `${upscale ? 'UPS' : 'EXR'}-${job.id}`;
 
@@ -119,14 +151,28 @@ export default function EnhanceLedger({ kind }) {
                 </div>
                 {rows.length > 0 && <Button variant="outline" size="xs" onClick={exportCsv}>Export CSV</Button>}
             </div>
+            <div className="flex gap-1 rounded-lg border border-line bg-paper-1 p-1 w-fit">
+                {[['table', 'Table', Table2], ['analytics', 'Analytics', BarChart3]].map(([id, label, Icon]) => (
+                    <button
+                        key={id} type="button" onClick={() => setSection(id)}
+                        className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors ${
+                            section === id ? 'bg-paper-3 font-medium text-ink' : 'text-ink-3 hover:text-ink-2'
+                        }`}
+                    >
+                        <Icon size={14} /> {label}
+                    </button>
+                ))}
+            </div>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
                 <StatCard label="Billed jobs" value={rows.length} />
                 <StatCard label="Video minutes" value={totalMinutes.toFixed(2)} tone="blue" />
                 <StatCard label="Estimated spend" value={`$${totalSpendUsd.toFixed(2)}`} tone="green" />
             </div>
-            {rows.length
-                ? <DataTable columns={columns} data={rows} pageSize={15} empty={`No billed ${kindLabel} jobs.`} />
-                : <EmptyState icon={FileOutput} title={`No billed ${kindLabel} jobs`} hint={`Jobs appear here once they carry billing details (all new ${kindLabel} requests do).`} />}
+            {section === 'analytics'
+                ? <LedgerAnalytics analytics={analytics} total={jobs.length} days={days} />
+                : rows.length
+                    ? <DataTable columns={columns} data={rows} pageSize={15} empty={`No billed ${kindLabel} jobs.`} />
+                    : <EmptyState icon={FileOutput} title={`No billed ${kindLabel} jobs`} hint={`Jobs appear here once they carry billing details (all new ${kindLabel} requests do).`} />}
         </div>
     );
 }
