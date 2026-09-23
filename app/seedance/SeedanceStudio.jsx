@@ -2979,7 +2979,7 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() => downloadArchivedAsset(job.exrArchiveKey, job.exrUrl, `${job.taskId || job.id}.exr`, job.taskId, { raw: true })}
+                                        onClick={() => downloadArchivedAsset(job.exrArchiveKey, job.exrUrl, `${job.taskId || job.id}-16bit.mov`, job.taskId, { raw: true })}
                                         className="w-full rounded-md border border-line px-3 py-2 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink"
                                     >
                                         Download original 16-bit output
@@ -3062,8 +3062,8 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                         </div>
 
                         <div className="mt-5 grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
-                            <DetailRow k="Format" v="OpenEXR" />
-                            <DetailRow k="Bit depth" v="16-bit Half Float" />
+                            <DetailRow k="Format" v="FFV1 lossless · QuickTime MOV" />
+                            <DetailRow k="Bit depth" v="16-bit 4:4:4" />
                             <ExrSelect
                                 label="Enhancement"
                                 value={exrOptions.tier}

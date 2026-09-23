@@ -73,23 +73,26 @@ function isExr(name, url) {
     return /\.exr(?:$|[?#])/i.test(name || '') || /\.exr(?:$|[?#])/i.test(url || '');
 }
 
-async function streamRawExr(item) {
+// Stream the exact stored bytes of a single raw download. No buffering, so
+// multi-GB originals (16-bit FFV1 MOVs from the EXR pipeline) work; the only
+// cap is the optional EXR one, kept for parity with the archive route.
+async function streamRawAsset(item) {
     try {
         const res = await fetch(item.url);
-        if (!res.ok || !res.body) return bad('Could not download the EXR file — the link may have expired.', 502);
+        if (!res.ok || !res.body) return bad('Could not download the file — the link may have expired.', 502);
         const length = Number(res.headers.get('content-length'));
         if (MAX_EXR_BYTES && Number.isFinite(length) && length > MAX_EXR_BYTES) {
-            return bad(`The EXR file is larger than the configured ${Math.round(MAX_EXR_BYTES / 1024 / 1024)} MB download limit.`, 413);
+            return bad(`The file is larger than the configured ${Math.round(MAX_EXR_BYTES / 1024 / 1024)} MB download limit.`, 413);
         }
         const headers = {
-            'Content-Type': 'image/x-exr',
+            'Content-Type': contentTypeFor(item.name),
             'Content-Disposition': contentDisposition(item.name),
             'Cache-Control': 'no-store',
         };
         if (Number.isFinite(length)) headers['Content-Length'] = String(length);
         return new Response(res.body, { headers });
     } catch {
-        return bad('Could not download the EXR file — the link may have expired.', 502);
+        return bad('Could not download the file — the link may have expired.', 502);
     }
 }
 
@@ -171,10 +174,10 @@ export async function POST(request) {
         return streamQuickTime(items[0], request);
     }
 
-    // EXR files can be larger than 1 GB. Stream the exact bytes through the
-    // download endpoint instead of buffering the whole file in server memory.
-    if (items.length === 1 && raw && isExr(items[0].name, items[0].url)) {
-        return streamRawExr(items[0]);
+    // Raw originals can be larger than 1 GB (16-bit FFV1 MOVs). Stream the
+    // exact bytes instead of buffering the whole file in server memory.
+    if (items.length === 1 && raw) {
+        return streamRawAsset(items[0]);
     }
 
     // Single asset → buffer it (so the codec can be fixed) and send it back.

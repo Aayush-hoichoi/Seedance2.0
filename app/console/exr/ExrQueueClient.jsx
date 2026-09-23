@@ -48,7 +48,7 @@ export default function ExrQueueClient() {
     }
 
     function downloadOutput(job) {
-        downloadArchivedAsset(job.result?.archiveKey, job.result?.url, `${job.provider_task_id || `EXR-${job.id}`}.exr`, job.provider_task_id, { raw: true });
+        downloadArchivedAsset(job.result?.archiveKey, job.result?.url, `${job.provider_task_id || `EXR-${job.id}`}-16bit.mov`, job.provider_task_id, { raw: true });
         toast.success('Download started.');
     }
 

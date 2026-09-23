@@ -143,7 +143,7 @@ export function VideoCard({ item, creator, onOpen, exrAccess }) {
                         type="button"
                         onClick={(event) => {
                             event.stopPropagation();
-                            downloadArchivedAsset(item.exrArchiveKey, item.exrUrl, `${item.taskId || 'generation'}.exr`, item.taskId, { raw: true });
+                            downloadArchivedAsset(item.exrArchiveKey, item.exrUrl, `${item.taskId || 'generation'}-16bit.mov`, item.taskId, { raw: true });
                         }}
                         title="Download the original 16-bit output"
                         aria-label="Download the original 16-bit output"
@@ -398,7 +398,7 @@ export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext, onEx
                         {!isImage && exrAccess?.granted && item.exrUrl && (
                             <button
                                 type="button"
-                                onClick={() => downloadArchivedAsset(item.exrArchiveKey, item.exrUrl, `${item.taskId || 'generation'}.exr`, item.taskId, { raw: true })}
+                                onClick={() => downloadArchivedAsset(item.exrArchiveKey, item.exrUrl, `${item.taskId || 'generation'}-16bit.mov`, item.taskId, { raw: true })}
                                 title="Download the original 16-bit output"
                                 aria-label="Download the original 16-bit output"
                                 className="flex items-center justify-center px-3 py-2 rounded-lg border border-white/10 bg-white/[0.04] text-white/70 hover:text-white hover:border-white/25 transition-colors text-xs font-semibold"
@@ -496,7 +496,7 @@ function GalleryExrDialog({ item, sourceUrl, durationSeconds, projectId, onClose
                     <div>
                         <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-300">BytePlus VOD MediaKit</p>
                         <h2 id="gallery-exr-dialog-title" className="mt-1 text-xl font-semibold">Generate 16-bit EXR</h2>
-                        <p className="mt-1 text-xs text-white/45">Create an OpenEXR file from this Gallery video.</p>
+                        <p className="mt-1 text-xs text-white/45">Create a lossless 16-bit master (FFV1 MOV) from this Gallery video.</p>
                     </div>
                     <button type="button" onClick={onClose} aria-label="Close EXR dialog" className="rounded-lg p-1.5 text-white/45 transition-colors hover:bg-white/10 hover:text-white">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
@@ -504,8 +504,8 @@ function GalleryExrDialog({ item, sourceUrl, durationSeconds, projectId, onClose
                 </div>
 
                 <div className="mt-5 grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
-                    <GalleryDetailRow label="Format" value="OpenEXR" />
-                    <GalleryDetailRow label="Bit depth" value="16-bit Half Float" />
+                    <GalleryDetailRow label="Format" value="FFV1 lossless · QuickTime MOV" />
+                    <GalleryDetailRow label="Bit depth" value="16-bit 4:4:4" />
                     <GalleryExrSelect label="Enhancement" value={options.tier} onChange={(value) => setOption('tier', value)}>
                         {EXR_TIERS.map((tier) => <option key={tier.value} value={tier.value}>{tier.label}</option>)}
                     </GalleryExrSelect>
