@@ -4,6 +4,7 @@
 import { getDb } from '../lib/db/neon.js';
 import { archiveExr } from '../lib/byteplus/archiveExr.mjs';
 import { estimateUpscaleCost } from '../lib/byteplus/upscaleOptions.mjs';
+import { estimateExrCost } from '../lib/byteplus/exrPricing.mjs';
 import { closeToolSpend } from '../lib/tools/billing.mjs';
 import { pollEnhancement, submitEnhancement } from '../lib/byteplus/vodEnhance.mjs';
 import {
@@ -41,14 +42,34 @@ async function finish(sql, job, outcome) {
     try {
         if (outcome.status === 'succeeded') {
             const up = row.request_body?._upscale;
-            const seconds = Number(outcome.result?.metadata?.duration) || Number(up?.source?.seconds) || null;
-            const cost = up ? estimateUpscaleCost(up.options, { ...up.source, seconds }) : null;
-            await closeToolSpend(sql, row, 'settlement', { costUsd: cost ?? row.request_body?._billing?.estimatedCostUsd ?? null, seconds });
+            const b = row.request_body?._billing;
+            const seconds = Number(outcome.result?.metadata?.duration) || Number(up?.source?.seconds) || Number(b?.durationSeconds) || null;
+            // Settle on the provider-reported duration, not the client's
+            // estimate — an understated submit-time duration is corrected here.
+            const cost = up ? estimateUpscaleCost(up.options, { ...up.source, seconds })
+                : estimateExrCost({ tier: b?.tier, resolution: b?.resolution, fps: b?.fps }, seconds);
+            await closeToolSpend(sql, row, 'settlement', { costUsd: cost ?? b?.estimatedCostUsd ?? null, seconds });
         } else {
             await closeToolSpend(sql, row, 'failure');
         }
     } catch (error) {
         console.error(`[exr-worker] billing close failed for job ${row.id}:`, error.message);
+    }
+}
+
+// A crash between the 'reserving' insert and the queued flip strands a job
+// holding budget the client never got an id for. Never run it later — reject
+// it and release the reservation (closeToolSpend is exactly-once).
+async function recoverStaleExrReservations(sql) {
+    const stale = await sql`UPDATE exr_jobs
+        SET status = 'rejected', finished_at = now(), updated_at = now(),
+            error = ${JSON.stringify({ message: 'Submission was interrupted before it completed.' })}
+        WHERE status = 'reserving' AND created_at < now() - interval '2 minutes'
+        RETURNING *`;
+    for (const job of stale) {
+        try { await closeToolSpend(sql, job, 'release'); } catch (error) {
+            console.error(`[exr-worker] release failed for stale job ${job.id}:`, error.message);
+        }
     }
 }
 
@@ -117,6 +138,7 @@ async function runOne(sql) {
 export async function runExrQueue({ once = false } = {}) {
     const sql = await getDb();
     if (!sql) throw new Error('DATABASE_URL is not configured.');
+    await recoverStaleExrReservations(sql).catch(() => { /* next pass retries */ });
     do {
         const worked = await runOne(sql);
         if (!worked && !once) await new Promise((resolve) => setTimeout(resolve, IDLE_DELAY_MS));
@@ -133,6 +155,7 @@ export async function runExrQueue({ once = false } = {}) {
 export async function drainExrQueue({ maxMs = 240_000 } = {}) {
     const sql = await getDb();
     if (!sql) throw new Error('DATABASE_URL is not configured.');
+    await recoverStaleExrReservations(sql).catch(() => { /* next drain retries */ });
     const deadline = Date.now() + maxMs;
     while (Date.now() < deadline) {
         const worked = await runOne(sql);
