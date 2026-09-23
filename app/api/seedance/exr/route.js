@@ -15,7 +15,15 @@ import {
 } from '../../../../lib/byteplus/exrQueue.mjs';
 import { exrProjectForUser, getExrAccess } from '../../../../lib/byteplus/exrAccess.mjs';
 import { presignKey } from '../../../../lib/seedance/galleryItem.mjs';
+import { reserveToolSpend } from '../../../../lib/tools/billing.mjs';
 import { drainExrQueue, runExrQueue } from '../../../../scripts/exr-queue-worker.mjs';
+
+// Budget scope for EXR spend in billing_events / quotas. Unlike Upscale, a
+// dedicated tool:exr budget is not REQUIRED (existing EXR users keep working):
+// applicable project/user budgets are enforced and all spend is recorded.
+const EXR_TOOL_ID = 'tool:exr';
+const MAX_EXR_DURATION_SECONDS = 6 * 3600; // mirrors the Upscale input ceiling
+const MAX_ACTIVE_EXR_PER_USER = 3;
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -67,16 +75,37 @@ export async function POST(request) {
                 }, { status: 403 });
             }
         }
+        // The duration backs the budget reservation, so it is required and
+        // capped — settlement later corrects it to the provider-reported value.
+        const durationSeconds = Number(body.durationSeconds);
+        if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+            return NextResponse.json({ error: 'durationSeconds (the clip length) is required.' }, { status: 400 });
+        }
+        if (durationSeconds > MAX_EXR_DURATION_SECONDS) {
+            return NextResponse.json({ error: 'The source video is longer than the 6 hour EXR limit.' }, { status: 400 });
+        }
+        // One EXR run per source at a time, and a small per-user concurrency
+        // cap — each job is real provider spend, so accidental repeats and
+        // queue floods are refused up front.
+        const [inFlight] = await sql`SELECT count(*)::int AS active,
+                count(*) FILTER (WHERE source_url = ${body.sourceUrl})::int AS same_source
+            FROM exr_jobs WHERE user_id = ${user.userId} AND status IN ('reserving', 'queued', 'processing')`;
+        if (inFlight.same_source > 0) {
+            return NextResponse.json({ error: 'An EXR job for this video is already running.' }, { status: 409 });
+        }
+        if (inFlight.active >= MAX_ACTIVE_EXR_PER_USER) {
+            return NextResponse.json({ error: `You already have ${MAX_ACTIVE_EXR_PER_USER} EXR jobs running — wait for one to finish.` }, { status: 429 });
+        }
         const options = normalizeExrOptions(body.options || {}, { strict: true });
         const requestBody = buildEnhancementRequest({ options });
         delete requestBody.video_url;
         if (typeof body.sourceTaskId === 'string' && body.sourceTaskId.length <= 200) {
             requestBody._gallery = { sourceTaskId: body.sourceTaskId };
         }
-        const durationSeconds = Number(body.durationSeconds);
         requestBody._billing = {
+            toolId: EXR_TOOL_ID,
             sourceTaskId: typeof body.sourceTaskId === 'string' && body.sourceTaskId.length <= 200 ? body.sourceTaskId : null,
-            durationSeconds: Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : null,
+            durationSeconds,
             unitPriceUsd: pricePerExrMinute(options),
             estimatedCostUsd: estimateExrCost(options, durationSeconds),
             tier: options.tier,
@@ -85,12 +114,28 @@ export async function POST(request) {
             bitDepth: options.bitDepth,
             outputFormat: options.outputFormat,
         };
+        // 'reserving' keeps the job out of the worker's reach until the budget
+        // reservation lands; the estimate (client-reported duration) is held
+        // against every applicable budget, and the worker settles on the
+        // provider-reported duration when the job finishes.
         const job = await enqueueExrJob(sql, {
             userId: user.userId,
             projectId,
             sourceUrl: body.sourceUrl,
             requestBody,
+            status: 'reserving',
         });
+        const reservation = await reserveToolSpend(sql, {
+            exrJobId: job.id, projectId, userId: user.userId, toolId: EXR_TOOL_ID,
+            seconds: requestBody._billing.durationSeconds, estCostUsd: requestBody._billing.estimatedCostUsd,
+        });
+        if (!reservation) {
+            await sql`UPDATE exr_jobs SET status = 'rejected', finished_at = now(),
+                error = ${JSON.stringify({ code: 'QUOTA_EXCEEDED', message: 'A budget limit would be exceeded.' })}
+                WHERE id = ${job.id}`;
+            return NextResponse.json({ error: 'A budget limit would be exceeded by this EXR job.', code: 'QUOTA_EXCEEDED' }, { status: 402 });
+        }
+        await sql`UPDATE exr_jobs SET status = 'queued', updated_at = now() WHERE id = ${job.id} AND status = 'reserving'`;
         drainExrWorker();
         return NextResponse.json({
             status: 'queued',

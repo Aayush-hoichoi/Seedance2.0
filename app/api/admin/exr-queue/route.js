@@ -9,7 +9,7 @@ import { closeToolSpend } from '../../../../lib/tools/billing.mjs';
 
 export const runtime = 'nodejs';
 
-const STATUSES = new Set(['queued', 'processing', 'succeeded', 'failed', 'cancelled']);
+const STATUSES = new Set(['queued', 'processing', 'succeeded', 'failed', 'rejected', 'cancelled']);
 
 export async function GET(request) {
     if (!(await isAdmin())) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -41,11 +41,14 @@ export async function PATCH(request) {
             return NextResponse.json({ error: 'A valid EXR access request id is required.' }, { status: 400 });
         }
         const nextStatus = body.action === 'approve_access' ? 'approved' : 'denied';
+        // Approvals expire after 90 days — EXR spend is real provider money, so
+        // access is re-reviewed instead of living forever. Re-requesting is one
+        // click for the user.
         const row = await decideExrAccessRequest(sql, {
             id: requestId,
             status: nextStatus,
             decidedBy: admin.userId,
-            expiresAt: null,
+            expiresAt: nextStatus === 'approved' ? new Date(Date.now() + 90 * 86_400_000).toISOString() : null,
         });
         if (!row) return NextResponse.json({ error: 'The EXR access request is no longer pending.' }, { status: 409 });
         await emitEvent(sql, {

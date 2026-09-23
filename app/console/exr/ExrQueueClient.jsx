@@ -7,7 +7,7 @@ import { useApi, sendJson, fmtDate, timeAgo } from '../lib.js';
 import { downloadArchivedAsset } from '../../../lib/seedance/downloadAssets.js';
 import { FileOutput } from 'lucide-react';
 
-const STATUS_TONE = { queued: 'amber', processing: 'blue', succeeded: 'green', failed: 'red', cancelled: 'zinc' };
+const STATUS_TONE = { queued: 'amber', processing: 'blue', succeeded: 'green', failed: 'red', rejected: 'red', cancelled: 'zinc' };
 
 export default function ExrQueueClient() {
     const [kind, setKind] = useState('exr');
@@ -176,6 +176,7 @@ export default function ExrQueueClient() {
                     <option value="processing">Processing</option>
                     <option value="succeeded">Succeeded</option>
                     <option value="failed">Failed</option>
+                    <option value="rejected">Rejected</option>
                     <option value="cancelled">Cancelled</option>
                 </Select>
             </PageHeader>
@@ -206,11 +207,12 @@ export default function ExrQueueClient() {
                 </div>
             )}
 
-            <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-5">
+            <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-6">
                 <StatCard label="Queued" value={counts.queued || 0} />
                 <StatCard label="Processing" value={counts.processing || 0} tone="blue" />
                 <StatCard label="Succeeded" value={counts.succeeded || 0} tone="green" />
                 <StatCard label="Failed" value={counts.failed || 0} tone="red" />
+                <StatCard label="Rejected" value={counts.rejected || 0} tone="red" />
                 <StatCard label="Cancelled" value={counts.cancelled || 0} />
             </div>
 
