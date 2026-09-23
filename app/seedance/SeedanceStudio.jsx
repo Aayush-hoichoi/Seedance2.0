@@ -2987,8 +2987,11 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                     <div className="flex items-center gap-2">
                         <button
                             type="button"
-                            onClick={() => downloadAsset(job.videoUrl || job.imageUrl, job.taskId || 'generation', job.taskId, { format: dlFormat })}
-                            title={job.videoUrl ? `Download as .${dlFormat}` : 'Download'}
+                            onClick={() => downloadAsset(job.videoUrl || job.imageUrl, job.taskId || 'generation', job.taskId, {
+                                format: dlFormat === 'prores' ? 'prores' : dlFormat.startsWith('mp4') ? 'mp4' : 'mov',
+                                fps: dlFormat.endsWith('25') ? 25 : null,
+                            })}
+                            title={job.videoUrl ? `Download (${dlFormat})` : 'Download'}
                             className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-line px-3 py-2.5 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink"
                         >
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
@@ -3004,6 +3007,9 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                             >
                                 <option value="mov">.mov</option>
                                 <option value="mp4">.mp4</option>
+                                <option value="prores">ProRes 4444 (10-bit)</option>
+                                <option value="mov25">.mov · 25 fps</option>
+                                <option value="mp425">.mp4 · 25 fps</option>
                             </select>
                         )}
                         {job.videoUrl && (

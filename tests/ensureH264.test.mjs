@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ffmpegPath from 'ffmpeg-static';
-import { ensureH264, transcodeUrlToQuickTime } from '../lib/seedance/ensureH264.mjs';
+import { ensureH264, retimeToFps, transcodeToProRes, transcodeUrlToQuickTime } from '../lib/seedance/ensureH264.mjs';
 
 const dir = mkdtempSync(join(tmpdir(), 'h264test-'));
 
@@ -39,6 +39,41 @@ test('h264 input passes through untouched', async () => {
 test('non-video names pass through', async () => {
     const buf = Buffer.from('not a video');
     assert.equal(await ensureH264(buf, 'image.png'), buf);
+});
+
+test('prores download keeps 10-bit 4:4:4', async () => {
+    // Mimic a Seedance 2.5 original: 10-bit 4:4:4 HEVC.
+    execFileSync(ffmpegPath, ['-y', '-f', 'lavfi', '-i', 'color=red:size=128x128:d=0.5', '-c:v', 'libx265', '-pix_fmt', 'yuv444p10le', join(dir, 'in-10bit.mp4')], { stdio: 'ignore' });
+    const src = readFileSync(join(dir, 'in-10bit.mp4'));
+    const out = await transcodeToProRes(src, 'clip.mp4');
+    assert.ok(out?.length, 'prores conversion must produce output');
+    const f = join(dir, 'probe-prores.mov');
+    writeFileSync(f, out);
+    let info = '';
+    try { execFileSync(ffmpegPath, ['-hide_banner', '-i', f], { stdio: 'pipe' }); } catch (e) { info = String(e.stderr); }
+    assert.match(info, /prores/i, 'video stream must be ProRes');
+    // prores_ks stores 4444 as 12-bit (yuv444p12le) — deeper than the 10-bit
+    // source, so nothing is lost. Accept 10 or 12.
+    assert.match(info, /yuv444p1[02]/i, '≥10-bit 4:4:4 must survive the conversion');
+});
+
+test('25 fps retime delivers 25 fps h264', async () => {
+    execFileSync(ffmpegPath, ['-y', '-f', 'lavfi', '-i', 'color=red:size=128x128:d=0.5:rate=24', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', join(dir, 'in-24fps.mp4')], { stdio: 'ignore' });
+    const src = readFileSync(join(dir, 'in-24fps.mp4'));
+    const out = await retimeToFps(src, 'clip.mp4', 25);
+    assert.ok(out?.length, 'retime must produce output');
+    const f = join(dir, 'probe-25fps.mp4');
+    writeFileSync(f, out);
+    let info = '';
+    try { execFileSync(ffmpegPath, ['-hide_banner', '-i', f], { stdio: 'pipe' }); } catch (e) { info = String(e.stderr); }
+    assert.match(info, /\b25 fps\b/, 'output must be 25 fps');
+    assert.match(info, /Video:\s*h264/i, 'output must be h264');
+});
+
+test('retime to the source rate is a no-op signal (null)', async () => {
+    execFileSync(ffmpegPath, ['-y', '-f', 'lavfi', '-i', 'color=red:size=128x128:d=0.5:rate=25', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', join(dir, 'in-25fps.mp4')], { stdio: 'ignore' });
+    const src = readFileSync(join(dir, 'in-25fps.mp4'));
+    assert.equal(await retimeToFps(src, 'clip.mp4', 25), null, 'same-rate retime must signal no work');
 });
 
 test('large video can be streamed into a QuickTime-compatible MOV', async () => {
