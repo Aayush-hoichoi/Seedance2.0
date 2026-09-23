@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MODELS, durationsFor, durationMaxFor, durationValidFor, DURATIONS } from '../lib/seedance/constants.js';
+import { MODELS, durationMaxFor, durationValidFor } from '../lib/seedance/constants.js';
 import { sanitizeOptions } from '../lib/seedance/options.mjs';
 
 // The duration range was ONE global [4,15], derived from Seedance 2.0 and
@@ -45,16 +45,11 @@ test('an unknown model falls back to the conservative range, never 2.5’s', () 
         'a new tier must prove 30s against the API before offering it');
 });
 
-test('the picker offers exactly the stops each model can actually render', () => {
-    assert.deepEqual(durationsFor(id('full_2_5')), [-1, 4, 5, 6, 8, 10, 12, 15, 20, 25, 30]);
-    assert.deepEqual(durationsFor(id('full')), [-1, 4, 5, 6, 8, 10, 12, 15]);
-    assert.ok(durationsFor(id('full_2_5')).every((d) => durationValidFor(id('full_2_5'), d)),
-        'never offer a stop the validator would reject');
-});
-
-test('the legacy DURATIONS export stays the conservative range', () => {
-    assert.deepEqual(DURATIONS, [-1, 4, 5, 6, 8, 10, 12, 15],
-        'callers that predate the split must not silently gain 2.5-only tiers');
+test('every whole second in range is valid — no fixed stop list', () => {
+    for (const d of [7, 9, 11, 13, 14, 17, 23, 29]) {
+        assert.equal(durationValidFor(id('full_2_5'), d), true, `${d}s must be selectable on 2.5`);
+    }
+    assert.equal(durationValidFor(id('full'), 13), true, '13s must be selectable on 2.0');
 });
 
 // --- the server-side clamp -----------------------------------------------------

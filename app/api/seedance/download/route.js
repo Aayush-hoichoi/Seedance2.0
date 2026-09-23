@@ -2,7 +2,7 @@ import { Readable } from 'node:stream';
 import { NextResponse } from 'next/server';
 import { zipStream } from '../../../../lib/seedance/zip.mjs';
 import { safeName } from '../../../../lib/seedance/downloadName.mjs';
-import { ensureH264, remuxToMov, transcodeUrlToQuickTime } from '../../../../lib/seedance/ensureH264.mjs';
+import { ensureH264, remuxToMov, retimeToFps, transcodeToProRes, transcodeUrlToQuickTime } from '../../../../lib/seedance/ensureH264.mjs';
 import { getUser } from '../../../../lib/auth/user.js';
 import { getDb } from '../../../../lib/db/neon.js';
 import { recordGenerationEvent } from '../../../../lib/access/db.js';
@@ -136,6 +136,10 @@ export async function POST(request) {
     // the exact stored bytes (bit-identical original — 4k files stay H.265).
     const raw = body?.raw === true;
     const quickTime = body?.format === 'quicktime';
+    // format: 'prores' → ProRes 4444 .mov (keeps 10-bit 4:4:4, opens in Nuke).
+    const prores = body?.format === 'prores';
+    // fps: 25 retimes the video to 25 fps (PAL speedup) before delivery.
+    const fps = body?.fps === 25 ? 25 : null;
     // format: 'mp4' opts back into the plain mp4 (codec fix still applies —
     // only the mov rewrap is skipped). Anything else means the default, mov.
     const wantMov = body?.format !== 'mp4';
@@ -145,7 +149,14 @@ export async function POST(request) {
     // the remux fails for any reason the mp4 goes out unchanged.
     async function toDelivery(buf, name) {
         if (raw) return { data: buf, name };
-        const fixed = await ensureH264(buf, name);
+        if (prores) {
+            const mov = await transcodeToProRes(buf, name);
+            if (mov) return { data: mov, name: name.replace(/\.(mp4|m4v|mov)$/i, '') + '.mov' };
+            // ProRes not possible (not a video, no ffmpeg) → normal path below.
+        }
+        // Retiming re-encodes to H.264 from any source codec, so it replaces
+        // the ensureH264 step rather than stacking a second encode on it.
+        const fixed = (fps && await retimeToFps(buf, name, fps)) || await ensureH264(buf, name);
         if (!wantMov) return { data: fixed, name };
         const mov = await remuxToMov(fixed, name);
         return mov ? { data: mov, name: name.replace(/\.(mp4|m4v)$/i, '.mov') } : { data: fixed, name };
