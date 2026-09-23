@@ -474,7 +474,7 @@ export default function LedgerClient() {
     );
 }
 
-function LedgerAnalytics({ analytics, total, days = [] }) {
+export function LedgerAnalytics({ analytics, total, days = [] }) {
     const scope = `${fmtInt(analytics.total)} matching generation${analytics.total === 1 ? '' : 's'}`;
     // TaskCostLines wants {key, tasks, cost_usd}; the days rollup carries both.
     const perf = days.map((d) => ({ key: d.key, tasks: Number(d.total || 0), cost_usd: Number(d.cost_usd || 0) }));
