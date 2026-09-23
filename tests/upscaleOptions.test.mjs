@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildUpscaleRequest, estimateUpscaleCost, estimateUpscaleMinutes, sourceTooLarge, containerFor, targetBitrateMbps, proTier, isUpscaleInputName } from '../lib/byteplus/upscaleOptions.mjs';
+import { buildUpscaleRequest, estimateUpscaleCost, estimateUpscaleMinutes, sourceTooLarge, containerFor, targetBitrateMbps, proTier, isUpscaleInputName, upscaleSummary, upscaleTiming } from '../lib/byteplus/upscaleOptions.mjs';
 
 test('defaults build a standard 1080p request', () => {
     assert.deepEqual(buildUpscaleRequest({}).body, {
@@ -66,6 +66,10 @@ test('cost matches the BytePlus worked examples', () => {
 
 test('wait estimate and input size guard', () => {
     assert.equal(estimateUpscaleMinutes({}, 60), 8);
+    // short clips hit the fixed-overhead floor, not 4s × RTF
+    assert.equal(estimateUpscaleMinutes({}, 4), 5);
+    assert.equal(estimateUpscaleMinutes({ version: 'professional', resolution: '4k' }, 4), 12);
+    assert.equal(estimateUpscaleMinutes({ version: 'professional', resolution: '4k', codec: 'ffv1', bitDepth: 16 }, 4), 35);
     assert.equal(estimateUpscaleMinutes({ version: 'professional', resolution: '4k' }, 60), 60);
     assert.equal(sourceTooLarge(1920, 1080), false);
     assert.equal(sourceTooLarge(3840, 2160), true);
@@ -81,4 +85,16 @@ test('reference tables: bitrate targets, pro tier, input formats', () => {
     assert.match(proTier({ version: 'professional', scene: 'old_film' }), /restoration/);
     assert.ok(isUpscaleInputName('clip.MKV'));
     assert.ok(!isUpscaleInputName('clip.webm'));
+});
+
+test('summary line', () => {
+    assert.equal(upscaleSummary({ version: 'professional', resolutionMode: 'preset', resolution: '4k', fpsMode: 'custom', fps: 25, codec: 'h264', bitDepth: 8 }), 'Pro · 4K · 25fps · h264 8-bit');
+    assert.equal(upscaleSummary({ version: 'standard', resolutionMode: 'limit', shortSide: 720, fpsMode: 'source' }), 'Standard · 720px short side · source fps');
+});
+
+test('timing: elapsed vs estimate', () => {
+    const t0 = Date.parse('2026-09-23T12:00:00Z');
+    assert.deepEqual(upscaleTiming({ createdAt: t0, waitMin: 15 }, t0 + 9 * 60000), { elapsed: 9, est: 15, over: false });
+    assert.deepEqual(upscaleTiming({ createdAt: t0, waitMin: 15 }, t0 + 16 * 60000), { elapsed: 16, est: 15, over: true });
+    assert.equal(upscaleTiming({}), null);
 });
