@@ -10,11 +10,16 @@ import { FileOutput } from 'lucide-react';
 const STATUS_TONE = { queued: 'amber', processing: 'blue', succeeded: 'green', failed: 'red', cancelled: 'zinc' };
 
 export default function ExrQueueClient() {
+    const [kind, setKind] = useState('exr');
     const [status, setStatus] = useState('');
     const [selected, setSelected] = useState(null);
     const queue = useApi(`/api/admin/exr-queue${status ? `?status=${status}` : ''}`, { refreshInterval: 5000 });
-    const items = queue.data?.items ?? [];
-    const counts = Object.fromEntries((queue.data?.counts ?? []).map((item) => [item.status, item.count]));
+    const upscaleTab = kind === 'upscale';
+    const kindLabel = upscaleTab ? 'Upscale' : 'EXR';
+    const items = (queue.data?.items ?? []).filter((job) => isUpscale(job) === upscaleTab);
+    const counts = Object.fromEntries((queue.data?.counts ?? [])
+        .filter((item) => Boolean(item.upscale) === upscaleTab)
+        .map((item) => [item.status, item.count]));
     const accessRequests = (queue.data?.accessRequests ?? []).filter((request) => request.status === 'pending');
     const billing = selected?.request_body?._billing || null;
 
@@ -48,7 +53,11 @@ export default function ExrQueueClient() {
     }
 
     function downloadOutput(job) {
-        downloadArchivedAsset(job.result?.archiveKey, job.result?.url, `${job.provider_task_id || `EXR-${job.id}`}-16bit.mov`, job.provider_task_id, { raw: true });
+        const up = job.request_body?._upscale;
+        const name = up
+            ? `${job.provider_task_id || jobLabel(job)}.${up.container || 'mp4'}`
+            : `${job.provider_task_id || jobLabel(job)}-16bit.mov`;
+        downloadArchivedAsset(job.result?.archiveKey, job.result?.url, name, job.provider_task_id, { raw: true });
         toast.success('Download started.');
     }
 
@@ -56,7 +65,7 @@ export default function ExrQueueClient() {
         const header = ['job', 'date', 'status', 'user', 'project', 'tier', 'resolution', 'fps', 'duration_seconds', 'rate_usd_per_minute', 'estimated_cost_usd'];
         const cell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
         const lines = ledgerRows.map((row) => [
-            `EXR-${row.id}`, row.created_at, row.status,
+            jobLabel(row), row.created_at, row.status,
             row.user_email || row.user_id, row.project_name || row.project_id || '',
             row.billing.tier || '', row.billing.resolution || '', row.billing.fps || '',
             row.billing.durationSeconds ?? '', row.billing.unitPriceUsd ?? '', row.billing.estimatedCostUsd ?? '',
@@ -64,7 +73,7 @@ export default function ExrQueueClient() {
         const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = `exr-ledger-${new Date().toISOString().slice(0, 10)}.csv`;
+        a.download = `${kind}-ledger-${new Date().toISOString().slice(0, 10)}.csv`;
         a.click();
         setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     }
@@ -72,10 +81,10 @@ export default function ExrQueueClient() {
     async function change(id, action) {
         const result = await sendJson('/api/admin/exr-queue', 'PATCH', { id, action });
         if (!result.ok) {
-            toast.error(result.data?.error || `Could not ${action} EXR job.`);
+            toast.error(result.data?.error || `Could not ${action} the job.`);
             return;
         }
-        toast.success(action === 'retry' ? 'EXR job queued again.' : action === 'rearchive' ? 'EXR archive queued again.' : 'EXR job cancelled.');
+        toast.success(action === 'retry' ? 'Job queued again.' : action === 'rearchive' ? 'Archive queued again.' : 'Job cancelled.');
         setSelected(null);
         queue.mutate();
     }
@@ -92,10 +101,6 @@ export default function ExrQueueClient() {
 
     const columns = [
         { accessorKey: 'id', header: '#', cell: ({ row }) => <span className="font-mono tabular-nums text-ink-3">{jobLabel(row.original)}</span> },
-        {
-            id: 'type', header: 'Type',
-            cell: ({ row }) => (isUpscale(row.original) ? <Badge tone="violet">Upscale</Badge> : <Badge tone="zinc">EXR</Badge>),
-        },
         {
             accessorKey: 'status', header: 'Status',
             cell: ({ getValue }) => <Badge tone={STATUS_TONE[getValue()] || 'zinc'}>{getValue()}</Badge>,
@@ -114,7 +119,7 @@ export default function ExrQueueClient() {
     ];
 
     const ledgerColumns = [
-        { accessorKey: 'id', header: '#', cell: ({ getValue }) => <span className="font-mono tabular-nums text-ink-3">EXR-{getValue()}</span> },
+        { accessorKey: 'id', header: '#', cell: ({ row }) => <span className="font-mono tabular-nums text-ink-3">{jobLabel(row.original)}</span> },
         { accessorKey: 'created_at', header: 'Date', cell: ({ getValue }) => <span className="font-mono text-xs text-ink-3" title={fmtDate(getValue())}>{timeAgo(getValue())}</span> },
         {
             id: 'owner', header: 'User / project',
@@ -153,8 +158,19 @@ export default function ExrQueueClient() {
 
     return (
         <div>
-            <PageHeader title="EXR Queue" subtitle="BytePlus MediaKit jobs — EXR and Tools → Upscale — and worker state">
-                <Select value={status} onChange={(e) => setStatus(e.target.value)} title="Filter EXR jobs by status">
+            <PageHeader title="Enhance Queue" subtitle="BytePlus MediaKit jobs — EXR and Tools → Upscale — and worker state">
+                <div className="flex items-center gap-1 rounded-lg border border-line bg-paper-2 p-1" role="tablist">
+                    {['exr', 'upscale'].map((tab) => (
+                        <button
+                            key={tab} type="button" role="tab" aria-selected={kind === tab}
+                            onClick={() => setKind(tab)}
+                            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${kind === tab ? 'bg-paper-3 text-ink' : 'text-ink-3 hover:text-ink-2'}`}
+                        >
+                            {tab === 'exr' ? 'EXR' : 'Upscale'}
+                        </button>
+                    ))}
+                </div>
+                <Select value={status} onChange={(e) => setStatus(e.target.value)} title={`Filter ${kindLabel} jobs by status`}>
                     <option value="">All jobs</option>
                     <option value="queued">Queued</option>
                     <option value="processing">Processing</option>
@@ -164,7 +180,7 @@ export default function ExrQueueClient() {
                 </Select>
             </PageHeader>
 
-            {accessRequests.length > 0 && (
+            {!upscaleTab && accessRequests.length > 0 && (
                 <div className="mb-5 overflow-hidden rounded-lg border border-warn/30 bg-warn/5">
                     <div className="flex items-center justify-between border-b border-warn/20 px-4 py-2">
                         <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-warn">EXR access requests</div>
@@ -199,14 +215,14 @@ export default function ExrQueueClient() {
             </div>
 
             {items.length
-                ? <DataTable columns={columns} data={items} pageSize={15} empty="No EXR jobs match this filter." />
-                : <EmptyState icon={FileOutput} title="No EXR jobs" hint="EXR jobs appear here after a user confirms an EXR request." />}
+                ? <DataTable columns={columns} data={items} pageSize={15} empty={`No ${kindLabel} jobs match this filter.`} />
+                : <EmptyState icon={FileOutput} title={`No ${kindLabel} jobs`} hint={upscaleTab ? 'Upscale jobs appear here after a user submits one from Tools → Upscale.' : 'EXR jobs appear here after a user confirms an EXR request.'} />}
 
             <div className="mt-8">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                     <div>
-                        <h2 className="text-sm font-semibold text-ink">EXR generation ledger</h2>
-                        <p className="text-xs text-ink-3">Billing record for every EXR job with recorded pricing{status ? ' (following the status filter above)' : ''}.</p>
+                        <h2 className="text-sm font-semibold text-ink">{kindLabel} generation ledger</h2>
+                        <p className="text-xs text-ink-3">Billing record for every {kindLabel} job with recorded pricing{status ? ' (following the status filter above)' : ''}.</p>
                     </div>
                     {ledgerRows.length > 0 && <Button variant="outline" size="xs" onClick={exportLedgerCsv}>Export CSV</Button>}
                 </div>
@@ -216,8 +232,8 @@ export default function ExrQueueClient() {
                     <StatCard label="Estimated spend" value={`$${totalSpendUsd.toFixed(2)}`} tone="green" />
                 </div>
                 {ledgerRows.length
-                    ? <DataTable columns={ledgerColumns} data={ledgerRows} pageSize={15} empty="No billed EXR jobs match this filter." />
-                    : <EmptyState icon={FileOutput} title="No billed EXR jobs" hint="Jobs appear in the ledger once they carry billing details (all new EXR requests do)." />}
+                    ? <DataTable columns={ledgerColumns} data={ledgerRows} pageSize={15} empty={`No billed ${kindLabel} jobs match this filter.`} />
+                    : <EmptyState icon={FileOutput} title={`No billed ${kindLabel} jobs`} hint={`Jobs appear in the ledger once they carry billing details (all new ${kindLabel} requests do).`} />}
             </div>
 
             {selected && (

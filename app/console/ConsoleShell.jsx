@@ -24,7 +24,7 @@ const NAV = [
     { href: '/console/projects', label: 'Projects', icon: FolderKanban, managerOk: true },
     { href: '/console/models', label: 'Models', icon: Boxes },
     { href: '/console/queue', label: 'Queue', icon: ListOrdered },
-    { href: '/console/exr', label: 'EXR Queue', icon: FileOutput },
+    { href: '/console/exr', label: 'Enhance Queue', icon: FileOutput },
     { href: '/console/ledger', label: 'Ledger', icon: Table2 },
     { href: '/console/usage', label: 'Usage', icon: BarChart3 },
     { href: '/console/budgets', label: 'Budgets', icon: Wallet },
@@ -135,7 +135,7 @@ export default function ConsoleShell({ children }) {
                                 {(() => {
                                     const badge = label === 'Budget requests' ? pendingBudgetRequests
                                         : label === 'Issues' ? openIssues
-                                            : label === 'EXR Queue' ? pendingExrAccess : 0;
+                                            : label === 'Enhance Queue' ? pendingExrAccess : 0;
                                     return badge > 0 ? (
                                         <span className="grid min-w-5 place-items-center rounded-full bg-warn/15 px-1 text-[10px] font-semibold text-warn">
                                             {badge > 99 ? '99+' : badge}
