@@ -4,6 +4,7 @@ import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { Badge, Button, DataTable, EmptyState, Modal, PageHeader, Select, StatCard } from '../ui.jsx';
 import { useApi, sendJson, fmtDate, timeAgo } from '../lib.js';
+import { downloadArchivedAsset } from '../../../lib/seedance/downloadAssets.js';
 import { FileOutput } from 'lucide-react';
 
 const STATUS_TONE = { queued: 'amber', processing: 'blue', succeeded: 'green', failed: 'red', cancelled: 'zinc' };
@@ -24,6 +25,32 @@ export default function ExrQueueClient() {
         .map((job) => ({ ...job, billing: job.request_body._billing }));
     const totalSpendUsd = ledgerRows.reduce((sum, row) => sum + (Number(row.billing.estimatedCostUsd) || 0), 0);
     const totalMinutes = ledgerRows.reduce((sum, row) => sum + (Number(row.billing.durationSeconds) || 0), 0) / 60;
+
+    // Freshest link for a job's output: re-presign the archived copy when one
+    // exists (the stored BytePlus URL expires within days), else the stored URL.
+    async function outputUrl(job) {
+        const key = job.result?.archiveKey;
+        if (key) {
+            try {
+                const response = await fetch(`/api/byteplus/archive?key=${encodeURIComponent(key)}`);
+                const data = response.ok ? await response.json() : null;
+                if (data?.url) return data.url;
+            } catch { /* fall back to the stored URL */ }
+        }
+        return job.result?.url || null;
+    }
+
+    async function copyOutputLink(job) {
+        const url = await outputUrl(job);
+        if (!url) return toast.error('This job has no output link.');
+        await navigator.clipboard.writeText(url);
+        toast.success(job.result?.archiveKey ? 'Output link copied (valid 7 days).' : 'Output link copied (BytePlus URL — expires soon).');
+    }
+
+    function downloadOutput(job) {
+        downloadArchivedAsset(job.result?.archiveKey, job.result?.url, `${job.provider_task_id || `EXR-${job.id}`}.exr`, job.provider_task_id, { raw: true });
+        toast.success('Download started.');
+    }
 
     function exportLedgerCsv() {
         const header = ['job', 'date', 'status', 'user', 'project', 'tier', 'resolution', 'fps', 'duration_seconds', 'rate_usd_per_minute', 'estimated_cost_usd'];
@@ -108,6 +135,15 @@ export default function ExrQueueClient() {
         {
             accessorKey: 'status', header: 'Status',
             cell: ({ getValue }) => <Badge tone={STATUS_TONE[getValue()] || 'zinc'}>{getValue()}</Badge>,
+        },
+        {
+            id: 'output', header: 'Output', enableSorting: false,
+            cell: ({ row }) => (row.original.result?.url || row.original.result?.archiveKey) ? (
+                <div className="flex items-center gap-1.5">
+                    <Button variant="ghost" size="xs" title="Copy the output link" onClick={() => copyOutputLink(row.original)}>Copy link</Button>
+                    <Button variant="ghost" size="xs" title="Download the generated output" onClick={() => downloadOutput(row.original)}>Download</Button>
+                </div>
+            ) : <span className="text-xs text-ink-3">—</span>,
         },
     ];
 
