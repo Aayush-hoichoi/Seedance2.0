@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Download, Film, Loader2, Lock, Upload } from 'lucide-react';
 import ProjectSelect from '../../seedance/ProjectSelect.jsx';
+import StudioPicker from '../StudioPicker.jsx';
 import { EXR_DEFAULT_OPTIONS, EXR_FPS, EXR_RESOLUTIONS, EXR_TIERS, estimateExrCost, pricePerExrMinute } from '../../../lib/byteplus/exrPricing.mjs';
 import { resolveProjectId, rememberProjectId } from '../../../lib/seedance/projectChoice.mjs';
 import { uploadToCdn } from '../../../lib/seedance/upload.js';
@@ -129,8 +130,9 @@ function AccessGate({ access, projectId, onSent }) {
 
 function ExrWorkspace({ projectId }) {
     const [options, setOptions] = useState({ ...EXR_DEFAULT_OPTIONS });
-    const [source, setSource] = useState(null); // { file, previewUrl, seconds, url, uploading, manual, error }
+    const [source, setSource] = useState(null); // { file?, name, previewUrl, seconds, url, uploading, manual, error }
     const [job, setJob] = useState(null); // { state: 'processing'|'succeeded'|'failed', url, archiveKey, taskId, error }
+    const [pickerOpen, setPickerOpen] = useState(false);
     const inputRef = useRef(null);
     const alive = useRef(true);
     useEffect(() => () => { alive.current = false; }, []);
@@ -142,13 +144,26 @@ function ExrWorkspace({ projectId }) {
         if (!file) return;
         setJob(null);
         const previewUrl = URL.createObjectURL(file);
-        setSource({ file, previewUrl, uploading: true });
+        setSource({ file, name: file.name, previewUrl, uploading: true });
         try {
             const { url } = await uploadToCdn(file);
             setSource((s) => (s?.file === file ? { ...s, url, uploading: false } : s));
         } catch (e) {
             setSource((s) => (s?.file === file ? { ...s, uploading: false, error: e.message || 'Upload failed.' } : s));
         }
+    };
+
+    // A studio generation already lives on BytePlus storage, so its archive
+    // URL is the EXR source directly — no re-upload needed.
+    const pickStudio = (item) => {
+        setJob(null);
+        setPickerOpen(false);
+        setSource({
+            name: item.prompt?.slice(0, 80) || item.taskId,
+            url: item.archiveUrl,
+            previewUrl: item.archiveUrl,
+            seconds: Number(item.duration) || undefined,
+        });
     };
 
     const rate = pricePerExrMinute(options);
@@ -215,21 +230,28 @@ function ExrWorkspace({ projectId }) {
                                 className="aspect-video w-full rounded-xl border border-line bg-black" />
                         )}
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink-3">
-                            <span className="inline-flex items-center gap-1 text-ink-2"><Film size={12} /> {source.file.name}</span>
+                            <span className="inline-flex items-center gap-1 text-ink-2"><Film size={12} /> {source.name}</span>
                             {source.seconds ? <span>{source.seconds.toFixed(1)}s</span> : null}
-                            <span>{(source.file.size / 1024 / 1024).toFixed(1)} MB</span>
+                            {source.file && <span>{(source.file.size / 1024 / 1024).toFixed(1)} MB</span>}
                             {source.uploading && <span className="inline-flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> Uploading</span>}
-                            <button type="button" onClick={() => inputRef.current?.click()} className="ml-auto text-accent-hi hover:underline">Replace</button>
+                            <button type="button" onClick={() => setPickerOpen(true)} className="ml-auto text-accent-hi hover:underline">From studio</button>
+                            <button type="button" onClick={() => inputRef.current?.click()} className="text-accent-hi hover:underline">Replace</button>
                         </div>
                     </div>
                 ) : (
-                    <button type="button" onClick={() => inputRef.current?.click()}
-                        onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); pickFile(e.dataTransfer.files?.[0]); }}
-                        className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-line bg-paper-2 text-ink-3 transition-colors hover:border-accent/50 hover:text-ink-2">
-                        <Upload size={22} />
-                        <span className="text-sm font-medium">Drop a video or click to upload</span>
-                        <span className="text-[11px]">Any video — output is a lossless 16-bit master (FFV1 MOV)</span>
-                    </button>
+                    <div className="flex flex-col gap-2">
+                        <button type="button" onClick={() => inputRef.current?.click()}
+                            onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); pickFile(e.dataTransfer.files?.[0]); }}
+                            className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-line bg-paper-2 text-ink-3 transition-colors hover:border-accent/50 hover:text-ink-2">
+                            <Upload size={22} />
+                            <span className="text-sm font-medium">Drop a video or click to upload</span>
+                            <span className="text-[11px]">Any video — output is a lossless 16-bit master (FFV1 MOV)</span>
+                        </button>
+                        <button type="button" onClick={() => setPickerOpen(true)}
+                            className="inline-flex items-center justify-center gap-1.5 rounded-md border border-line px-3 py-2 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink">
+                            Or pick a generated video from the studio
+                        </button>
+                    </div>
                 )}
                 {job?.state === 'succeeded' && (
                     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-ok/30 bg-ok/5 px-4 py-3">
@@ -275,6 +297,7 @@ function ExrWorkspace({ projectId }) {
                     </button>
                 </div>
             </aside>
+            {pickerOpen && <StudioPicker onClose={() => setPickerOpen(false)} onPick={pickStudio} />}
         </div>
     );
 }

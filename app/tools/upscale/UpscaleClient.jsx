@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowLeft, Film, Loader2, Upload } from 'lucide-react';
 import ProjectSelect from '../../seedance/ProjectSelect.jsx';
 import ToolAccessGate, { BudgetChip, useToolStatus } from '../ToolAccessGate.jsx';
+import StudioPicker from '../StudioPicker.jsx';
 import UpscaleOptions from './UpscaleOptions.jsx';
 import UpscaleRail, { ACTIVE } from './UpscaleRail.jsx';
 import UpscalePreview from './UpscalePreview.jsx';
@@ -69,6 +70,7 @@ function UpscaleWorkspace({ projectId, budget, onSubmitted }) {
     const [selectedId, setSelectedId] = useState(null);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState(null);
+    const [pickerOpen, setPickerOpen] = useState(false);
     const inputRef = useRef(null);
 
     useEffect(() => { setOptions(loadOptions()); }, []);
@@ -80,13 +82,27 @@ function UpscaleWorkspace({ projectId, budget, onSubmitted }) {
         setError(null);
         if (!isUpscaleInputName(file.name)) { setError(`Unsupported file — BytePlus accepts ${UPSCALE_INPUT_EXTENSIONS.join(', ')}.`); return; }
         const previewUrl = URL.createObjectURL(file);
-        setSource({ file, previewUrl, uploading: true });
+        setSource({ file, name: file.name, previewUrl, uploading: true });
         try {
             const { url } = await uploadToCdn(file);
             setSource((s) => (s?.file === file ? { ...s, url, uploading: false } : s));
         } catch (e) {
             setSource((s) => (s?.file === file ? { ...s, uploading: false, error: e.message || 'Upload failed.' } : s));
         }
+    };
+
+    // A studio generation is already stored on BytePlus, so its archive URL is
+    // the source directly — no re-upload. Duration/size fill from the preview's
+    // metadata (with the gallery's recorded duration as the starting value).
+    const pickStudio = (item) => {
+        setError(null);
+        setPickerOpen(false);
+        setSource({
+            name: item.prompt?.slice(0, 80) || item.taskId,
+            url: item.archiveUrl,
+            previewUrl: item.archiveUrl,
+            seconds: Number(item.duration) || undefined,
+        });
     };
 
     // Browsers can't decode mkv/avi/wmv/flv/ts, so metadata never loads: ask for
@@ -124,7 +140,7 @@ function UpscaleWorkspace({ projectId, budget, onSubmitted }) {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    projectId, sourceUrl: source.url, sourceName: source.file.name, options,
+                    projectId, sourceUrl: source.url, sourceName: source.name, options,
                     source: { seconds: source.seconds, width: source.width, height: source.height },
                 }),
             });
@@ -160,22 +176,29 @@ function UpscaleWorkspace({ projectId, budget, onSubmitted }) {
                                 <video src={source.previewUrl} controls muted playsInline onLoadedMetadata={onMeta} onError={onPreviewError} className="aspect-video w-full rounded-xl border border-line bg-black" />
                             )}
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink-3">
-                                <span className="inline-flex items-center gap-1 text-ink-2"><Film size={12} /> {source.file.name}</span>
+                                <span className="inline-flex items-center gap-1 text-ink-2"><Film size={12} /> {source.name}</span>
                                 {source.seconds ? <span>{source.seconds.toFixed(1)}s</span> : null}
                                 {source.width ? <span>{source.width}×{source.height}</span> : null}
-                                <span className={source.file.size > UPSCALE_LIMITS.maxInputBytes ? 'text-warn' : ''}>{(source.file.size / 1024 / 1024).toFixed(1)} MB{source.file.size > UPSCALE_LIMITS.maxInputBytes ? ' — above the recommended 10 GB' : ''}</span>
+                                {source.file && <span className={source.file.size > UPSCALE_LIMITS.maxInputBytes ? 'text-warn' : ''}>{(source.file.size / 1024 / 1024).toFixed(1)} MB{source.file.size > UPSCALE_LIMITS.maxInputBytes ? ' — above the recommended 10 GB' : ''}</span>}
                                 {source.uploading && <span className="inline-flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> Uploading</span>}
-                                <button type="button" onClick={() => inputRef.current?.click()} className="ml-auto text-accent-hi hover:underline">Replace</button>
+                                <button type="button" onClick={() => setPickerOpen(true)} className="ml-auto text-accent-hi hover:underline">From studio</button>
+                                <button type="button" onClick={() => inputRef.current?.click()} className="text-accent-hi hover:underline">Replace</button>
                             </div>
                         </div>
                     ) : (
-                        <button type="button" onClick={() => inputRef.current?.click()}
-                            onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); pickFile(e.dataTransfer.files?.[0]); }}
-                            className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-line bg-paper-2 text-ink-3 transition-colors hover:border-accent/50 hover:text-ink-2">
-                            <Upload size={22} />
-                            <span className="text-sm font-medium">Drop a video or click to upload</span>
-                            <span className="text-[11px]">mp4 · mov · mkv · avi · flv · ts · wmv — input up to 2K, 10 GB</span>
-                        </button>
+                        <div className="flex flex-col gap-2">
+                            <button type="button" onClick={() => inputRef.current?.click()}
+                                onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); pickFile(e.dataTransfer.files?.[0]); }}
+                                className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-line bg-paper-2 text-ink-3 transition-colors hover:border-accent/50 hover:text-ink-2">
+                                <Upload size={22} />
+                                <span className="text-sm font-medium">Drop a video or click to upload</span>
+                                <span className="text-[11px]">mp4 · mov · mkv · avi · flv · ts · wmv — input up to 2K, 10 GB</span>
+                            </button>
+                            <button type="button" onClick={() => setPickerOpen(true)}
+                                className="inline-flex items-center justify-center gap-1.5 rounded-md border border-line px-3 py-2 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink">
+                                Or pick a generated video from the studio
+                            </button>
+                        </div>
                     )}
                 </section>
 
@@ -199,6 +222,7 @@ function UpscaleWorkspace({ projectId, budget, onSubmitted }) {
                     </div>
                 </aside>
             </div>
+            {pickerOpen && <StudioPicker onClose={() => setPickerOpen(false)} onPick={pickStudio} />}
             <UpscaleRail jobs={jobs} loading={loading} selectedId={selectedId} onSelect={setSelectedId} />
             {selected && (
                 <UpscalePreview
