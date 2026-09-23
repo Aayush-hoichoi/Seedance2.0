@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildUpscaleRequest, estimateUpscaleCost, estimateUpscaleMinutes, sourceTooLarge, containerFor, targetBitrateMbps, proTier, isUpscaleInputName } from '../lib/byteplus/upscaleOptions.mjs';
+import { buildUpscaleRequest, estimateUpscaleCost, estimateUpscaleMinutes, sourceTooLarge, containerFor, targetBitrateMbps, proTier, isUpscaleInputName, upscaleSummary } from '../lib/byteplus/upscaleOptions.mjs';
 
 test('defaults build a standard 1080p request', () => {
     assert.deepEqual(buildUpscaleRequest({}).body, {
@@ -81,4 +81,9 @@ test('reference tables: bitrate targets, pro tier, input formats', () => {
     assert.match(proTier({ version: 'professional', scene: 'old_film' }), /restoration/);
     assert.ok(isUpscaleInputName('clip.MKV'));
     assert.ok(!isUpscaleInputName('clip.webm'));
+});
+
+test('summary line', () => {
+    assert.equal(upscaleSummary({ version: 'professional', resolutionMode: 'preset', resolution: '4k', fpsMode: 'custom', fps: 25, codec: 'h264', bitDepth: 8 }), 'Pro · 4K · 25fps · h264 8-bit');
+    assert.equal(upscaleSummary({ version: 'standard', resolutionMode: 'limit', shortSide: 720, fpsMode: 'source' }), 'Standard · 720px short side · source fps');
 });

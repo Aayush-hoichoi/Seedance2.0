@@ -2,7 +2,7 @@ import { after, NextResponse } from 'next/server';
 import { getUser } from '../../../../lib/auth/user.js';
 import { getDb } from '../../../../lib/db/neon.js';
 import { createQueueTaskToken, readQueueTaskToken, validateSourceUrl } from '../../../../lib/byteplus/vodEnhance.mjs';
-import { buildUpscaleRequest, containerFor, estimateUpscaleCost, sourceTooLarge } from '../../../../lib/byteplus/upscaleOptions.mjs';
+import { buildUpscaleRequest, containerFor, estimateUpscaleCost, estimateUpscaleMinutes, sourceTooLarge, upscaleSummary } from '../../../../lib/byteplus/upscaleOptions.mjs';
 import { getExrJobForUser, publicExrStatus } from '../../../../lib/byteplus/exrQueue.mjs';
 import { exrProjectForUser } from '../../../../lib/byteplus/exrAccess.mjs';
 import { presignKey } from '../../../../lib/seedance/galleryItem.mjs';
@@ -97,12 +97,73 @@ export async function POST(request) {
     }
 }
 
-// Status for the owner's own job. No access re-check: the job was admitted
-// (and budgeted) at submit time, and the token is bound to this user.
+const HISTORY_LIMIT = 100;
+
+// One history row for the rail. Charged cost comes from the settlement event
+// (the worker's provider-duration price), falling back to the estimate.
+function historyItem(job) {
+    const up = job.request_body?._upscale || {};
+    const result = job.result || {};
+    return {
+        id: job.id,
+        token: createQueueTaskToken({ queueId: job.id, userId: job.user_id }),
+        status: job.status,
+        name: up.sourceName || `UPS-${job.id}`,
+        summary: upscaleSummary(up.options),
+        options: up.options || null,
+        source: up.source || null,
+        providerTaskId: job.provider_task_id || null,
+        container: up.container || 'mp4',
+        estimateUsd: job.request_body?._billing?.estimatedCostUsd ?? null,
+        costUsd: job.cost_usd == null ? null : Number(job.cost_usd),
+        waitMin: estimateUpscaleMinutes(up.options, up.source?.seconds),
+        sourceUrl: job.source_url,
+        url: (result.archiveKey ? presignKey(result.archiveKey) : null) || result.url || null,
+        durable: result.durable ?? false,
+        metadata: result.metadata || null,
+        error: job.error?.message || null,
+        createdAt: job.created_at,
+        finishedAt: job.finished_at,
+    };
+}
+
+// The signed-in user's upscales in one project, newest first.
+async function listHistory(sql, user, projectParam) {
+    const projectId = await exrProjectForUser(sql, user, projectParam);
+    if (!projectId) return json({ error: 'A valid workspace project is required.' }, 400);
+    const rows = await sql`SELECT j.*, b.cost_usd
+        FROM exr_jobs j
+        LEFT JOIN LATERAL (
+            SELECT cost_usd FROM billing_events
+            WHERE generation_id = -j.id AND event_type = 'settlement' LIMIT 1
+        ) b ON true
+        WHERE j.user_id = ${user.userId} AND j.project_id = ${projectId}
+          AND j.request_body ? '_upscale' AND j.status <> 'reserving'
+        ORDER BY j.created_at DESC LIMIT ${HISTORY_LIMIT}`;
+    if (rows.some((r) => r.status === 'queued' || r.status === 'processing')) {
+        after(() => runExrQueue({ once: true }).catch((error) => console.error('[exr-worker] queue pass failed:', error.message)));
+    }
+    return json({ items: rows.map(historyItem) });
+}
+
+// ?list=1&projectId= → history for the rail. ?task= → one job's status.
+// No access re-check: jobs were admitted (and budgeted) at submit time, and
+// both reads are scoped to the signed-in user.
 export async function GET(request) {
     const user = await getUser();
     if (!user) return json({ error: 'Unauthorized' }, 401);
-    const token = readQueueTaskToken(new URL(request.url).searchParams.get('task'), user.userId);
+    const params = new URL(request.url).searchParams;
+    if (params.get('list')) {
+        try {
+            const sql = await getDb();
+            if (!sql) return json({ error: 'Database is not configured.' }, 503);
+            return await listHistory(sql, user, params.get('projectId'));
+        } catch (error) {
+            console.error('[upscale] history failed:', error);
+            return json({ error: 'Could not load upscale history.' }, 502);
+        }
+    }
+    const token = readQueueTaskToken(params.get('task'), user.userId);
     if (!token) return json({ error: 'Invalid upscale task.' }, 400);
     try {
         const sql = await getDb();

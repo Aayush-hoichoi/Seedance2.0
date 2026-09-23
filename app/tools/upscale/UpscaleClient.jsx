@@ -6,8 +6,9 @@ import { ArrowLeft, Film, Loader2, Upload } from 'lucide-react';
 import ProjectSelect from '../../seedance/ProjectSelect.jsx';
 import ToolAccessGate, { BudgetChip, useToolStatus } from '../ToolAccessGate.jsx';
 import UpscaleOptions from './UpscaleOptions.jsx';
-import UpscaleJobs, { loadUpscaleJobs, saveUpscaleJobs } from './UpscaleJobs.jsx';
-import { UPSCALE_DEFAULTS, UPSCALE_INPUT_EXTENSIONS, UPSCALE_LIMITS, isUpscaleInputName, buildUpscaleRequest, containerFor, estimateUpscaleCost, estimateUpscaleMinutes, sourceTooLarge } from '../../../lib/byteplus/upscaleOptions.mjs';
+import UpscaleRail, { ACTIVE } from './UpscaleRail.jsx';
+import UpscalePreview from './UpscalePreview.jsx';
+import { UPSCALE_DEFAULTS, UPSCALE_INPUT_EXTENSIONS, UPSCALE_LIMITS, isUpscaleInputName, buildUpscaleRequest, estimateUpscaleCost, estimateUpscaleMinutes, sourceTooLarge } from '../../../lib/byteplus/upscaleOptions.mjs';
 import { resolveProjectId, rememberProjectId } from '../../../lib/seedance/projectChoice.mjs';
 import { uploadToCdn } from '../../../lib/seedance/upload.js';
 import { usd } from '../../../lib/seedance/money.mjs';
@@ -37,7 +38,7 @@ export default function UpscaleClient() {
     const pickProject = (id) => { setProjectId(id); rememberProjectId(id, window.localStorage); };
 
     return (
-        <div className="min-h-screen w-full bg-app-bg px-4 py-6 text-ink sm:px-8">
+        <div className="min-h-screen w-full bg-app-bg px-4 py-6 text-ink sm:pl-8 sm:pr-52">
             <div className="mx-auto max-w-6xl">
                 <header className="mb-6 flex flex-wrap items-center gap-3">
                     <Link href="/tools" title="Back to tools" className="grid h-7 w-7 place-items-center rounded-md border border-line bg-paper-2 text-ink-3 transition-colors hover:text-ink">
@@ -64,16 +65,15 @@ export default function UpscaleClient() {
 function UpscaleWorkspace({ projectId, budget, onSubmitted }) {
     const [options, setOptions] = useState(UPSCALE_DEFAULTS);
     const [source, setSource] = useState(null); // { file, previewUrl, seconds, width, height, url, uploading, error }
-    const [jobs, setJobs] = useState([]);
+    const { jobs, loading, reload } = useUpscaleHistory(projectId);
+    const [selectedId, setSelectedId] = useState(null);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState(null);
     const inputRef = useRef(null);
 
-    useEffect(() => { setOptions(loadOptions()); setJobs(loadUpscaleJobs()); }, []);
+    useEffect(() => { setOptions(loadOptions()); }, []);
     useEffect(() => { try { localStorage.setItem(OPTIONS_KEY, JSON.stringify(options)); } catch { /* ignore */ } }, [options]);
     useEffect(() => () => { if (source?.previewUrl) URL.revokeObjectURL(source.previewUrl); }, [source?.previewUrl]);
-
-    const updateJobs = (fn) => setJobs((prev) => { const next = fn(prev); saveUpscaleJobs(next); return next; });
 
     const pickFile = async (file) => {
         if (!file) return;
@@ -105,6 +105,8 @@ function UpscaleWorkspace({ projectId, budget, onSubmitted }) {
     const tooLarge = source && sourceTooLarge(source.width, source.height);
     const estimate = source ? estimateUpscaleCost(options, source) : null;
     const waitMin = source ? estimateUpscaleMinutes(options, source.seconds) : null;
+    const selectedIdx = jobs.findIndex((j) => j.id === selectedId);
+    const selected = selectedIdx >= 0 ? jobs[selectedIdx] : null;
     const overBudget = estimate != null && budget?.remainingUsd != null && estimate > budget.remainingUsd;
     const blocker = !source ? 'Pick a source video.'
         : source.uploading ? 'Uploading…'
@@ -128,10 +130,7 @@ function UpscaleWorkspace({ projectId, budget, onSubmitted }) {
             });
             const d = await r.json().catch(() => null);
             if (!r.ok || !d?.taskToken) throw new Error(d?.error || `Upscale failed (${r.status}).`);
-            updateJobs((prev) => [{
-                token: d.taskToken, name: source.file.name, status: 'queued', createdAt: Date.now(),
-                estimate: d.estimateUsd ?? estimate, waitMin, container: containerFor(options), summary: summarize(options),
-            }, ...prev]);
+            reload(); // the new job appears in the rail
             onSubmitted?.(); // refresh the budget chip
         } catch (e) {
             setError(e.message);
@@ -200,21 +199,20 @@ function UpscaleWorkspace({ projectId, budget, onSubmitted }) {
                     </div>
                 </aside>
             </div>
-            <UpscaleJobs
-                jobs={jobs}
-                onPatch={(token, patch) => updateJobs((prev) => prev.map((j) => (j.token === token ? { ...j, ...patch } : j)))}
-                onRemove={(token) => updateJobs((prev) => prev.filter((j) => j.token !== token))}
-            />
+            <UpscaleRail jobs={jobs} loading={loading} selectedId={selectedId} onSelect={setSelectedId} />
+            {selected && (
+                <UpscalePreview
+                    job={selected}
+                    onClose={() => setSelectedId(null)}
+                    onPrev={selectedIdx > 0 ? () => setSelectedId(jobs[selectedIdx - 1].id) : null}
+                    onNext={selectedIdx < jobs.length - 1 ? () => setSelectedId(jobs[selectedIdx + 1].id) : null}
+                    onReuse={(o) => setOptions({ ...UPSCALE_DEFAULTS, ...o })}
+                />
+            )}
         </>
     );
 }
 
-function summarize(o) {
-    const res = o.resolutionMode === 'preset' ? o.resolution.toUpperCase() : o.resolutionMode === 'limit' ? `${o.shortSide}px short side` : 'source res';
-    const fps = o.fpsMode === 'custom' ? `${o.fps}fps` : 'source fps';
-    const pro = o.version === 'professional' ? ` · ${o.codec} ${o.bitDepth}-bit` : '';
-    return `${o.version === 'professional' ? 'Pro' : 'Standard'} · ${res} · ${fps}${pro}`;
-}
 
 function ManualField({ label, suffix, value, onChange }) {
     return (
@@ -225,4 +223,35 @@ function ManualField({ label, suffix, value, onChange }) {
             <span className="text-ink-3">{suffix}</span>
         </label>
     );
+}
+
+const POLL_MS = 10_000;
+
+// Server-backed history for this user + project. Polls while anything is
+// queued/processing (the list request also nudges the worker forward).
+function useUpscaleHistory(projectId) {
+    const [jobs, setJobs] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [tick, setTick] = useState(0);
+    const reload = () => setTick((t) => t + 1);
+    const hasActive = jobs.some((j) => ACTIVE.has(j.status));
+
+    useEffect(() => {
+        if (!projectId) return undefined;
+        let alive = true;
+        fetch(`/api/seedance/upscale?list=1&projectId=${projectId}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => { if (alive && Array.isArray(d?.items)) setJobs(d.items); })
+            .catch(() => { /* offline — keep the last list */ })
+            .finally(() => { if (alive) setLoading(false); });
+        return () => { alive = false; };
+    }, [projectId, tick]);
+
+    useEffect(() => {
+        if (!hasActive) return undefined;
+        const id = setInterval(reload, POLL_MS);
+        return () => clearInterval(id);
+    }, [hasActive]);
+
+    return { jobs, loading, reload };
 }
