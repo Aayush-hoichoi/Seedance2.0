@@ -19,6 +19,24 @@ test('2.5 carries its own reference-video window', () => {
     assert.equal(l.maxTotalDurationSec, 30);
 });
 
+// omni_reference_task_type='reference' (doc revision 2026-09-04) declares the
+// subtype up front — a declared reference task can't be run as an edit, so the
+// edit-only 4s floor gives way to the reference window's 2s.
+test('a declared reference task relaxes 2.5\'s floor to 2s', () => {
+    const l = videoLimitsFor('full_2_5', 'reference');
+    assert.equal(l.minDurationSec, 2);
+    assert.equal(l.maxDurationSec, 30, 'the 30s ceiling stays');
+    assert.equal(validateVideoMetadata({ durationSec: 2.5 }, 'full_2_5', 'reference'), null);
+    assert.match(validateVideoMetadata({ durationSec: 1.5 }, 'full_2_5', 'reference'), /2–30s/);
+});
+
+test('auto and edit tasks keep the edit-safe 4s floor', () => {
+    for (const taskType of ['auto', 'edit', null, undefined]) {
+        assert.match(validateVideoMetadata({ durationSec: 2.5 }, 'full_2_5', taskType), /4–30s/,
+            `${taskType} must stay edit-safe — the model may still run an edit`);
+    }
+});
+
 test('every other model keeps the 2.0 spec', () => {
     for (const kind of ['full', 'fast', 'mini', 'pro_1_5']) {
         const l = videoLimitsFor(kind);

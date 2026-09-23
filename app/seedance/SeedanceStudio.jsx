@@ -1098,7 +1098,11 @@ export default function SeedanceStudio() {
             // ones downscale (longest side ≤ 6000px, ≤ 30MB), out-of-range aspect
             // ratios / sub-300px sides get letterboxed onto a black canvas.
             const f = kind === 'image' ? await fitImageToLimits(file) : file;
-            const { error: invalid, meta } = await validateMediaFile(kind, f, MODELS.find((m) => m.id === options.model)?.kind ?? null);
+            // Only Multi reference mode sends omni_reference_task_type (same
+            // rule as the payload build) — a declared 'reference' task relaxes
+            // 2.5's video floor to 2s; anything else keeps the edit-safe 4s.
+            const effectiveTaskType = mode.id === 'reference' ? (options.taskType || 'auto') : 'auto';
+            const { error: invalid, meta } = await validateMediaFile(kind, f, MODELS.find((m) => m.id === options.model)?.kind ?? null, effectiveTaskType);
             if (invalid) { setError(invalid); continue; }
             // A clip an editing prompt would reject (Seedance edits need 4–30s)
             // is still a valid reference — attach it, but say so up front instead
