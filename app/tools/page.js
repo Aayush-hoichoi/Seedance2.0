@@ -9,7 +9,7 @@ export const metadata = {
 const TOOLS = [
     { id: 'upscale', name: 'Upscale Video', blurb: 'AI super-resolution up to 8K with frame interpolation, denoise, and pro codecs (H.265, ProRes, FFV1).', icon: Maximize2, href: '/tools/upscale' },
     { id: 'exr', name: 'EXR Output', blurb: 'Lossless 16-bit 4:4:4 master (FFV1 MOV) for VFX and grading pipelines.', icon: Layers, href: '/tools/exr' },
-    { id: 'compare', name: 'Compare Video', blurb: 'Side-by-side and wipe comparison of two takes, synced frame for frame.', icon: Columns2, href: null },
+    { id: 'compare', name: 'Compare Video', blurb: 'Play 2 or 4 takes in a grid, in sync — upload files or pick studio generations.', icon: Columns2, href: '/tools/compare' },
 ];
 
 export default function ToolsPage() {
