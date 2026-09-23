@@ -115,7 +115,10 @@ export default function DashboardClient() {
                     : <div className="grid h-[280px] place-items-center text-xs text-ink-3">No usage in this period</div>}
             </Card>
 
-            <div className="mt-4 grid gap-4 lg:grid-cols-3">
+            {/* items-start: the right column (donut + budgets + alerts) is much
+                taller than the Top users bars; without it the bars card
+                stretches into a mostly-empty box. */}
+            <div className="mt-4 grid items-start gap-4 lg:grid-cols-3">
                 <Card className="lg:col-span-2">
                     <div className="mb-2 text-sm font-medium text-ink-2">Top users</div>
                     {users.length ? <TopBars data={users} /> : <div className="grid h-[220px] place-items-center text-xs text-ink-3">No usage yet</div>}
