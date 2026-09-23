@@ -43,7 +43,7 @@ import IssueReportModal from './IssueReportModal.jsx';
 import ConfirmDialog from '../../components/ConfirmDialog.jsx';
 import { useExrAccess } from '../components/ExrAccess.jsx';
 import Link from 'next/link';
-import { ArrowLeft, Bug, ShieldCheck, WalletCards } from 'lucide-react';
+import { ArrowLeft, Bug, ShieldCheck, WalletCards, Wrench } from 'lucide-react';
 import AssetsPanel from './AssetsPanel.jsx';
 import CinematicPanel from './CinematicPanel.jsx';
 import { cinematicToPayload, sanitizeSetup, DEFAULT_SETUP } from '../../lib/seedance/cinematic.mjs';
@@ -2098,6 +2098,10 @@ export default function SeedanceStudio() {
                 </div>
                 <div className="flex items-center gap-2">
                     <MySpend project={projects.find((p) => p.id === projectId) ?? null} spendRank={spendRank} />
+                    <Link href="/tools" title="Tools" className="flex h-7 items-center gap-1.5 rounded-md border border-line bg-paper-2 px-2 text-xs font-semibold text-ink-2 transition-colors hover:text-ink">
+                        <Wrench size={14} />
+                        <span className="hidden sm:inline">Tools</span>
+                    </Link>
                     {isAdmin && (
                         <Link href="/console" title="Console" className="grid h-7 w-7 place-items-center rounded-md border border-line bg-paper-2 text-warn/80 transition-colors hover:text-warn">
                             <ShieldCheck size={14} />

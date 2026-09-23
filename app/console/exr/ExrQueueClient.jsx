@@ -91,7 +91,11 @@ export default function ExrQueueClient() {
     }
 
     const columns = [
-        { accessorKey: 'id', header: '#', cell: ({ getValue }) => <span className="font-mono tabular-nums text-ink-3">EXR-{getValue()}</span> },
+        { accessorKey: 'id', header: '#', cell: ({ row }) => <span className="font-mono tabular-nums text-ink-3">{jobLabel(row.original)}</span> },
+        {
+            id: 'type', header: 'Type',
+            cell: ({ row }) => (isUpscale(row.original) ? <Badge tone="violet">Upscale</Badge> : <Badge tone="zinc">EXR</Badge>),
+        },
         {
             accessorKey: 'status', header: 'Status',
             cell: ({ getValue }) => <Badge tone={STATUS_TONE[getValue()] || 'zinc'}>{getValue()}</Badge>,
@@ -149,7 +153,7 @@ export default function ExrQueueClient() {
 
     return (
         <div>
-            <PageHeader title="EXR Queue" subtitle="Dedicated BytePlus MediaKit enhancement jobs and worker state">
+            <PageHeader title="EXR Queue" subtitle="BytePlus MediaKit jobs — EXR and Tools → Upscale — and worker state">
                 <Select value={status} onChange={(e) => setStatus(e.target.value)} title="Filter EXR jobs by status">
                     <option value="">All jobs</option>
                     <option value="queued">Queued</option>
@@ -220,12 +224,12 @@ export default function ExrQueueClient() {
                 <Modal
                     open={Boolean(selected)}
                     onOpenChange={(open) => { if (!open) setSelected(null); }}
-                    title={`EXR-${selected.id} details`}
+                    title={`${jobLabel(selected)} details`}
                     className="max-h-[90vh] w-[min(94vw,880px)] overflow-y-auto sm:max-w-[880px]"
                     footer={(
                     <>
                         {(selected.status === 'queued' || selected.status === 'processing') && <Button variant="danger" onClick={() => change(selected.id, 'cancel')}>Cancel job</Button>}
-                        {(selected.status === 'failed' || selected.status === 'cancelled') && <Button variant="primary" onClick={() => change(selected.id, 'retry')}>Retry job</Button>}
+                        {(selected.status === 'failed' || selected.status === 'cancelled') && !isUpscale(selected) && <Button variant="primary" onClick={() => change(selected.id, 'retry')}>Retry job</Button>}
                         {selected.status === 'succeeded' && selected.result?.durable === false && selected.result?.url && <Button variant="outline" onClick={() => change(selected.id, 'rearchive')}>Archive again</Button>}
                     </>
                     )}
@@ -265,4 +269,13 @@ export default function ExrQueueClient() {
             )}
         </div>
     );
+}
+
+// Upscale (Tools) jobs share this queue; they are budgeted per job, so a
+// failed one is resubmitted by the user rather than retried here.
+function isUpscale(job) {
+    return Boolean(job?.request_body?._upscale);
+}
+function jobLabel(job) {
+    return `${isUpscale(job) ? 'UPS' : 'EXR'}-${job.id}`;
 }

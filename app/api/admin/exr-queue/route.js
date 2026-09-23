@@ -5,6 +5,8 @@ import { cancelExrJob, getExrQueue, rearchiveExrJob, retryExrJob } from '../../.
 import { decideExrAccessRequest, listExrAccessRequests } from '../../../../lib/byteplus/exrAccess.mjs';
 import { emitEvent, writeAudit } from '../../../../lib/gateway/db.js';
 
+import { closeToolSpend } from '../../../../lib/tools/billing.mjs';
+
 export const runtime = 'nodejs';
 
 const STATUSES = new Set(['queued', 'processing', 'succeeded', 'failed', 'cancelled']);
@@ -72,6 +74,7 @@ export async function PATCH(request) {
             ? await rearchiveExrJob(sql, id)
             : await cancelExrJob(sql, id);
     if (!row) return NextResponse.json({ error: 'The EXR job is not in a state that can be changed.' }, { status: 409 });
+    if (body.action === 'cancel') await closeToolSpend(sql, row, 'release');
     await writeAudit(sql, {
         actorId: admin.userId,
         actorEmail: admin.email,
