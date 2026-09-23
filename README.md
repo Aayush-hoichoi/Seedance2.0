@@ -491,6 +491,9 @@ Add the MediaKit key on the server when you are ready:
 BYTEPLUS_VOD_MEDIAKIT_API_KEY=your-vod-mediakit-key
 # Recommended: keep queue task tokens valid when provider keys rotate.
 BYTEPLUS_VOD_TASK_TOKEN_SECRET=long-random-server-secret
+# Optional: MediaKit queue for Tools → Upscale tasks (splits their cost from EXR
+# in the BytePlus console). Unset = the API key project's default queue.
+BYTEPLUS_VOD_UPSCALE_QUEUE_ID=q00a9731598092652e4a95292434198
 ```
 
 The feature uses the Singapore MediaKit endpoint by default. If BytePlus gives

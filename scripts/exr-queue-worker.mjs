@@ -3,6 +3,8 @@
 
 import { getDb } from '../lib/db/neon.js';
 import { archiveExr } from '../lib/byteplus/archiveExr.mjs';
+import { estimateUpscaleCost } from '../lib/byteplus/upscaleOptions.mjs';
+import { closeToolSpend } from '../lib/tools/billing.mjs';
 import { pollEnhancement, submitEnhancement } from '../lib/byteplus/vodEnhance.mjs';
 import {
     EXR_MAX_SUBMIT_ATTEMPTS,
@@ -31,6 +33,25 @@ function isPermanent(error) {
     return Number.isFinite(error?.status) && error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429;
 }
 
+// Every terminal transition goes through here so a budgeted tool job's
+// reservation is always closed (settled on success, zero-cost failure otherwise).
+async function finish(sql, job, outcome) {
+    const row = await finishExrJob(sql, job.id, outcome);
+    if (!row) return; // someone else (cancel) already finished it
+    try {
+        if (outcome.status === 'succeeded') {
+            const up = row.request_body?._upscale;
+            const seconds = Number(outcome.result?.metadata?.duration) || Number(up?.source?.seconds) || null;
+            const cost = up ? estimateUpscaleCost(up.options, { ...up.source, seconds }) : null;
+            await closeToolSpend(sql, row, 'settlement', { costUsd: cost ?? row.request_body?._billing?.estimatedCostUsd ?? null, seconds });
+        } else {
+            await closeToolSpend(sql, row, 'failure');
+        }
+    } catch (error) {
+        console.error(`[exr-worker] billing close failed for job ${row.id}:`, error.message);
+    }
+}
+
 async function runOne(sql) {
     const job = await claimNextExrJob(sql);
     if (!job) return false;
@@ -45,7 +66,7 @@ async function runOne(sql) {
         } catch (error) {
             const details = errorDetails(error);
             if (isPermanent(error) || job.attempt >= EXR_MAX_SUBMIT_ATTEMPTS) {
-                await finishExrJob(sql, job.id, { status: 'failed', error: details });
+                await finish(sql, job, { status: 'failed', error: details });
             } else {
                 await rescheduleExrJob(sql, job.id, { delayMs: retryDelayMs(job.attempt), error: details });
             }
@@ -60,10 +81,14 @@ async function runOne(sql) {
         if (result.status === 'processing') {
             await rescheduleExrJob(sql, job.id, { delayMs: EXR_POLL_DELAY_MS });
         } else if (result.status === 'failed') {
-            await finishExrJob(sql, job.id, { status: 'failed', error: { message: result.error || 'BytePlus EXR enhancement failed.' } });
+            await finish(sql, job, { status: 'failed', error: { message: result.error || 'BytePlus EXR enhancement failed.' } });
         } else if (result.status === 'succeeded' && result.url) {
-            const archived = await archiveExr({ url: result.url, taskId: job.provider_task_id });
-            await finishExrJob(sql, job.id, {
+            const up = job.request_body?._upscale;
+            const safeId = String(job.provider_task_id).replace(/[^a-zA-Z0-9._-]/g, '_');
+            const archived = await archiveExr(up
+                ? { url: result.url, taskId: job.provider_task_id, key: `upscale/${safeId}.${up.container}`, contentType: up.container === 'mov' ? 'video/quicktime' : 'video/mp4' }
+                : { url: result.url, taskId: job.provider_task_id });
+            await finish(sql, job, {
                 status: 'succeeded',
                 result: {
                     url: archived.url,
@@ -76,12 +101,12 @@ async function runOne(sql) {
                 },
             });
         } else {
-            await finishExrJob(sql, job.id, { status: 'failed', error: { message: 'BytePlus returned no EXR output URL.' } });
+            await finish(sql, job, { status: 'failed', error: { message: 'BytePlus returned no EXR output URL.' } });
         }
     } catch (error) {
         const details = errorDetails(error);
         if (isPermanent(error)) {
-            await finishExrJob(sql, job.id, { status: 'failed', error: details });
+            await finish(sql, job, { status: 'failed', error: details });
         } else {
             await rescheduleExrJob(sql, job.id, { delayMs: retryDelayMs(job.poll_attempt), error: details });
         }

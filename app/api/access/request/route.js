@@ -3,6 +3,7 @@ import { getUser } from '../../../../lib/auth/user.js';
 import { requestAccess } from '../../../../lib/access/db.js';
 import { getDb } from '../../../../lib/db/neon.js';
 import { GATED_MODEL_IDS, IMAGE_GATED_MODEL_IDS, supportedResolutionsFor } from '../../../../lib/seedance/constants.js';
+import { TOOL_IDS } from '../../../../lib/tools/catalog.mjs';
 import { notifySlackAccessRequested } from '../../../../lib/notify/slack.mjs';
 import { notifyTeamsAccessRequested } from '../../../../lib/notify/teamsAccess.mjs';
 
@@ -14,8 +15,13 @@ export async function POST(request) {
     let body;
     try { body = await request.json(); } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }); }
     const { modelId, note, projectId, maxResolution } = body || {};
-    if (!GATED_MODEL_IDS.includes(modelId) && !IMAGE_GATED_MODEL_IDS.includes(modelId)) {
+    const isTool = TOOL_IDS.includes(modelId);
+    if (!isTool && !GATED_MODEL_IDS.includes(modelId) && !IMAGE_GATED_MODEL_IDS.includes(modelId)) {
         return NextResponse.json({ error: 'That model does not require a request.' }, { status: 400 });
+    }
+    // Tools: the admin decides on the stated purpose, so it is required.
+    if (isTool && (typeof note !== 'string' || note.trim().length < 10)) {
+        return NextResponse.json({ error: 'Tell the admin what you will use this tool for (at least 10 characters).' }, { status: 400 });
     }
     // The requested quality tier must be one the model can output; stored as the
     // canonical ladder token so tier comparisons never fight casing. Optional —

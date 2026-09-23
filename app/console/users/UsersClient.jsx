@@ -33,6 +33,7 @@ function PendingRequest({ r, onApprove, onDeny }) {
                     ? <span className="text-ink-3"> upgrade: <span className="text-ink">{r.max_resolution || 'full'}</span> → <span className="text-ink">{r.pending_max_resolution}</span></span>
                     : (r.max_resolution ? <span className="text-ink-3"> wants <span className="text-ink">{r.max_resolution}</span></span> : null)}
                 {' '}<span className="text-ink-3">on</span> <span className="text-ink">{r.project_name || (r.project_id ? `project #${r.project_id}` : 'any project')}</span>
+                {r.note ? <span className="mt-0.5 block text-xs italic text-ink-3">“{r.note}”</span> : null}
             </span>
             <div className="flex flex-wrap items-center gap-1.5">
                 {tiers.length ? (
