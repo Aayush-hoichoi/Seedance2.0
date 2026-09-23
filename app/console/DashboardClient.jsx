@@ -19,9 +19,12 @@ export default function DashboardClient() {
     // end-of-day IST.
     const [from, setFrom] = useState(`${istDate().slice(0, 7)}-01`);
     const [to, setTo] = useState('');
+    // Which dimension the by-day line charts split on: one line per user,
+    // per model, or per project (day_user / day_model / day_project rollups).
+    const [dim, setDim] = useState('user');
     const range = `from=${istInstant(from)}${to ? `&to=${istInstant(to, '23:59:59.999')}` : ''}`;
     const byDay = useApi(`/api/orgs/usage?group_by=day&${range}`);
-    const byDayUser = useApi(`/api/orgs/usage?group_by=day_user&${range}`);
+    const byDaySeries = useApi(`/api/orgs/usage?group_by=day_${dim}&${range}`);
     const byModel = useApi(`/api/orgs/usage?group_by=model&${range}`);
     const byUser = useApi(`/api/orgs/usage?group_by=user&${range}`);
     const byProject = useApi(`/api/orgs/usage?group_by=project&${range}`);
@@ -35,17 +38,19 @@ export default function DashboardClient() {
     });
 
     const days = byDay.data?.items?.slice().sort((a, b) => (a.key < b.key ? -1 : 1)) ?? [];
-    // Every user gets their own line (topN Infinity — no 'Others' fold), and
-    // the picker narrows both per-user charts to one person.
-    const [userFilter, setUserFilter] = useState('');
-    const allUsers = [...new Set((byDayUser.data?.items ?? []).map((r) => r.series))].sort();
-    const dayUserRows = (byDayUser.data?.items ?? []).filter((r) => !userFilter || r.series === userFilter);
-    const userSpend = buildUserSpendSeries(dayUserRows, Infinity);
-    // Tasks SENT per day per user: settled + failed (a failed task was still sent).
+    // Every series gets its own line (topN Infinity — no 'Others' fold), and
+    // the picker narrows both by-day charts to one user/model/project.
+    const [seriesFilter, setSeriesFilter] = useState('');
+    const allSeries = [...new Set((byDaySeries.data?.items ?? []).map((r) => r.series))].sort();
+    const dayRows = (byDaySeries.data?.items ?? []).filter((r) => !seriesFilter || r.series === seriesFilter);
+    const userSpend = buildUserSpendSeries(dayRows, Infinity);
+    // Tasks SENT per day: settled + failed (a failed task was still sent).
     const userTasks = buildUserSpendSeries(
-        dayUserRows.map((r) => ({ ...r, tasks: Number(r.generations || 0) + Number(r.failures || 0) })),
+        dayRows.map((r) => ({ ...r, tasks: Number(r.generations || 0) + Number(r.failures || 0) })),
         Infinity, 'tasks',
     );
+    const shortName = (v) => String(v).split('@')[0];
+    const chartScope = seriesFilter ? shortName(seriesFilter) : `per ${dim}`;
     const monthSpend = days.reduce((s, d) => s + Number(d.cost_usd || 0), 0);
     const todayKey = istDate();
     const todaySpend = Number(days.find((d) => d.key === todayKey)?.cost_usd || 0);
@@ -73,10 +78,19 @@ export default function DashboardClient() {
     return (
         <div>
             <PageHeader title="Dashboard" subtitle="Org-wide spend, budgets and live governance activity">
-                <Select title="Focus the per-user charts on one person" value={userFilter}
-                    onChange={(e) => setUserFilter(e.target.value)} disabled={!allUsers.length}>
-                    <option value="">All users</option>
-                    {allUsers.map((u) => <option key={u} value={u}>{String(u).split('@')[0]}</option>)}
+                <div className="flex items-center gap-1 rounded-lg border border-line bg-paper-2 p-1" role="tablist">
+                    {['user', 'model', 'project'].map((d) => (
+                        <button key={d} type="button" role="tab" aria-selected={dim === d}
+                            onClick={() => { setDim(d); setSeriesFilter(''); }}
+                            className={`rounded-md px-2.5 py-1.5 text-xs font-semibold capitalize transition-colors ${dim === d ? 'bg-paper-3 text-ink' : 'text-ink-3 hover:text-ink-2'}`}>
+                            {d}
+                        </button>
+                    ))}
+                </div>
+                <Select title={`Focus the by-day charts on one ${dim}`} value={seriesFilter}
+                    onChange={(e) => setSeriesFilter(e.target.value)} disabled={!allSeries.length}>
+                    <option value="">All {dim}s</option>
+                    {allSeries.map((u) => <option key={u} value={u}>{shortName(u)}</option>)}
                 </Select>
                 <DateRangePicker from={from} to={to}
                     onChange={({ from: f, to: t }) => { if (f) setFrom(f); setTo(t); }} />
@@ -90,7 +104,7 @@ export default function DashboardClient() {
 
             <Card className="mt-4">
                 <div className="mb-2 text-sm font-medium text-ink-2">
-                    Spend by day · {userFilter ? String(userFilter).split('@')[0] : 'per user'}
+                    Spend by day · {chartScope}
                 </div>
                 {userSpend.data.length
                     ? <SpendLines data={userSpend.data} series={userSpend.series} />
@@ -99,7 +113,7 @@ export default function DashboardClient() {
 
             <Card className="mt-4">
                 <div className="mb-2 text-sm font-medium text-ink-2">
-                    Tasks by day · {userFilter ? String(userFilter).split('@')[0] : 'per user'}
+                    Tasks by day · {chartScope}
                 </div>
                 {userTasks.data.length
                     ? <SpendLines data={userTasks.data} series={userTasks.series} money={false} height={280} />
