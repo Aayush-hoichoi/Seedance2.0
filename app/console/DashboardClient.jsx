@@ -23,12 +23,17 @@ export default function DashboardClient() {
     // per model, or per project (day_user / day_model / day_project rollups).
     const [dim, setDim] = useState('user');
     const range = `from=${istInstant(from)}${to ? `&to=${istInstant(to, '23:59:59.999')}` : ''}`;
-    const byDay = useApi(`/api/orgs/usage?group_by=day&${range}`);
-    const byDaySeries = useApi(`/api/orgs/usage?group_by=day_${dim}&${range}`);
-    const byModel = useApi(`/api/orgs/usage?group_by=model&${range}`);
-    const byUser = useApi(`/api/orgs/usage?group_by=user&${range}`);
-    const byProject = useApi(`/api/orgs/usage?group_by=project&${range}`);
-    const quotas = useApi('/api/admin/quotas?withUsage=1');
+    // Live like the ledger: useApi's defaults (no interval, no focus refresh)
+    // froze an open dashboard at load time, so the curves silently fell behind
+    // the real spend. keepPreviousData swaps rows without blanking the charts;
+    // SWR pauses polling while the tab is hidden.
+    const LIVE = { refreshInterval: 60_000, revalidateOnFocus: true, keepPreviousData: true };
+    const byDay = useApi(`/api/orgs/usage?group_by=day&${range}`, LIVE);
+    const byDaySeries = useApi(`/api/orgs/usage?group_by=day_${dim}&${range}`, LIVE);
+    const byModel = useApi(`/api/orgs/usage?group_by=model&${range}`, LIVE);
+    const byUser = useApi(`/api/orgs/usage?group_by=user&${range}`, LIVE);
+    const byProject = useApi(`/api/orgs/usage?group_by=project&${range}`, LIVE);
+    const quotas = useApi('/api/admin/quotas?withUsage=1', LIVE);
     const [alerts, setAlerts] = useState([]);
 
     useEvents('*', ({ type, data }) => {
