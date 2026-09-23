@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import { useState } from 'react';
-import { Card, StatCard, PageHeader, Badge, ProgressBar, EmptyState, DateRangePicker } from './ui.jsx';
+import { Card, StatCard, PageHeader, Badge, ProgressBar, EmptyState, DateRangePicker, Select } from './ui.jsx';
 import { useApi, fmtUsd, fmtInt, istDate, istInstant, timeAgo } from './lib.js';
 import { buildUserSpendSeries } from './spendSeries.mjs';
 import { useEvents } from '../hooks/useEvents.js';
@@ -35,11 +35,16 @@ export default function DashboardClient() {
     });
 
     const days = byDay.data?.items?.slice().sort((a, b) => (a.key < b.key ? -1 : 1)) ?? [];
-    const userSpend = buildUserSpendSeries(byDayUser.data?.items);
+    // Every user gets their own line (topN Infinity — no 'Others' fold), and
+    // the picker narrows both per-user charts to one person.
+    const [userFilter, setUserFilter] = useState('');
+    const allUsers = [...new Set((byDayUser.data?.items ?? []).map((r) => r.series))].sort();
+    const dayUserRows = (byDayUser.data?.items ?? []).filter((r) => !userFilter || r.series === userFilter);
+    const userSpend = buildUserSpendSeries(dayUserRows, Infinity);
     // Tasks SENT per day per user: settled + failed (a failed task was still sent).
     const userTasks = buildUserSpendSeries(
-        (byDayUser.data?.items ?? []).map((r) => ({ ...r, tasks: Number(r.generations || 0) + Number(r.failures || 0) })),
-        8, 'tasks',
+        dayUserRows.map((r) => ({ ...r, tasks: Number(r.generations || 0) + Number(r.failures || 0) })),
+        Infinity, 'tasks',
     );
     const monthSpend = days.reduce((s, d) => s + Number(d.cost_usd || 0), 0);
     const todayKey = istDate();
@@ -68,6 +73,11 @@ export default function DashboardClient() {
     return (
         <div>
             <PageHeader title="Dashboard" subtitle="Org-wide spend, budgets and live governance activity">
+                <Select title="Focus the per-user charts on one person" value={userFilter}
+                    onChange={(e) => setUserFilter(e.target.value)} disabled={!allUsers.length}>
+                    <option value="">All users</option>
+                    {allUsers.map((u) => <option key={u} value={u}>{String(u).split('@')[0]}</option>)}
+                </Select>
                 <DateRangePicker from={from} to={to}
                     onChange={({ from: f, to: t }) => { if (f) setFrom(f); setTo(t); }} />
             </PageHeader>
@@ -80,7 +90,7 @@ export default function DashboardClient() {
 
             <Card className="mt-4">
                 <div className="mb-2 text-sm font-medium text-ink-2">
-                    Spend by day · per user{userSpend.series.includes('Others') ? ' (top 8, rest as Others)' : ''}
+                    Spend by day · {userFilter ? String(userFilter).split('@')[0] : 'per user'}
                 </div>
                 {userSpend.data.length
                     ? <SpendLines data={userSpend.data} series={userSpend.series} />
@@ -89,7 +99,7 @@ export default function DashboardClient() {
 
             <Card className="mt-4">
                 <div className="mb-2 text-sm font-medium text-ink-2">
-                    Tasks by day · per user{userTasks.series.includes('Others') ? ' (top 8, rest as Others)' : ''}
+                    Tasks by day · {userFilter ? String(userFilter).split('@')[0] : 'per user'}
                 </div>
                 {userTasks.data.length
                     ? <SpendLines data={userTasks.data} series={userTasks.series} money={false} height={280} />
