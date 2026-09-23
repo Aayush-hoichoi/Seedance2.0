@@ -130,19 +130,6 @@ export function VideoCard({ item, creator, onOpen, exrAccess }) {
                         type="button"
                         onClick={(event) => {
                             event.stopPropagation();
-                            downloadArchivedAsset(item.exrArchiveKey, item.exrUrl, `${item.taskId || 'generation'}.mov`, item.taskId, { format: 'quicktime' });
-                        }}
-                        title="Download a QuickTime-compatible MOV"
-                        aria-label="Download a QuickTime-compatible MOV"
-                        className="flex items-center gap-1 rounded-md border border-amber-300/35 bg-black/70 px-2 py-1 text-[9px] font-bold text-amber-200 backdrop-blur-sm transition-colors hover:border-amber-300/65 hover:bg-amber-300/20"
-                    >
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
-                        QuickTime MOV
-                    </button>
-                    <button
-                        type="button"
-                        onClick={(event) => {
-                            event.stopPropagation();
                             downloadArchivedAsset(item.exrArchiveKey, item.exrUrl, `${item.taskId || 'generation'}-16bit.mov`, item.taskId, { raw: true });
                         }}
                         title="Download the original 16-bit output"
@@ -374,17 +361,13 @@ export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext, onEx
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
                             </button>
                         )}
-                        {!isImage && (
+                        {!isImage && !(exrAccess?.granted && item.exrUrl) && (
                             <button
                                 type="button"
                                 disabled={exrAccessRequesting}
-                                onClick={() => {
-                                    if (!exrAccess?.granted) return onRequestExrAccess?.();
-                                    if (item.exrUrl) return downloadArchivedAsset(item.exrArchiveKey, item.exrUrl, `${item.taskId || 'generation'}.mov`, item.taskId, { format: 'quicktime' });
-                                    return setShowExrDialog(true);
-                                }}
-                                title={exrAccess?.granted ? (item.exrUrl ? 'Download a QuickTime-compatible MOV' : 'Generate a 16-bit EXR output') : 'Request EXR access'}
-                                aria-label={exrAccess?.granted ? (item.exrUrl ? 'Download a QuickTime-compatible MOV' : 'Generate a 16-bit EXR output') : 'Request EXR access'}
+                                onClick={() => exrAccess?.granted ? setShowExrDialog(true) : onRequestExrAccess?.()}
+                                title={exrAccess?.granted ? 'Generate a 16-bit EXR output' : 'Request EXR access'}
+                                aria-label={exrAccess?.granted ? 'Generate a 16-bit EXR output' : 'Request EXR access'}
                                 className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border transition-colors text-xs font-semibold ${exrAccess?.granted
                                     ? 'border-amber-300/25 bg-amber-300/10 text-amber-200 hover:bg-amber-300/20 hover:border-amber-300/45'
                                     : exrAccess?.status === 'pending'
@@ -392,7 +375,7 @@ export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext, onEx
                                         : 'border-amber-300/25 bg-amber-300/5 text-amber-200 hover:bg-amber-300/15'}`}
                             >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
-                                {exrAccess?.granted ? (item.exrUrl ? 'QuickTime MOV' : 'Generate EXR') : exrAccess?.status === 'pending' ? 'EXR access pending' : 'Request EXR access'}
+                                {exrAccess?.granted ? 'Generate EXR' : exrAccess?.status === 'pending' ? 'EXR access pending' : 'Request EXR access'}
                             </button>
                         )}
                         {!isImage && exrAccess?.granted && item.exrUrl && (
