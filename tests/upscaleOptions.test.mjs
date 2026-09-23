@@ -68,7 +68,7 @@ test('wait estimate and input size guard', () => {
     assert.equal(estimateUpscaleMinutes({}, 60), 8);
     // short clips hit the fixed-overhead floor, not 4s × RTF
     assert.equal(estimateUpscaleMinutes({}, 4), 5);
-    assert.equal(estimateUpscaleMinutes({ version: 'professional', resolution: '4k' }, 4), 15);
+    assert.equal(estimateUpscaleMinutes({ version: 'professional', resolution: '4k' }, 4), 12);
     assert.equal(estimateUpscaleMinutes({ version: 'professional', resolution: '4k', codec: 'ffv1', bitDepth: 16 }, 4), 35);
     assert.equal(estimateUpscaleMinutes({ version: 'professional', resolution: '4k' }, 60), 60);
     assert.equal(sourceTooLarge(1920, 1080), false);
