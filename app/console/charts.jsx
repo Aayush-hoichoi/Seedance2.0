@@ -143,8 +143,10 @@ export function SpendDonut({ data, nameKey = 'key', valueKey = 'cost_usd', heigh
         <div>
             <ResponsiveContainer width="100%" height={height}>
                 <PieChart>
+                    {/* No mount animation: charts loaded via next/dynamic in a
+                        background tab freeze mid-tween, leaving a sliver of ring. */}
                     <Pie data={slices} dataKey="value" nameKey="name" innerRadius="60%" outerRadius="88%"
-                        paddingAngle={2} cornerRadius={3} stroke="#1A1A21" strokeWidth={2}>
+                        paddingAngle={2} cornerRadius={3} stroke="#1A1A21" strokeWidth={2} isAnimationActive={false}>
                         {slices.map((s) => <Cell key={s.name} fill={s.color} />)}
                         <Label content={(props) => <SpendDonutCenter {...props} total={total} />} />
                     </Pie>
@@ -208,7 +210,7 @@ export function StatusDonut({ data, height = 290, successRate = null }) {
         <ResponsiveContainer width="100%" height={height}>
             <PieChart>
                 <Pie data={data} dataKey="value" nameKey="label" innerRadius="57%" outerRadius="87%"
-                    paddingAngle={3} cornerRadius={4} stroke="#1A1A21" strokeWidth={2}>
+                    paddingAngle={3} cornerRadius={4} stroke="#1A1A21" strokeWidth={2} isAnimationActive={false}>
                     {data.map((row) => <Cell key={row.key} fill={row.color} />)}
                     <Label content={(props) => <StatusDonutCenter {...props} total={total} successRate={successRate} />} />
                 </Pie>
