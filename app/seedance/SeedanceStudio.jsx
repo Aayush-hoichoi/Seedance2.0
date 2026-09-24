@@ -1020,6 +1020,7 @@ export default function SeedanceStudio() {
                                 videoUrl: isImage ? null : (it.archiveUrl || null),
                                 archiveKey: isImage ? null : (it.taskId ? archiveKeyForTask(it.taskId) : null),
                                 imageUrl: isImage ? (it.imageUrl || null) : null,
+                                imageUrls: isImage ? (it.imageUrls || null) : null,
                                 error: null,
                                 liked: !!it.liked,
                                 deleted: false,
@@ -1289,9 +1290,11 @@ export default function SeedanceStudio() {
             } catch { continue; }
             if (!d) continue;
             if (d.status === 'succeeded') {
-                const url = await resolveImageUrl(d.result?.images?.[0]);
-                patchJob(localId, url
-                    ? { status: 'done', imageUrl: url }
+                // Resolve every stored image — imageCount > 1 jobs used to
+                // surface only the first.
+                const urls = (await Promise.all((d.result?.images || []).map(resolveImageUrl))).filter(Boolean);
+                patchJob(localId, urls.length
+                    ? { status: 'done', imageUrl: urls[0], imageUrls: urls.length > 1 ? urls : null }
                     : { status: 'error', error: 'The image finished but could not be loaded.' });
                 return;
             }
@@ -2860,7 +2863,13 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
             {/* LEFT — video or image */}
             <div className="relative flex min-h-0 flex-1 items-center justify-center bg-black">
                 {job.imageUrl ? (
-                    <img key={job.id} src={job.imageUrl} alt={job.prompt || 'Generated image'} className="max-h-full max-w-full object-contain" />
+                    // Multi-image jobs (imageCount > 1) show every stored image,
+                    // scrollable; the single-image case renders exactly as before.
+                    <div key={job.id} className={`flex max-h-full max-w-full items-center justify-center gap-2 ${(job.imageUrls?.length || 0) > 1 ? 'overflow-auto flex-wrap p-2' : ''}`}>
+                        {(job.imageUrls?.length ? job.imageUrls : [job.imageUrl]).map((url, i) => (
+                            <img key={i} src={url} alt={job.prompt || 'Generated image'} className={(job.imageUrls?.length || 0) > 1 ? 'max-h-[45vh] max-w-[45vw] object-contain' : 'max-h-full max-w-full object-contain'} />
+                        ))}
+                    </div>
                 ) : mannequinRef ? (
                     <div className="flex h-full w-full min-h-0 flex-col items-center justify-center gap-3 p-3 sm:flex-row">
                         <MannequinSource r={mannequinRef} />

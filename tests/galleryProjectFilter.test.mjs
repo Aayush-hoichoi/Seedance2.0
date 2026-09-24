@@ -33,7 +33,7 @@ async function fixture() {
             task_id text, user_id text, model_id text, resolution text,
             duration integer, ratio text, mode text, status text,
             created_at timestamptz, category text, image_key text,
-            image_prompt text, project_id integer
+            image_prompt text, project_id integer, images jsonb
         );
         INSERT INTO projects (id, name) VALUES (10, 'Film A'), (20, 'Film B');
         INSERT INTO gallery_generations
