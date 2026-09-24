@@ -293,7 +293,11 @@ export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext, onEx
                 <div className="flex-1 min-w-0 flex items-start justify-center">
                     <div className="rounded-2xl overflow-hidden border border-white/10 bg-black shadow-2xl w-full">
                         {isImage
-                            ? <img src={item.imageUrl} alt={item.userPrompt || item.prompt || ''} className="w-full max-h-[80vh] object-contain bg-black" />
+                            // Multi-image jobs: every stored image, stacked; the
+                            // single-image case renders exactly as before.
+                            ? (item.imageUrls?.length ? item.imageUrls : [item.imageUrl]).map((url, i) => (
+                                <img key={i} src={url} alt={item.userPrompt || item.prompt || ''} className="w-full max-h-[80vh] object-contain bg-black" />
+                            ))
                             : <SmartVideo item={item} onUrl={setDlUrl} onLoadedMetadata={(event) => {
                                 const duration = event.currentTarget.duration;
                                 if (Number.isFinite(duration) && duration > 0) setVideoDuration(duration);

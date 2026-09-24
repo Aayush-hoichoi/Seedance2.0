@@ -93,8 +93,8 @@ export default function CompareClient() {
     const fmtT = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
 
     return (
-        <div className="min-h-screen w-full bg-app-bg px-4 py-6 text-ink sm:px-8">
-            <div className="mx-auto max-w-6xl">
+        <div className="flex min-h-screen w-full flex-col bg-app-bg px-4 py-6 text-ink sm:h-screen sm:px-8">
+            <div className="mx-auto flex w-full max-w-screen-2xl flex-1 flex-col sm:min-h-0">
                 <header className="mb-6 flex flex-wrap items-center gap-3">
                     <Link href="/tools" title="Back to tools" className="grid h-7 w-7 place-items-center rounded-md border border-line bg-paper-2 text-ink-3 transition-colors hover:text-ink">
                         <ArrowLeft size={14} />
@@ -113,14 +113,14 @@ export default function CompareClient() {
                 </header>
 
                 {/* 2 → side by side; 4 → 2×2. */}
-                <div className="grid gap-2 sm:grid-cols-2">
+                <div className="grid gap-2 sm:min-h-0 sm:flex-1 sm:auto-rows-fr sm:grid-cols-2">
                     {Array.from({ length: count }, (_, i) => (
                         <div key={i}
                             // The whole slot is a drop target — dropping on a
                             // filled slot replaces its video.
                             onDragOver={(e) => e.preventDefault()}
                             onDrop={(e) => { e.preventDefault(); pickFile(i, e.dataTransfer.files?.[0]); }}
-                            className="relative overflow-hidden rounded-xl border border-line bg-black">
+                            className="relative overflow-hidden rounded-xl border border-line bg-black sm:min-h-0">
                             <input ref={(el) => { fileRefs.current[i] = el; }} type="file" accept="video/*" className="hidden"
                                 onChange={(e) => { pickFile(i, e.target.files?.[0]); e.target.value = ''; }} />
                             {slots[i] ? (
@@ -138,7 +138,7 @@ export default function CompareClient() {
                                             setDurs((prev) => ({ ...prev, [i]: d }));
                                         }}
                                         onTimeUpdate={(e) => { if (i === masterIdx) setTime(e.currentTarget.currentTime); }}
-                                        className="aspect-video w-full cursor-pointer object-contain"
+                                        className="aspect-video w-full cursor-pointer object-contain sm:aspect-auto sm:h-full"
                                     />
                                     <div className="absolute inset-x-0 top-0 flex items-center justify-between gap-2 bg-gradient-to-b from-black/70 to-transparent px-2.5 py-1.5 text-[11px] text-white/85">
                                         <span className="truncate" title={slots[i].label}>{i + 1} · {slots[i].label}</span>
@@ -154,7 +154,7 @@ export default function CompareClient() {
                                     </div>
                                 </>
                             ) : (
-                                <div className="flex aspect-video w-full flex-col items-center justify-center gap-3 bg-paper-2 text-ink-3">
+                                <div className="flex aspect-video w-full flex-col items-center justify-center gap-3 bg-paper-2 text-ink-3 sm:aspect-auto sm:h-full">
                                     <Film size={22} />
                                     <span className="text-xs">Drop a video here, or</span>
                                     <div className="flex flex-wrap items-center justify-center gap-2 text-xs font-semibold">
