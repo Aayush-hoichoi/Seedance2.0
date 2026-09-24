@@ -19,7 +19,9 @@ function toLocalInput(d) {
 // lower (they want 4k, admin decides 2K/1080p is enough). An upgrade row
 // (live grant + parked higher-tier ask) shows current → wanted; denying it
 // clears only the ask, the existing grant survives.
-function PendingRequest({ r, onApprove, onDeny }) {
+// Exported: the console Requests hub reuses this exact approve flow
+// (expiry + quality tier) for its Model access tab.
+export function PendingRequest({ r, onApprove, onDeny }) {
     const upgrade = r.status === 'approved' && !!r.pending_max_resolution;
     const [until, setUntil] = useState('');
     const tiers = supportedResolutionsFor(r.model_id) ?? [];

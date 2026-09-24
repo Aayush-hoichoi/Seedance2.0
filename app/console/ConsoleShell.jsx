@@ -12,7 +12,7 @@ import clsx from 'clsx';
 import {
     LayoutDashboard, FolderKanban, Boxes, ListOrdered, BarChart3,
     Wallet, ScrollText, Users, Clapperboard, PanelLeftClose, PanelLeftOpen, Radio, BellRing,
-    Table2, Bug, Menu, FileOutput,
+    Table2, Bug, Menu, FileOutput, Inbox,
 } from 'lucide-react';
 import { useEvents } from '../hooks/useEvents.js';
 import { useApi } from './lib.js';
@@ -28,6 +28,7 @@ const NAV = [
     { href: '/console/ledger', label: 'Ledger', icon: Table2 },
     { href: '/console/usage', label: 'Usage', icon: BarChart3 },
     { href: '/console/budgets', label: 'Budgets', icon: Wallet },
+    { href: '/console/requests', label: 'Requests', icon: Inbox },
     { href: '/console/budget-requests', label: 'Budget requests', icon: BellRing },
     { href: '/console/issues', label: 'Issues', icon: Bug },
     { href: '/console/audit', label: 'Audit', icon: ScrollText },
@@ -135,7 +136,8 @@ export default function ConsoleShell({ children }) {
                                 {(() => {
                                     const badge = label === 'Budget requests' ? pendingBudgetRequests
                                         : label === 'Issues' ? openIssues
-                                            : label === 'Enhance Queue' ? pendingExrAccess : 0;
+                                            : label === 'Enhance Queue' ? pendingExrAccess
+                                                : label === 'Requests' ? pendingBudgetRequests + pendingExrAccess : 0;
                                     return badge > 0 ? (
                                         <span className="grid min-w-5 place-items-center rounded-full bg-warn/15 px-1 text-[10px] font-semibold text-warn">
                                             {badge > 99 ? '99+' : badge}
