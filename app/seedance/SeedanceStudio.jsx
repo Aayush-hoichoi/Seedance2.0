@@ -39,6 +39,8 @@ import ProjectSelect from './ProjectSelect.jsx';
 import BudgetRemaining from './BudgetRemaining.jsx';
 import MySpend from './MySpend.jsx';
 import BudgetRequestModal from './BudgetRequestModal.jsx';
+import { useToolStatus } from '../tools/ToolAccessGate.jsx';
+import { usd as fmtBudgetUsd } from '../../lib/seedance/money.mjs';
 import IssueReportModal from './IssueReportModal.jsx';
 import ConfirmDialog from '../../components/ConfirmDialog.jsx';
 import { useExrAccess } from '../components/ExrAccess.jsx';
@@ -2077,6 +2079,7 @@ export default function SeedanceStudio() {
                     </Link>
                     {projects.length > 0 && <ProjectSelect projects={projects} value={projectId} onChange={selectProject} />}
                     <BudgetRemaining projectId={projectId} modelId={options.model} refreshKey={budgetVersion} />
+                    {exrAccess?.granted && projectId && <ExrBudgetChip projectId={projectId} />}
                     {!isAdmin && projectId && (
                         <button type="button" onClick={() => setBudgetRequestOpen(true)} title="Request more budget"
                             className="inline-flex h-7 items-center gap-1.5 rounded-md border border-line bg-paper-2 px-2.5 text-[11px] font-semibold text-ink-2 transition-colors hover:border-accent/40 hover:text-accent-hi">
@@ -3187,5 +3190,30 @@ function Fullscreen({ url, onClose }) {
             </button>
             <video src={url} controls autoPlay loop className="max-w-[95vw] max-h-[95vh] rounded-2xl shadow-2xl object-contain" onClick={(e) => e.stopPropagation()} />
         </div>
+    );
+}
+
+// The EXR wallet beside the model budget chip: tool:exr money is separate
+// from generation budgets, so users with EXR access see both at a glance.
+// Hidden until an EXR budget exists (without one, EXR won't run anyway).
+function ExrBudgetChip({ projectId }) {
+    const { status, refresh } = useToolStatus('exr', projectId);
+    useEffect(() => {
+        const timer = setInterval(refresh, 30_000);
+        return () => clearInterval(timer);
+    }, [refresh]);
+    const budget = status?.budget;
+    if (!budget || budget.remainingUsd == null) return null;
+    const ratio = budget.limitUsd > 0 ? budget.remainingUsd / budget.limitUsd : 0;
+    const tone = ratio <= 0.05 ? 'border-danger/40 text-danger' : ratio <= 0.15 ? 'border-warn/40 text-warn' : 'border-line text-ink-2';
+    const detail = `EXR budget: ${fmtBudgetUsd(budget.remainingUsd)} left of ${fmtBudgetUsd(budget.limitUsd)}`;
+    return (
+        <output aria-label={detail} title={detail}
+            className={`inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-md border bg-paper-2 px-2.5 font-mono text-[11px] font-semibold tabular-nums ${tone}`}>
+            <WalletCards size={13} aria-hidden="true" />
+            <span className="hidden sm:inline">EXR</span>
+            <span className="text-ink">{fmtBudgetUsd(budget.remainingUsd)}</span>
+            <span className="text-ink-3">left</span>
+        </output>
     );
 }
