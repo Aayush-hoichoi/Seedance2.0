@@ -10,8 +10,11 @@ const ALL_MODEL_QUALITIES = ['standard', 'high', 'maximum'];
 const money = (value) => `$${Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 // initialModelId lets budget-error flows open the dialog preset to the model
-// that just ran out (e.g. 'tool:exr' from an EXR budget rejection).
+// that just ran out (e.g. 'tool:exr' from an EXR budget rejection). A preset
+// model is LOCKED — the request is about that model, switching it would send
+// the admin a request for something else than what was refused.
 export default function BudgetRequestModal({ projectId, onClose, onSent, initialModelId = ALL_MODELS }) {
+    const locked = initialModelId !== ALL_MODELS;
     const [context, setContext] = useState(null);
     const [error, setError] = useState(null);
     const [sending, setSending] = useState(false);
@@ -83,7 +86,9 @@ export default function BudgetRequestModal({ projectId, onClose, onSent, initial
                 onClick={(event) => event.stopPropagation()}>
                 <div id="budget-request-title" className="text-base font-semibold text-white/90">Request more budget</div>
                 <p className="mt-1 text-xs leading-relaxed text-white/50">
-                    Choose one model or every model. The approved quality includes that tier and every lower tier.
+                    {locked
+                        ? 'This request is for the model shown below — set the amount you need.'
+                        : 'Choose one model or every model. The approved quality includes that tier and every lower tier.'}
                 </p>
 
                 {!context && !error ? <div className="mt-5 h-40 animate-pulse rounded-lg bg-white/[0.05]" /> : null}
@@ -94,12 +99,18 @@ export default function BudgetRequestModal({ projectId, onClose, onSent, initial
                             <ReadOnly label="Requested by" value={context.user.name || context.user.email} />
                         </div>
                         <label className="block">
-                            <Label>Models</Label>
-                            <select value={modelId} onChange={(e) => selectModel(e.target.value)}
-                                className="mt-1.5 h-9 w-full rounded-md border border-white/10 bg-white/[0.05] px-2.5 text-xs text-white/90 focus:border-primary/40 focus:outline-none">
-                                <option value={ALL_MODELS}>All models</option>
-                                {(context.models || []).map((model) => <option key={model.id} value={model.id}>{model.display_name} · {model.category}</option>)}
-                            </select>
+                            <Label>{locked ? 'Model' : 'Models'}</Label>
+                            {locked ? (
+                                <div className="mt-1.5 flex h-9 items-center rounded-md border border-white/10 bg-white/[0.025] px-2.5 text-xs text-white/65">
+                                    {selectedModel ? `${selectedModel.display_name} · ${selectedModel.category}` : modelId}
+                                </div>
+                            ) : (
+                                <select value={modelId} onChange={(e) => selectModel(e.target.value)}
+                                    className="mt-1.5 h-9 w-full rounded-md border border-white/10 bg-white/[0.05] px-2.5 text-xs text-white/90 focus:border-primary/40 focus:outline-none">
+                                    <option value={ALL_MODELS}>All models</option>
+                                    {(context.models || []).map((model) => <option key={model.id} value={model.id}>{model.display_name} · {model.category}</option>)}
+                                </select>
+                            )}
                         </label>
                         {isTool ? (
                             <p className="text-[11px] leading-relaxed text-white/35">
