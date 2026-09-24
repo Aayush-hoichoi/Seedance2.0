@@ -252,8 +252,8 @@ function ExrWorkspace({ projectId, onSpent }) {
     const download = () => downloadArchivedAsset(job.archiveKey, job.url, `${job.taskId || 'exr-output'}-16bit.mov`, job.taskId, { raw: true });
 
     return (
-        <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
-            <section className="flex flex-col gap-3">
+        <div className="grid gap-6 lg:grid-cols-[1fr_22rem] lg:items-start">
+            <section className="flex flex-col gap-3 lg:sticky lg:top-6">
                 <input ref={inputRef} type="file" accept="video/*" className="hidden" onChange={(e) => { pickFile(e.target.files?.[0]); e.target.value = ''; }} />
                 {source ? (
                     <div className="flex flex-col gap-2">
@@ -311,7 +311,7 @@ function ExrWorkspace({ projectId, onSpent }) {
                 )}
             </section>
 
-            <aside className="flex flex-col gap-4 rounded-xl border border-line bg-paper-2 p-4 text-xs">
+            <aside className="flex flex-col gap-4 rounded-xl border border-line bg-paper-2 p-4 text-xs lg:sticky lg:top-6">
                 <div className="grid gap-3">
                     <DetailRow label="Format" value="FFV1 lossless · QuickTime MOV" />
                     <DetailRow label="Bit depth" value="16-bit 4:4:4" />
