@@ -122,7 +122,14 @@ export default function CompareClient() {
                                         ref={(el) => { videoRefs.current[i] = el; }}
                                         src={slots[i].src} muted={solo == null ? muted : solo !== i} loop={loop} playsInline preload="metadata"
                                         onClick={() => (playing ? pauseAll() : playAll())}
-                                        onLoadedMetadata={(e) => { e.currentTarget.playbackRate = speed; setDurs((d) => ({ ...d, [i]: e.currentTarget.duration })); }}
+                                        onLoadedMetadata={(e) => {
+                                            // Read the element NOW: React nulls e.currentTarget after the
+                                            // handler returns, and the setDurs updater runs later.
+                                            const v = e.currentTarget;
+                                            v.playbackRate = speed;
+                                            const d = v.duration;
+                                            setDurs((prev) => ({ ...prev, [i]: d }));
+                                        }}
                                         onTimeUpdate={(e) => { if (i === masterIdx) setTime(e.currentTarget.currentTime); }}
                                         className="aspect-video w-full cursor-pointer object-contain"
                                     />
