@@ -193,7 +193,7 @@ export default function CompareClient() {
                         <RotateCcw size={14} /> Restart
                     </button>
                     <div className="flex items-center gap-1 rounded-md border border-line bg-paper-2 p-1" title="Playback speed">
-                        {[0.25, 0.5, 1].map((s) => (
+                        {[0.25, 0.5, 1, 1.5, 2, 2.25].map((s) => (
                             <button key={s} type="button" onClick={() => setSpeed(s)}
                                 className={`rounded px-2 py-1.5 text-xs font-semibold transition-colors ${speed === s ? 'bg-paper-3 text-ink' : 'text-ink-3 hover:text-ink-2'}`}>
                                 {s}×
