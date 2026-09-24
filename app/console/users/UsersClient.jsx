@@ -123,9 +123,6 @@ export default function UsersClient() {
     ];
 
     const all = requests.data?.requests ?? [];
-    // Upgrade asks (live grant + parked higher tier) queue alongside plain
-    // pending requests — including on an expired grant, which approve revives.
-    const pending = all.filter((r) => r.status === 'pending' || (r.status === 'approved' && r.pending_max_resolution));
     const now = Date.now();
     const granted = all.filter((r) => r.status === 'approved' && (!r.expires_at || new Date(r.expires_at).getTime() > now));
 
@@ -141,20 +138,8 @@ export default function UsersClient() {
 
     return (
         <div>
-            <PageHeader title="Users" subtitle="Platform roles, model-access grants and pending requests" />
+            <PageHeader title="Users" subtitle="Platform roles and model-access grants — pending requests live under Requests" />
 
-            {pending.length ? (
-                <Card className="mb-4">
-                    <div className="mb-2 text-sm font-medium text-ink-2">Pending access requests</div>
-                    <ul className="space-y-2">
-                        {pending.map((r) => (
-                            <PendingRequest key={r.id} r={r}
-                                onApprove={(id, until, quality) => decide(id, 'approve', until, quality)}
-                                onDeny={(id, upgrade) => decide(id, upgrade ? 'deny_upgrade' : 'revoke')} />
-                        ))}
-                    </ul>
-                </Card>
-            ) : null}
 
             <div className="mb-5">
                 <div className="mb-2 text-sm font-medium text-ink-2">Model access granted</div>

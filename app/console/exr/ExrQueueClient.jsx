@@ -19,7 +19,6 @@ export default function ExrQueueClient() {
     const counts = Object.fromEntries((queue.data?.counts ?? [])
         .filter((item) => Boolean(item.upscale) === upscaleTab)
         .map((item) => [item.status, item.count]));
-    const accessRequests = (queue.data?.accessRequests ?? []).filter((request) => request.status === 'pending');
     const billing = selected?.request_body?._billing || null;
 
     async function change(id, action) {
@@ -30,16 +29,6 @@ export default function ExrQueueClient() {
         }
         toast.success(action === 'retry' ? 'Job queued again.' : action === 'rearchive' ? 'Archive queued again.' : 'Job cancelled.');
         setSelected(null);
-        queue.mutate();
-    }
-
-    async function decideAccess(requestId, action) {
-        const result = await sendJson('/api/admin/exr-queue', 'PATCH', { requestId, action: action === 'approve' ? 'approve_access' : 'deny_access' });
-        if (!result.ok) {
-            toast.error(result.data?.error || 'Could not decide the EXR access request.');
-            return;
-        }
-        toast.success(action === 'approve' ? 'EXR access approved.' : 'EXR access request denied.');
         queue.mutate();
     }
 
@@ -87,31 +76,6 @@ export default function ExrQueueClient() {
                 </Select>
             </PageHeader>
 
-            {!upscaleTab && accessRequests.length > 0 && (
-                <div className="mb-5 overflow-hidden rounded-lg border border-warn/30 bg-warn/5">
-                    <div className="flex items-center justify-between border-b border-warn/20 px-4 py-2">
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-warn">EXR access requests</div>
-                        <Badge tone="amber">{accessRequests.length} pending</Badge>
-                    </div>
-                    <div className="divide-y divide-line/60">
-                        {accessRequests.map((request) => (
-                            <div key={request.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-                                <div className="min-w-0 text-sm">
-                                    <div className="font-medium text-ink">{request.user_email || request.user_id}</div>
-                                    <div className="text-xs text-ink-3">
-                                        Workspace: <span className="text-ink-2">{request.project_name || `Project ${request.project_id}`}</span>
-                                        {request.note ? ` · ${request.note}` : ''}
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <Button variant="primary" size="xs" onClick={() => decideAccess(request.id, 'approve')}>Approve</Button>
-                                    <Button variant="outline" size="xs" onClick={() => decideAccess(request.id, 'deny')}>Deny</Button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
 
             <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-6">
                 <StatCard label="Queued" value={counts.queued || 0} />
