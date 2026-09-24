@@ -36,7 +36,9 @@ export default function CompareClient() {
     });
 
     const pickFile = (i, file) => {
-        if (!file) return;
+        // Drops arrive unfiltered (no accept= like the file input), so ignore
+        // anything that isn't a video instead of mounting a broken slot.
+        if (!file || !file.type.startsWith('video/')) return;
         const url = URL.createObjectURL(file);
         setSlot(i, { src: url, label: file.name, objectUrl: url });
     };
@@ -113,7 +115,12 @@ export default function CompareClient() {
                 {/* 2 → side by side; 4 → 2×2. */}
                 <div className="grid gap-2 sm:grid-cols-2">
                     {Array.from({ length: count }, (_, i) => (
-                        <div key={i} className="relative overflow-hidden rounded-xl border border-line bg-black">
+                        <div key={i}
+                            // The whole slot is a drop target — dropping on a
+                            // filled slot replaces its video.
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={(e) => { e.preventDefault(); pickFile(i, e.dataTransfer.files?.[0]); }}
+                            className="relative overflow-hidden rounded-xl border border-line bg-black">
                             <input ref={(el) => { fileRefs.current[i] = el; }} type="file" accept="video/*" className="hidden"
                                 onChange={(e) => { pickFile(i, e.target.files?.[0]); e.target.value = ''; }} />
                             {slots[i] ? (
@@ -149,6 +156,7 @@ export default function CompareClient() {
                             ) : (
                                 <div className="flex aspect-video w-full flex-col items-center justify-center gap-3 bg-paper-2 text-ink-3">
                                     <Film size={22} />
+                                    <span className="text-xs">Drop a video here, or</span>
                                     <div className="flex flex-wrap items-center justify-center gap-2 text-xs font-semibold">
                                         <button type="button" onClick={() => fileRefs.current[i]?.click()}
                                             className="inline-flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 transition-colors hover:bg-paper-3 hover:text-ink">
