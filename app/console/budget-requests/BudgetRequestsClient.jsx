@@ -6,7 +6,8 @@ import { BellRing, Check, X } from 'lucide-react';
 import { Badge, Button, Card, EmptyState, Field, Input, Modal, PageHeader, Select } from '../ui.jsx';
 import { fmtDate, fmtUsd, sendJson, useApi } from '../lib.js';
 
-export default function BudgetRequestsClient() {
+// embedded: rendered inside the Requests hub tab, which brings its own header.
+export default function BudgetRequestsClient({ embedded = false }) {
     const { data, error, mutate } = useApi('/api/admin/budget-requests');
     const [review, setReview] = useState(null);
     const [deny, setDeny] = useState(null);
@@ -50,7 +51,7 @@ export default function BudgetRequestsClient() {
 
     return (
         <div>
-            <PageHeader title="Budget requests" subtitle="Review user requests, set warning and enforced limits, then approve or deny" />
+            {!embedded && <PageHeader title="Budget requests" subtitle="Review user requests, set warning and enforced limits, then approve or deny" />}
             {error ? <EmptyState title="Couldn’t load budget requests" hint={error.message} /> : null}
             {!error && data && !requests.length ? (
                 <EmptyState icon={BellRing} title="No budget requests" hint="New requests from project workspaces will appear here and trigger a live notification." />
