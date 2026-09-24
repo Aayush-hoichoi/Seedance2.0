@@ -37,6 +37,8 @@ export default function BudgetRequestModal({ projectId, onClose, onSent }) {
     }, [onClose, sending]);
 
     const selectedModel = context?.models?.find((model) => model.id === modelId);
+    // Tools (EXR, Upscale) have no quality ladder — a tool budget is just money.
+    const isTool = selectedModel?.category === 'tool';
     const tiers = useMemo(() => modelId === ALL_MODELS
         ? ALL_MODEL_QUALITIES
         : (supportedResolutionsFor(modelId) ?? []), [modelId]);
@@ -53,14 +55,14 @@ export default function BudgetRequestModal({ projectId, onClose, onSent }) {
     }
 
     async function submit() {
-        if (!(Number(increaseAmount) > 0) || !quality) return;
+        if (!(Number(increaseAmount) > 0) || (!quality && !isTool)) return;
         setSending(true);
         setError(null);
         try {
             const response = await fetch('/api/budget-requests', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ projectId, modelId, quality, increaseAmount: Number(increaseAmount), reason }),
+                body: JSON.stringify({ projectId, modelId, quality: isTool ? null : quality, increaseAmount: Number(increaseAmount), reason }),
             });
             const data = await response.json().catch(() => null);
             if (!response.ok) throw new Error(data?.error || 'Could not send the request.');
@@ -97,6 +99,11 @@ export default function BudgetRequestModal({ projectId, onClose, onSent }) {
                                 {(context.models || []).map((model) => <option key={model.id} value={model.id}>{model.display_name} · {model.category}</option>)}
                             </select>
                         </label>
+                        {isTool ? (
+                            <p className="text-[11px] leading-relaxed text-white/35">
+                                {selectedModel?.display_name} is a tool — there is no quality tier; the amount below is the whole request.
+                            </p>
+                        ) : (
                         <div>
                             <Label>Quality needed</Label>
                             <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -115,6 +122,7 @@ export default function BudgetRequestModal({ projectId, onClose, onSent }) {
                                     : `${selectedModel?.display_name || 'This model'} will be available up to ${quality || 'the selected tier'}.`}
                             </p>
                         </div>
+                        )}
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                             <ReadOnly label="Spent this month" value={money(spent)} />
                             <ReadOnly label="Current lifetime limit" value={currentLimit == null ? 'No personal limit' : money(currentLimit)} />
@@ -138,7 +146,7 @@ export default function BudgetRequestModal({ projectId, onClose, onSent }) {
                 <div className="mt-5 flex justify-end gap-2">
                     <button type="button" disabled={sending} onClick={onClose}
                         className="rounded-md border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-semibold text-white/70 hover:bg-white/[0.1] disabled:opacity-40">Cancel</button>
-                    <button type="button" disabled={!context || sending || !(Number(increaseAmount) > 0) || !quality} onClick={submit}
+                    <button type="button" disabled={!context || sending || !(Number(increaseAmount) > 0) || (!quality && !isTool)} onClick={submit}
                         className="rounded-md bg-primary px-3 py-1.5 text-xs font-bold text-accent-ink hover:bg-accent-hi disabled:opacity-40">
                         {sending ? 'Sending…' : 'Send request'}
                     </button>
