@@ -9,11 +9,13 @@ const ALL_MODEL_QUALITIES = ['standard', 'high', 'maximum'];
 
 const money = (value) => `$${Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-export default function BudgetRequestModal({ projectId, onClose, onSent }) {
+// initialModelId lets budget-error flows open the dialog preset to the model
+// that just ran out (e.g. 'tool:exr' from an EXR budget rejection).
+export default function BudgetRequestModal({ projectId, onClose, onSent, initialModelId = ALL_MODELS }) {
     const [context, setContext] = useState(null);
     const [error, setError] = useState(null);
     const [sending, setSending] = useState(false);
-    const [modelId, setModelId] = useState(ALL_MODELS);
+    const [modelId, setModelId] = useState(initialModelId);
     const [quality, setQuality] = useState('high');
     const [increaseAmount, setIncreaseAmount] = useState('');
     const [reason, setReason] = useState('');
