@@ -29,7 +29,6 @@ const NAV = [
     { href: '/console/usage', label: 'Usage', icon: BarChart3 },
     { href: '/console/budgets', label: 'Budgets', icon: Wallet },
     { href: '/console/requests', label: 'Requests', icon: Inbox },
-    { href: '/console/budget-requests', label: 'Budget requests', icon: BellRing },
     { href: '/console/issues', label: 'Issues', icon: Bug },
     { href: '/console/audit', label: 'Audit', icon: ScrollText },
     { href: '/console/users', label: 'Users', icon: Users },
@@ -134,10 +133,8 @@ export default function ConsoleShell({ children }) {
                                 <Icon size={16} className="shrink-0" />
                                 {!collapsed && <span className="min-w-0 flex-1 truncate">{label}</span>}
                                 {(() => {
-                                    const badge = label === 'Budget requests' ? pendingBudgetRequests
-                                        : label === 'Issues' ? openIssues
-                                            : label === 'Enhance Queue' ? pendingExrAccess
-                                                : label === 'Requests' ? pendingBudgetRequests + pendingExrAccess : 0;
+                                    const badge = label === 'Issues' ? openIssues
+                                        : label === 'Requests' ? pendingBudgetRequests + pendingExrAccess : 0;
                                     return badge > 0 ? (
                                         <span className="grid min-w-5 place-items-center rounded-full bg-warn/15 px-1 text-[10px] font-semibold text-warn">
                                             {badge > 99 ? '99+' : badge}
