@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowLeft, Download, Film, Loader2, Lock, Upload } from 'lucide-react';
 import ProjectSelect from '../../seedance/ProjectSelect.jsx';
 import StudioPicker from '../StudioPicker.jsx';
+import { BudgetChip, useToolStatus } from '../ToolAccessGate.jsx';
 import { EXR_DEFAULT_OPTIONS, EXR_FPS, EXR_RESOLUTIONS, EXR_TIERS, estimateExrCost, pricePerExrMinute } from '../../../lib/byteplus/exrPricing.mjs';
 import { resolveProjectId, rememberProjectId } from '../../../lib/seedance/projectChoice.mjs';
 import { uploadToCdn } from '../../../lib/seedance/upload.js';
@@ -18,6 +19,9 @@ export default function ExrToolClient() {
     const [projectId, setProjectId] = useState(null);
     const [projectsError, setProjectsError] = useState(null);
     const [access, setAccess] = useState(null); // { granted, status } | null while loading
+    // Only the budget half of the tool status matters here — EXR access has
+    // its own approval flow above; the tool:exr budget is required like Upscale.
+    const { status: toolStatus, refresh: refreshBudget } = useToolStatus('exr', projectId);
 
     useEffect(() => {
         fetch('/api/projects')
@@ -52,16 +56,25 @@ export default function ExrToolClient() {
                     </Link>
                     <h1 className="font-display text-xl font-semibold">EXR Output</h1>
                     <div className="ml-auto flex items-center gap-2">
+                        {toolStatus?.budget && <BudgetChip budget={toolStatus.budget} />}
                         {projects.length > 0 && <ProjectSelect projects={projects} value={projectId} onChange={pickProject} />}
                     </div>
                 </header>
                 {projectsError
                     ? <div className="text-xs text-danger">{projectsError}</div>
-                    : !projectId || access == null
+                    : !projectId || access == null || toolStatus == null
                         ? <div className="flex items-center gap-2 text-xs text-ink-3"><Loader2 size={13} className="animate-spin" /> Loading…</div>
-                        : access.granted
-                            ? <ExrWorkspace projectId={projectId} />
-                            : <AccessGate access={access} projectId={projectId} onSent={setAccess} />}
+                        : !access.granted
+                            ? <AccessGate access={access} projectId={projectId} onSent={setAccess} />
+                            : !toolStatus.budget
+                                ? (
+                                    <div className="mx-auto flex max-w-md flex-col items-center gap-3 rounded-xl border border-line bg-paper-2 p-8 text-center">
+                                        <span className="grid h-10 w-10 place-items-center rounded-full bg-warn/10 text-warn"><Lock size={18} /></span>
+                                        <h2 className="text-sm font-semibold">No EXR budget yet</h2>
+                                        <p className="text-xs leading-relaxed text-ink-3">You have EXR access, but no EXR budget in this project. Ask an admin to create one (model “EXR Output”) in Console → Budgets.</p>
+                                    </div>
+                                )
+                                : <ExrWorkspace projectId={projectId} onSpent={refreshBudget} />}
             </div>
         </div>
     );
@@ -128,7 +141,7 @@ function AccessGate({ access, projectId, onSent }) {
     );
 }
 
-function ExrWorkspace({ projectId }) {
+function ExrWorkspace({ projectId, onSpent }) {
     const [options, setOptions] = useState({ ...EXR_DEFAULT_OPTIONS });
     const [source, setSource] = useState(null); // { file?, name, previewUrl, seconds, url, uploading, manual, error }
     const [job, setJob] = useState(null); // { state: 'processing'|'succeeded'|'failed', url, archiveKey, taskId, error }
@@ -194,6 +207,7 @@ function ExrWorkspace({ projectId }) {
                 if (result?.status === 'queued' || result?.status === 'processing') continue;
                 if (result?.status === 'succeeded' && result.url) {
                     if (alive.current) setJob({ state: 'succeeded', url: result.url, archiveKey: result.archiveKey || null, taskId: result.providerTaskId || null });
+                    onSpent?.(); // budget chip reflects the settled spend
                     return;
                 }
                 throw new Error(result?.error || 'EXR generation failed.');

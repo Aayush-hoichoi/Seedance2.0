@@ -15,12 +15,12 @@ import {
 } from '../../../../lib/byteplus/exrQueue.mjs';
 import { exrProjectForUser, getExrAccess } from '../../../../lib/byteplus/exrAccess.mjs';
 import { presignKey } from '../../../../lib/seedance/galleryItem.mjs';
-import { reserveToolSpend } from '../../../../lib/tools/billing.mjs';
+import { budgetFor, reserveToolSpend } from '../../../../lib/tools/billing.mjs';
 import { drainExrQueue, runExrQueue } from '../../../../scripts/exr-queue-worker.mjs';
 
-// Budget scope for EXR spend in billing_events / quotas. Unlike Upscale, a
-// dedicated tool:exr budget is not REQUIRED (existing EXR users keep working):
-// applicable project/user budgets are enforced and all spend is recorded.
+// Budget scope for EXR spend in billing_events / quotas. Like Upscale, a
+// tool:exr-scoped budget is REQUIRED — nobody runs EXR unlimited; admins
+// create one per user or project in Console → Budgets (model "EXR Output").
 const EXR_TOOL_ID = 'tool:exr';
 const MAX_EXR_DURATION_SECONDS = 6 * 3600; // mirrors the Upscale input ceiling
 const MAX_ACTIVE_EXR_PER_USER = 3;
@@ -74,6 +74,15 @@ export async function POST(request) {
                     access,
                 }, { status: 403 });
             }
+        }
+        // Like Upscale: a tool:exr-scoped budget must exist (everyone, admins
+        // included) — access says who MAY run EXR, the budget says how much.
+        const budget = await budgetFor(sql, { projectId, userId: user.userId, toolId: EXR_TOOL_ID });
+        if (!budget) {
+            return NextResponse.json({
+                error: 'No EXR budget is set for you in this project. Ask an admin to create one (model "EXR Output") in Console → Budgets.',
+                code: 'NO_BUDGET',
+            }, { status: 402 });
         }
         // The duration backs the budget reservation, so it is required and
         // capped — settlement later corrects it to the provider-reported value.
