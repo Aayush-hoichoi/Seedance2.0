@@ -6,6 +6,7 @@ import { ArrowLeft, Download, Film, Loader2, Lock, Upload } from 'lucide-react';
 import ProjectSelect from '../../seedance/ProjectSelect.jsx';
 import StudioPicker from '../StudioPicker.jsx';
 import { BudgetChip, useToolStatus } from '../ToolAccessGate.jsx';
+import BudgetRequestModal from '../../seedance/BudgetRequestModal.jsx';
 import { EXR_DEFAULT_OPTIONS, EXR_FPS, EXR_RESOLUTIONS, EXR_TIERS, estimateExrCost, pricePerExrMinute } from '../../../lib/byteplus/exrPricing.mjs';
 import { resolveProjectId, rememberProjectId } from '../../../lib/seedance/projectChoice.mjs';
 import { uploadToCdn } from '../../../lib/seedance/upload.js';
@@ -67,15 +68,38 @@ export default function ExrToolClient() {
                         : !access.granted
                             ? <AccessGate access={access} projectId={projectId} onSent={setAccess} />
                             : !toolStatus.budget
-                                ? (
-                                    <div className="mx-auto flex max-w-md flex-col items-center gap-3 rounded-xl border border-line bg-paper-2 p-8 text-center">
-                                        <span className="grid h-10 w-10 place-items-center rounded-full bg-warn/10 text-warn"><Lock size={18} /></span>
-                                        <h2 className="text-sm font-semibold">No EXR budget yet</h2>
-                                        <p className="text-xs leading-relaxed text-ink-3">You have EXR access, but no EXR budget in this project. Ask an admin to create one (model “EXR Output”) in Console → Budgets.</p>
-                                    </div>
-                                )
+                                ? <NoBudgetGate projectId={projectId} onSent={refreshBudget} />
                                 : <ExrWorkspace projectId={projectId} onSpent={refreshBudget} />}
             </div>
+        </div>
+    );
+}
+
+// Access is granted but no tool:exr budget exists — the user asks for one
+// right here; the request lands in the admin Budget requests queue.
+function NoBudgetGate({ projectId, onSent }) {
+    const [open, setOpen] = useState(false);
+    const [sent, setSent] = useState(false);
+    return (
+        <div className="mx-auto flex max-w-md flex-col items-center gap-3 rounded-xl border border-line bg-paper-2 p-8 text-center">
+            <span className="grid h-10 w-10 place-items-center rounded-full bg-warn/10 text-warn"><Lock size={18} /></span>
+            <h2 className="text-sm font-semibold">{sent ? 'Budget request sent' : 'No EXR budget yet'}</h2>
+            <p className="text-xs leading-relaxed text-ink-3">
+                {sent
+                    ? 'An admin will review your EXR budget request. This page unlocks as soon as one is approved.'
+                    : 'You have EXR access, but no EXR budget in this project. Request one and an admin will review it.'}
+            </p>
+            {!sent && (
+                <button type="button" onClick={() => setOpen(true)}
+                    className="mt-1 rounded-md bg-accent px-4 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90">
+                    Request EXR budget
+                </button>
+            )}
+            {open && (
+                <BudgetRequestModal projectId={projectId} initialModelId="tool:exr"
+                    onClose={() => setOpen(false)}
+                    onSent={() => { setOpen(false); setSent(true); onSent?.(); }} />
+            )}
         </div>
     );
 }
@@ -144,8 +168,11 @@ function AccessGate({ access, projectId, onSent }) {
 function ExrWorkspace({ projectId, onSpent }) {
     const [options, setOptions] = useState({ ...EXR_DEFAULT_OPTIONS });
     const [source, setSource] = useState(null); // { file?, name, previewUrl, seconds, url, uploading, manual, error }
-    const [job, setJob] = useState(null); // { state: 'processing'|'succeeded'|'failed', url, archiveKey, taskId, error }
+    const [job, setJob] = useState(null); // { state: 'processing'|'succeeded'|'failed', url, archiveKey, taskId, error, code }
     const [pickerOpen, setPickerOpen] = useState(false);
+    // A generate refused for budget (QUOTA_EXCEEDED) offers a top-up request.
+    const [budgetOpen, setBudgetOpen] = useState(false);
+    const [budgetSent, setBudgetSent] = useState(false);
     const inputRef = useRef(null);
     const alive = useRef(true);
     useEffect(() => () => { alive.current = false; }, []);
@@ -197,7 +224,11 @@ function ExrWorkspace({ projectId, onSpent }) {
                 body: JSON.stringify({ projectId, sourceUrl: source.url, options, durationSeconds: source.seconds }),
             });
             const d = await r.json().catch(() => null);
-            if (!r.ok || !d?.taskToken) throw new Error(d?.error || `EXR request failed (${r.status}).`);
+            if (!r.ok || !d?.taskToken) {
+                const err = new Error(d?.error || `EXR request failed (${r.status}).`);
+                err.code = d?.code || null;
+                throw err;
+            }
             for (let attempt = 0; attempt < 360; attempt += 1) {
                 if (!alive.current) return;
                 if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 5000));
@@ -214,7 +245,7 @@ function ExrWorkspace({ projectId, onSpent }) {
             }
             throw new Error('Timed out waiting for the EXR output — check the console Enhance Queue.');
         } catch (e) {
-            if (alive.current) setJob({ state: 'failed', error: e.message });
+            if (alive.current) setJob({ state: 'failed', error: e.message, code: e.code || null });
         }
     };
 
@@ -304,6 +335,13 @@ function ExrWorkspace({ projectId, onSpent }) {
                         <span className="font-mono text-ink">{estimate != null ? usd(estimate) : '—'}</span>
                     </div>
                     {(job?.state === 'failed' || (blocker && source)) && <p className="text-danger">{job?.state === 'failed' ? job.error : blocker}</p>}
+                    {['NO_BUDGET', 'QUOTA_EXCEEDED'].includes(job?.code) && !budgetSent && (
+                        <button type="button" onClick={() => setBudgetOpen(true)}
+                            className="rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs font-semibold text-warn transition-colors hover:bg-warn/20">
+                            Request more EXR budget
+                        </button>
+                    )}
+                    {budgetSent && <p className="text-warn">Budget request sent — an admin will review it.</p>}
                     {busy && <p className="text-ink-3">Generating the 16-bit output — this can take several minutes. Keep this page open.</p>}
                     <button type="button" onClick={generate} disabled={!!blocker || busy}
                         className="mt-1 inline-flex items-center justify-center gap-2 rounded-md bg-accent px-4 py-2.5 text-sm font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-40">
@@ -312,6 +350,11 @@ function ExrWorkspace({ projectId, onSpent }) {
                 </div>
             </aside>
             {pickerOpen && <StudioPicker onClose={() => setPickerOpen(false)} onPick={pickStudio} />}
+            {budgetOpen && (
+                <BudgetRequestModal projectId={projectId} initialModelId="tool:exr"
+                    onClose={() => setBudgetOpen(false)}
+                    onSent={() => { setBudgetOpen(false); setBudgetSent(true); onSpent?.(); }} />
+            )}
         </div>
     );
 }

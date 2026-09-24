@@ -737,7 +737,7 @@ export default function SeedanceStudio() {
         }
         const exrOptions = normalizeExrOptions(requestedOptions);
         const videoDurationSeconds = Number(durationSeconds ?? job.options?.duration);
-        patchJob(job.id, { exrStatus: 'submitting', exrError: null });
+        patchJob(job.id, { exrStatus: 'submitting', exrError: null, exrErrorCode: null });
         try {
             const response = await fetch('/api/seedance/exr', {
                 method: 'POST',
@@ -746,12 +746,16 @@ export default function SeedanceStudio() {
             });
             const data = await response.json().catch(() => null);
             if (!response.ok || !data?.taskToken) {
-                throw new Error(data?.error || `EXR request failed (${response.status}).`);
+                // Keep the server's error code: a budget rejection (NO_BUDGET /
+                // QUOTA_EXCEEDED) offers a request-budget action in the viewer.
+                const err = new Error(data?.error || `EXR request failed (${response.status}).`);
+                err.code = data?.code || null;
+                throw err;
             }
             patchJob(job.id, { exrTaskToken: data.taskToken, exrStatus: 'processing', exrOptions });
             await pollExr(job, data.taskToken);
         } catch (error) {
-            patchJob(job.id, { exrStatus: 'failed', exrError: error.message || 'EXR enhancement failed.' });
+            patchJob(job.id, { exrStatus: 'failed', exrError: error.message || 'EXR enhancement failed.', exrErrorCode: error.code || null });
         }
     };
 
@@ -2126,6 +2130,7 @@ export default function SeedanceStudio() {
             {budgetRequestOpen && projectId ? (
                 <BudgetRequestModal
                     projectId={projectId}
+                    initialModelId={typeof budgetRequestOpen === 'string' ? budgetRequestOpen : undefined}
                     onClose={() => setBudgetRequestOpen(false)}
                     onSent={(request) => {
                         setBudgetRequestOpen(false);
@@ -2252,6 +2257,7 @@ export default function SeedanceStudio() {
                         onGenerateExr={generateExr}
                         exrAccess={exrAccess}
                         onRequestExrAccess={askForExrAccess}
+                        onRequestExrBudget={() => setBudgetRequestOpen('tool:exr')}
                         exrAccessRequesting={exrAccessRequesting}
                         onToggleLike={onToggleLike}
                         onRefresh={() => refreshVideoUrl(viewerJob, { fromError: true })}
@@ -2791,7 +2797,7 @@ function Hero() {
 // Full-screen "big preview" for a finished generation (Higgsfield-style):
 // the video fills the left; a right panel carries the prompt, reference
 // thumbnails, generation details and the reuse / download / like actions.
-function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onRequestExrAccess, exrAccessRequesting, onToggleLike, onRefresh, onPrev, onNext }) {
+function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onRequestExrAccess, onRequestExrBudget, exrAccessRequesting, onToggleLike, onRefresh, onPrev, onNext }) {
     const [dlFormat, setDlFormat] = useState('mov'); // video download container — mov is the default
     const [showExrInfo, setShowExrInfo] = useState(false);
     const [exrOptions, setExrOptions] = useState(() => normalizeExrOptions(job.exrOptions || EXR_DEFAULT_OPTIONS));
@@ -2966,7 +2972,15 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                                 <p className="text-[11px] leading-relaxed text-ink-3">Generating 16-bit EXR…</p>
                             )}
                             {job.exrStatus === 'failed' && job.exrError && (
-                                <p className="text-[11px] leading-relaxed text-danger">{job.exrError}</p>
+                                <>
+                                    <p className="text-[11px] leading-relaxed text-danger">{job.exrError}</p>
+                                    {['NO_BUDGET', 'QUOTA_EXCEEDED'].includes(job.exrErrorCode) && (
+                                        <button type="button" onClick={() => onRequestExrBudget?.()}
+                                            className="w-full rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs font-semibold text-warn transition-colors hover:bg-warn/20">
+                                            Request EXR budget
+                                        </button>
+                                    )}
+                                </>
                             )}
                             {exrAccess?.granted && job.exrStatus === 'succeeded' && job.exrUrl && (
                                 <button
