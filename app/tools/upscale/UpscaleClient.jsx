@@ -157,8 +157,11 @@ function UpscaleWorkspace({ projectId, budget, onSubmitted }) {
 
     return (
         <>
-            <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
-                <section className="flex flex-col gap-3">
+            {/* items-start + sticky: the preview stays in view while the long
+                options rail scrolls, instead of leaving a dead area under the
+                video and pushing the cost + submit below the fold. */}
+            <div className="grid gap-6 lg:grid-cols-[1fr_22rem] lg:items-start">
+                <section className="flex flex-col gap-3 lg:sticky lg:top-6">
                     <input ref={inputRef} type="file" accept={['video/*', ...UPSCALE_INPUT_EXTENSIONS.map((x) => `.${x}`)].join(',')} className="hidden" onChange={(e) => { pickFile(e.target.files?.[0]); e.target.value = ''; }} />
                     {source ? (
                         <div className="flex flex-col gap-2">
@@ -202,8 +205,12 @@ function UpscaleWorkspace({ projectId, budget, onSubmitted }) {
                     )}
                 </section>
 
-                <aside className="flex flex-col gap-5 rounded-xl border border-line bg-paper-2 p-4">
-                    <UpscaleOptions value={options} onChange={setOptions} sourceSeconds={source?.seconds} />
+                {/* The rail caps at viewport height: options scroll inside it,
+                    and the estimate + Upscale button stay pinned and visible. */}
+                <aside className="flex flex-col gap-5 rounded-xl border border-line bg-paper-2 p-4 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)]">
+                    <div className="-mr-2 min-h-0 flex-1 overflow-y-auto pr-2">
+                        <UpscaleOptions value={options} onChange={setOptions} sourceSeconds={source?.seconds} />
+                    </div>
                     <div className="flex flex-col gap-2 border-t border-line pt-4">
                         <div className="flex items-baseline justify-between text-xs">
                             <span className="text-ink-3">Estimated cost</span>
