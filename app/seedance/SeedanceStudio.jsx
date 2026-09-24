@@ -2800,6 +2800,16 @@ function Hero() {
 function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onRequestExrAccess, onRequestExrBudget, exrAccessRequesting, onToggleLike, onRefresh, onPrev, onNext }) {
     const [dlFormat, setDlFormat] = useState('mov'); // video download container — mov is the default
     const [showExrInfo, setShowExrInfo] = useState(false);
+    // The confirm dialog stays open through the generate, so a budget
+    // rejection (and its request-budget action) is seen where it happened —
+    // it auto-closes only on a success it started itself.
+    const exrConfirming = useRef(false);
+    useEffect(() => {
+        if (exrConfirming.current && job.exrStatus === 'succeeded') {
+            exrConfirming.current = false;
+            setShowExrInfo(false);
+        }
+    }, [job.exrStatus]);
     const [exrOptions, setExrOptions] = useState(() => normalizeExrOptions(job.exrOptions || EXR_DEFAULT_OPTIONS));
     const [measuredVideoDuration, setMeasuredVideoDuration] = useState(null);
     const modelName = job.model ? (MODELS.find((m) => m.id === job.model)?.name ?? IMAGE_MODELS.find((m) => m.id === job.model)?.name ?? job.model) : null;
@@ -3112,15 +3122,30 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                             <p className="text-[11px] text-ink-3">The final amount is based on your selected settings and the finished video length.</p>
                         </div>
 
+                        {job.exrStatus === 'failed' && job.exrError && (
+                            <div className="mt-4 space-y-2">
+                                <p className="rounded-md border border-danger/25 bg-danger/10 px-3 py-2 text-xs text-danger">{job.exrError}</p>
+                                {['NO_BUDGET', 'QUOTA_EXCEEDED'].includes(job.exrErrorCode) && (
+                                    <button type="button" onClick={() => onRequestExrBudget?.()}
+                                        className="w-full rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs font-semibold text-warn transition-colors hover:bg-warn/20">
+                                        Request EXR budget
+                                    </button>
+                                )}
+                            </div>
+                        )}
+                        {(job.exrStatus === 'submitting' || job.exrStatus === 'processing') && (
+                            <p className="mt-4 text-xs text-ink-3">EXR is processing — you can keep this window open while we check the status.</p>
+                        )}
+
                         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                             <button type="button" onClick={() => setShowExrInfo(false)} className="rounded-md border border-line px-4 py-2.5 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink">Cancel</button>
                             <button
                                 type="button"
                                 disabled={job.exrStatus === 'submitting' || job.exrStatus === 'processing'}
-                                onClick={() => { setShowExrInfo(false); onGenerateExr(job, exrOptions, exrDurationSeconds); }}
+                                onClick={() => { exrConfirming.current = true; onGenerateExr(job, exrOptions, exrDurationSeconds); }}
                                 className="rounded-md bg-accent px-4 py-2.5 text-xs font-semibold text-accent-ink transition-colors hover:bg-accent-hi disabled:cursor-wait disabled:opacity-60"
                             >
-                                {job.exrStatus === 'submitting' || job.exrStatus === 'processing' ? 'EXR is processing…' : 'Confirm and generate EXR'}
+                                {job.exrStatus === 'submitting' || job.exrStatus === 'processing' ? 'EXR is processing…' : job.exrStatus === 'failed' ? 'Try again' : 'Confirm and generate EXR'}
                             </button>
                         </div>
                     </section>
