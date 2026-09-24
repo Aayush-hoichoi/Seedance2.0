@@ -22,10 +22,13 @@ const PALETTE = ['#8B7CF6', '#A599F8'];
 // One clearly-distinct hue per user line; 'Others' (always last) gets gray.
 const LINE_PALETTE = ['#8B7CF6', '#5EEAD4', '#F59E0B', '#F472B6', '#60A5FA', '#4ADE80', '#F87171', '#FACC15', '#7C7A88'];
 const AXIS = { stroke: '#7C7A88', fontSize: 11 };
+// The hover card must read as a solid panel over the lines/legend behind it:
+// fully opaque background, drop shadow, and a wrapper z-index above the legend.
 const TOOLTIP_STYLE = {
-    contentStyle: { background: '#1A1A21', border: '1px solid #2A2A34', borderRadius: 8, fontSize: 12 },
+    contentStyle: { background: '#15151B', border: '1px solid #2A2A34', borderRadius: 8, fontSize: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.55)', opacity: 1 },
     labelStyle: { color: '#B4B2C0' },
     itemStyle: { color: '#F4F3F7' },
+    wrapperStyle: { zIndex: 50, outline: 'none' },
 };
 
 export function SpendArea({ data, xKey = 'key', yKey = 'cost_usd', height = 220 }) {
@@ -86,7 +89,7 @@ export function SpendLines({ data, series, xKey = 'key', height = 320, money = t
                 <CartesianGrid stroke="#2A2A34" vertical={false} />
                 <XAxis dataKey={xKey} {...AXIS} tickLine={false} axisLine={false} />
                 <YAxis {...AXIS} tickLine={false} axisLine={false} width={48} tickFormatter={(v) => (money ? `$${v}` : v)} />
-                <Tooltip content={<SpendLinesTooltip fmt={fmt} />} />
+                <Tooltip content={<SpendLinesTooltip fmt={fmt} />} wrapperStyle={TOOLTIP_STYLE.wrapperStyle} />
                 <Legend
                     wrapperStyle={{ fontSize: 11, color: '#B4B2C0' }}
                     formatter={(v) => <span style={{ color: '#B4B2C0' }}>{String(v).split('@')[0]}</span>}
@@ -112,7 +115,7 @@ export function TaskCostLines({ data, height = 280 }) {
                 <XAxis dataKey="key" {...AXIS} tickLine={false} axisLine={false} />
                 <YAxis yAxisId="usd" {...AXIS} tickLine={false} axisLine={false} width={48} tickFormatter={(v) => `$${v}`} />
                 <YAxis yAxisId="tasks" orientation="right" {...AXIS} tickLine={false} axisLine={false} width={40} />
-                <Tooltip contentStyle={TOOLTIP_STYLE.contentStyle} labelStyle={TOOLTIP_STYLE.labelStyle}
+                <Tooltip contentStyle={TOOLTIP_STYLE.contentStyle} labelStyle={TOOLTIP_STYLE.labelStyle} wrapperStyle={TOOLTIP_STYLE.wrapperStyle}
                     formatter={(v, n) => (n === 'spend' ? [`$${Number(v).toFixed(4)}`, n] : [Number(v).toLocaleString('en-US'), n])} />
                 <Legend wrapperStyle={{ fontSize: 11 }} formatter={(v) => <span style={{ color: '#B4B2C0' }}>{v}</span>} />
                 <Line yAxisId="usd" type="monotone" dataKey="cost_usd" name="spend" stroke="#8B7CF6" strokeWidth={2} dot={false} />
@@ -132,7 +135,7 @@ export function DailyOutcomeBars({ data, height = 240 }) {
                 <CartesianGrid stroke="#2A2A34" vertical={false} />
                 <XAxis dataKey="key" {...AXIS} tickLine={false} axisLine={false} />
                 <YAxis {...AXIS} tickLine={false} axisLine={false} width={40} allowDecimals={false} />
-                <Tooltip contentStyle={TOOLTIP_STYLE.contentStyle} labelStyle={TOOLTIP_STYLE.labelStyle} cursor={{ fill: '#2A2A34', opacity: 0.4 }} />
+                <Tooltip contentStyle={TOOLTIP_STYLE.contentStyle} labelStyle={TOOLTIP_STYLE.labelStyle} wrapperStyle={TOOLTIP_STYLE.wrapperStyle} cursor={{ fill: '#2A2A34', opacity: 0.4 }} />
                 <Legend wrapperStyle={{ fontSize: 11 }} formatter={(v) => <span style={{ color: '#B4B2C0' }}>{v}</span>} />
                 <Bar dataKey="succeeded" name="succeeded" stackId="day" fill="#4ADE80" />
                 <Bar dataKey="failed" name="failed" stackId="day" fill="#F87171" />
