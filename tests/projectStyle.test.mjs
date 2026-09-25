@@ -48,6 +48,54 @@ test('the default look is appended, with the precedence header', () => {
     assert.match(out.prompt, /conflict on ACTION, the text above wins/);
 });
 
+// The Good Samaritan regression: content baked into a brief rode along on
+// every prompt, so "an elephant is running in jungle" rendered the car chase.
+const GATED = {
+    enabled: true,
+    version: 3,
+    defaultLook: 'base',
+    looks: {
+        yacht: { name: 'Yacht', match: ['yacht', 'deck'], brief: 'Golden-hour sunset light, shallow depth of field.' },
+        base: { name: 'Photoreal', brief: 'Photorealistic cinematic look, natural bright daylight, 24fps.' },
+    },
+    scenes: {
+        vellfire: { match: ['car', 'chase', 'vellfire'], text: 'HERO VEHICLES: a modified black Toyota Vellfire, plate VPR 6315.' },
+        street: { match: ['street', 'market', 'chase'], text: 'WORLD: a busy Indonesian market street with becaks.' },
+    },
+};
+
+test('scene locks inject only when the prompt references them — an elephant never gets the car chase', () => {
+    const elephant = composeStyledPrompt('a elephant is running in jungle', GATED);
+    assert.equal(elephant.applied, true);
+    assert.match(elephant.prompt, /Photorealistic cinematic look/); // the LOOK still applies
+    assert.doesNotMatch(elephant.prompt, /Vellfire/);
+    assert.doesNotMatch(elephant.prompt, /market street/);
+
+    const chase = composeStyledPrompt('the black car weaves through a market street chase', GATED);
+    assert.match(chase.prompt, /Vellfire, plate VPR 6315/);
+    assert.match(chase.prompt, /Indonesian market street/);
+});
+
+test('a look with match keywords is auto-picked from the prompt; explicit look still wins', () => {
+    const auto = composeStyledPrompt('two friends talk on the yacht deck', GATED);
+    assert.equal(auto.look, 'yacht');
+    assert.match(auto.prompt, /Golden-hour sunset/);
+
+    const unmatched = composeStyledPrompt('a elephant is running in jungle', GATED);
+    assert.equal(unmatched.look, 'base'); // nothing matched → default
+
+    const explicit = composeStyledPrompt('two friends talk on the yacht deck', GATED, { look: 'base' });
+    assert.equal(explicit.look, 'base'); // the user's choice beats keywords
+});
+
+test('styleError validates scenes and match keywords', () => {
+    assert.equal(styleError(GATED), null);
+    assert.ok(styleError({ ...GATED, scenes: { bad: { text: 'no match words' } } }));
+    assert.ok(styleError({ ...GATED, scenes: { bad: { match: ['x'], text: '' } } }));
+    assert.ok(styleError({ ...GATED, scenes: { bad: { match: ['x'], text: 'y'.repeat(2001) } } }));
+    assert.ok(styleError({ ...GATED, looks: { a: { brief: 'ok', match: [] } } }));
+});
+
 test('an explicit look overrides the default, and "none" opts one generation out', () => {
     const picked = composeStyledPrompt('A car turns.', STYLE, { look: 'window' });
     assert.equal(picked.look, 'window');

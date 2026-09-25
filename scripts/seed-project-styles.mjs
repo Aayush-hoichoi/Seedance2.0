@@ -82,35 +82,30 @@ const MAAHI = {
 
 const GOOD_SAMARITAN = {
     enabled: true,
-    version: 1,
-    // The chase is where every approved output lives, so it is the default —
-    // but the project also holds yacht and maritime material, which is exactly
-    // why this is a look and not a single project-wide brief.
+    // v3: the chase brief used to hardcode CONTENT (hero Vellfire + Jogja
+    // street world), so "an elephant running in the jungle" rendered the car
+    // chase — the block steamrolled the short prompt. The brief is now pure
+    // LOOK; the car and the street live in `scenes` and inject only when the
+    // prompt actually references them, and each look declares `match` words so
+    // yacht prompts auto-pick the yacht look without a manual switch.
+    version: 3,
     defaultLook: 'chase',
     looks: {
-        chase: {
-            name: 'Indonesian street chase (clean)',
-            brief: [
-                'Photorealistic cinematic automotive-commercial look, natural bright midday daylight, 24fps, default 5-second take or the source plate\'s exact frame count.',
-                'HERO VEHICLES (locked identity): a modified black Toyota Vellfire, plate VPR 6315 — sport bodykit, chrome lower grille, LED headlights ON with blue LED accent lights glowing at the lower grille, body slightly dusty with street reflections on the glass. Companion vehicle: a white Toyota Vellfire MPV. Never change model, colour, proportions, stance or plate.',
-                'WORLD: a busy Jogja/Malioboro-style Indonesian market street — median with hedges, ornate lampposts, red-and-white flags and bunting; shophouses covered in overlapping Bahasa Indonesia signage; street-food carts, umbrellas, becak pedicabs, weaving motorbikes, dense pedestrians; tangled overhead power lines; hazy vanishing point. Background crowd and traffic stay alive and naturally moving for the full duration, softly blurred on both sides — the street never goes dead after the hero car exits.',
-                'MOTION: when a reference video is attached it is the absolute source of truth — copy camera position, camera movement or lack of it, motion path, curve direction, speed and tire rotation frame by frame. Motion accuracy must be 100%. Realistic rolling motion with visible suspension bounce and subtle wheel motion blur.',
-            ].join('\n'),
-            negatives: 'AI-composited or pasted-on background feel, changes to locked layers (subject car, camera, framing, dark surround), tuk-tuks in place of becaks, lighting shifts away from bright tropical daylight, added pans, tilts, zooms or shake.',
-        },
+        // More specific looks first: the keyword pass takes the first match,
+        // and a window-shot prompt usually also says "car" or "street".
         'chase-window': {
-            name: 'Indonesian street chase (window look)',
+            name: 'Street action (window look)',
+            match: ['window', 'port', 'barrel', 'letterbox', 'vignette'],
             brief: [
                 'Photorealistic cinematic automotive-commercial look, natural bright midday daylight, 24fps, matching the source plate\'s exact frame count.',
-                'SHOT SIGNATURE — PRESERVE EXACTLY: the frame reads as if shot from inside a vehicle through a port. Strong barrel lens distortion so straight lines bow outward, bending most at the edges. A heavy rounded vignette darkening and softening all four corners so the image reads as a circular port rather than a rectangle. Solid black letterbox bars across the top and bottom with NO content, light or glow generated inside them. The replaced background must be bent by the same lens as the car.',
-                'HERO VEHICLE (locked identity): modified black Toyota Vellfire, plate VPR 6315, LED headlights on with blue accent lights at the lower grille.',
-                'WORLD: busy Jogja/Malioboro-style Indonesian market street — hedged median, ornate lampposts, Bahasa Indonesia shopfront signage, becaks, motorbikes and pedestrians alive on both sides.',
+                'SHOT SIGNATURE — PRESERVE EXACTLY: the frame reads as if shot from inside a vehicle through a port. Strong barrel lens distortion so straight lines bow outward, bending most at the edges. A heavy rounded vignette darkening and softening all four corners so the image reads as a circular port rather than a rectangle. Solid black letterbox bars across the top and bottom with NO content, light or glow generated inside them. The replaced background must be bent by the same lens as the subject.',
                 'MOTION: @Video 1 is the absolute source of truth for motion, framing, foreground action, camera movement, reflections and optical effects; the environment reference supplies only the new background.',
             ].join('\n'),
-            negatives: 'any content, light or glow inside the black letterbox bars, AI-composited or pasted-on background feel, changes to locked layers, tuk-tuks in place of becaks, added camera moves.',
+            negatives: 'any content, light or glow inside the black letterbox bars, AI-composited or pasted-on background feel, changes to locked layers, added camera moves.',
         },
         yacht: {
             name: 'Yacht dialogue',
+            match: ['yacht', 'deck', 'boat', 'sea', 'ocean', 'sunset', 'marina'],
             brief: [
                 'Photorealistic cinematic look, golden-hour sunset light, shallow depth of field.',
                 'SETTING: the rear sofa deck of a yacht — teak wood decking, cream and off-white cushions with grey throw pillows, open water behind.',
@@ -118,8 +113,29 @@ const GOOD_SAMARITAN = {
             ].join('\n'),
             negatives: 'relighting away from golden hour, changes to wardrobe or face identity, added camera moves, dubbed or altered voices.',
         },
+        chase: {
+            name: 'Photoreal cinematic',
+            brief: [
+                'Photorealistic cinematic look, natural bright daylight, 24fps, default 5-second take or the source plate\'s exact frame count. Premium commercial image quality, believable physics and weight.',
+                'MOTION: when a reference video is attached it is the absolute source of truth — copy camera position, camera movement or lack of it, motion path, curve direction and speed frame by frame. Motion accuracy must be 100%.',
+            ].join('\n'),
+            negatives: 'AI-composited or pasted-on background feel, changes to locked layers (subject, camera, framing), added pans, tilts, zooms or shake, face morphing, identity drift, text overlay.',
+        },
     },
     characters: {},
+    // Content locks — injected ONLY when the prompt mentions them, exactly
+    // like character locks. This is what keeps the hero car out of an
+    // elephant shot while keeping it pixel-locked in every chase shot.
+    scenes: {
+        vellfire: {
+            match: ['vellfire', 'car', 'mpv', 'vehicle', 'chase', 'drive', 'driving'],
+            text: 'HERO VEHICLES (locked identity): a modified black Toyota Vellfire, plate VPR 6315 — sport bodykit, chrome lower grille, LED headlights ON with blue LED accent lights glowing at the lower grille, body slightly dusty with street reflections on the glass. Companion vehicle: a white Toyota Vellfire MPV. Never change model, colour, proportions, stance or plate. Realistic rolling motion with visible suspension bounce and subtle wheel motion blur.',
+        },
+        street: {
+            match: ['street', 'market', 'jogja', 'malioboro', 'chase', 'traffic', 'road', 'city'],
+            text: 'WORLD: a busy Jogja/Malioboro-style Indonesian market street — median with hedges, ornate lampposts, red-and-white flags and bunting; shophouses covered in overlapping Bahasa Indonesia signage; street-food carts, umbrellas, becak pedicabs, weaving motorbikes, dense pedestrians; tangled overhead power lines; hazy vanishing point. Background crowd and traffic stay alive and naturally moving for the full duration, softly blurred on both sides — the street never goes dead after the hero car exits. Never tuk-tuks in place of becaks; keep bright tropical daylight.',
+        },
+    },
 };
 
 const SEEDS = [
