@@ -6,6 +6,7 @@ import { ArrowLeft, Download, Film, Loader2, Lock, Upload } from 'lucide-react';
 import ProjectSelect from '../../seedance/ProjectSelect.jsx';
 import StudioPicker from '../StudioPicker.jsx';
 import { BudgetChip, useToolStatus } from '../ToolAccessGate.jsx';
+import ExrProgressCard from './ExrProgressCard.jsx';
 import BudgetRequestModal from '../../seedance/BudgetRequestModal.jsx';
 import { EXR_DEFAULT_OPTIONS, EXR_FPS, EXR_RESOLUTIONS, EXR_TIERS, estimateExrCost, pricePerExrMinute } from '../../../lib/byteplus/exrPricing.mjs';
 import { resolveProjectId, rememberProjectId } from '../../../lib/seedance/projectChoice.mjs';
@@ -360,48 +361,6 @@ function ExrWorkspace({ projectId, onSpent }) {
                     onClose={() => setBudgetOpen(false)}
                     onSent={() => { setBudgetOpen(false); setBudgetSent(true); onSpent?.(); }} />
             )}
-        </div>
-    );
-}
-
-/* Honest progress (see lib/byteplus/exrProgress.mjs): real stage + queue
-   position from the server, bar estimated against the median duration of
-   past jobs — never a fake percentage. */
-export function fmtDur(ms) {
-    if (ms == null || !Number.isFinite(ms)) return '—';
-    const s = Math.max(0, Math.round(ms / 1000));
-    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-}
-
-const EXR_STAGE_LABELS = { queued: 'Queued', submitting: 'Sending', enhancing: 'Enhancing', done: 'Done' };
-const EXR_STAGE_ORDER = ['queued', 'submitting', 'enhancing', 'done'];
-
-function ExrProgressCard({ progress }) {
-    if (!progress) {
-        return <p className="text-ink-3">Generating the 16-bit output — this can take several minutes. Keep this page open.</p>;
-    }
-    const idx = Math.max(0, EXR_STAGE_ORDER.indexOf(progress.stage));
-    const pct = Math.round((progress.fraction ?? 0) * 100);
-    const detail = progress.stage === 'queued'
-        ? (progress.queuePosition != null ? `#${progress.queuePosition} in the queue — starts automatically.` : 'Waiting in the queue…')
-        : progress.stage === 'submitting'
-            ? 'Sending the clip to the enhancer…'
-            : progress.typicalMs
-                ? `${fmtDur(progress.elapsedMs)} elapsed · typically ~${fmtDur(progress.typicalMs)}${progress.etaMs != null ? ` · about ${fmtDur(progress.etaMs)} left` : ''}`
-                : `${fmtDur(progress.elapsedMs)} elapsed`;
-    return (
-        <div className="flex flex-col gap-2 rounded-lg border border-line bg-paper-2 p-3">
-            <div className="flex items-center justify-between">
-                {EXR_STAGE_ORDER.map((stage, i) => (
-                    <span key={stage} className={`text-[11px] font-semibold ${i < idx ? 'text-ink-3' : i === idx ? 'text-accent-hi' : 'text-ink-3/50'}`}>
-                        {i < idx ? '✓ ' : ''}{EXR_STAGE_LABELS[stage]}
-                    </span>
-                ))}
-            </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-paper-3">
-                <div className="h-full rounded-full bg-accent transition-all duration-700" style={{ width: `${pct}%` }} />
-            </div>
-            <p className="text-[11px] text-ink-3">{detail} Keep this page open.</p>
         </div>
     );
 }
