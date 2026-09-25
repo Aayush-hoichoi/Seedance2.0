@@ -10,9 +10,11 @@ import {
 import { estimateExrCost, normalizeExrOptions, pricePerExrMinute } from '../../../../lib/byteplus/exrPricing.mjs';
 import {
     enqueueExrJob,
+    exrProgressContext,
     getExrJobForUser,
     publicExrStatus,
 } from '../../../../lib/byteplus/exrQueue.mjs';
+import { exrProgress } from '../../../../lib/byteplus/exrProgress.mjs';
 import { exrProjectForUser, getExrAccess } from '../../../../lib/byteplus/exrAccess.mjs';
 import { presignKey } from '../../../../lib/seedance/galleryItem.mjs';
 import { budgetFor, reserveToolSpend } from '../../../../lib/tools/billing.mjs';
@@ -176,7 +178,11 @@ export async function GET(request) {
         const status = publicExrStatus(job);
         const result = status.result || {};
         const durableUrl = result.archiveKey ? presignKey(result.archiveKey) : null;
+        // Live, honest progress: real stage + queue position, and a bar
+        // estimated against the median duration of past jobs of this kind.
+        const progress = exrProgress(job, await exrProgressContext(sql, job));
         return NextResponse.json({
+            progress,
             status: status.status,
             queueId: status.id,
             attempt: status.attempt,

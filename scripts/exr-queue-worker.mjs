@@ -100,6 +100,13 @@ async function runOne(sql) {
             ? { status: 'succeeded', url: job.result.url, metadata: job.result.metadata || null, expiresAt: job.result.expiresAt || null }
             : await pollEnhancement(job.provider_task_id);
         if (result.status === 'processing') {
+            // Stash a provider-reported percent (if BytePlus ever sends one)
+            // where the status route can read it; finish() overwrites result
+            // on the terminal states, so this never pollutes the archive.
+            if (result.progress != null) {
+                await sql`UPDATE exr_jobs SET result = ${JSON.stringify({ progress: result.progress })}, updated_at = now()
+                    WHERE id = ${job.id} AND status = 'processing'`;
+            }
             await rescheduleExrJob(sql, job.id, { delayMs: EXR_POLL_DELAY_MS });
         } else if (result.status === 'failed') {
             await finish(sql, job, { status: 'failed', error: { message: result.error || 'BytePlus EXR enhancement failed.' } });
