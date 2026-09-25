@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getUser, isAdmin } from '../../../../lib/auth/user.js';
 import { getDb } from '../../../../lib/db/neon.js';
-import { cancelExrJob, getExrQueue, rearchiveExrJob, retryExrJob } from '../../../../lib/byteplus/exrQueue.mjs';
+import { cancelExrJob, exrTypicalDurations, getExrQueue, rearchiveExrJob, retryExrJob } from '../../../../lib/byteplus/exrQueue.mjs';
 import { decideExrAccessRequest, listExrAccessRequests } from '../../../../lib/byteplus/exrAccess.mjs';
 import { emitEvent, writeAudit } from '../../../../lib/gateway/db.js';
 
@@ -18,12 +18,16 @@ export async function GET(request) {
     const url = new URL(request.url);
     const requestedStatus = url.searchParams.get('status');
     const status = STATUSES.has(requestedStatus) ? requestedStatus : null;
-    const [queue, accessRequests] = await Promise.all([
+    const [queue, accessRequests, typicalMs] = await Promise.all([
         getExrQueue(sql, { status, limit: url.searchParams.get('limit') }),
         listExrAccessRequests(sql),
+        exrTypicalDurations(sql),
     ]);
     return NextResponse.json({
         ...queue,
+        // Median real duration per kind — the client derives each row's live
+        // progress bar from this plus the row's own timestamps.
+        typicalMs,
         accessRequests,
         accessRequestCount: accessRequests.filter((request) => request.status === 'pending').length,
     });

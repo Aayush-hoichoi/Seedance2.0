@@ -235,7 +235,12 @@ function ExrWorkspace({ projectId, onSpent }) {
                 const poll = await fetch(`/api/seedance/exr?task=${encodeURIComponent(d.taskToken)}`);
                 const result = await poll.json().catch(() => null);
                 if (!poll.ok) throw new Error(result?.error || `EXR status failed (${poll.status}).`);
-                if (result?.status === 'queued' || result?.status === 'processing') continue;
+                if (result?.status === 'queued' || result?.status === 'processing') {
+                    // Live progress straight from the server: real stage,
+                    // queue position, and elapsed-vs-typical duration.
+                    if (alive.current && result.progress) setJob({ state: 'processing', progress: result.progress });
+                    continue;
+                }
                 if (result?.status === 'succeeded' && result.url) {
                     if (alive.current) setJob({ state: 'succeeded', url: result.url, archiveKey: result.archiveKey || null, taskId: result.providerTaskId || null });
                     onSpent?.(); // budget chip reflects the settled spend
@@ -342,7 +347,7 @@ function ExrWorkspace({ projectId, onSpent }) {
                         </button>
                     )}
                     {budgetSent && <p className="text-warn">Budget request sent — an admin will review it.</p>}
-                    {busy && <p className="text-ink-3">Generating the 16-bit output — this can take several minutes. Keep this page open.</p>}
+                    {busy && <ExrProgressCard progress={job?.progress} />}
                     <button type="button" onClick={generate} disabled={!!blocker || busy}
                         className="mt-1 inline-flex items-center justify-center gap-2 rounded-md bg-accent px-4 py-2.5 text-sm font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-40">
                         {busy && <Loader2 size={14} className="animate-spin" />} Generate EXR
@@ -355,6 +360,48 @@ function ExrWorkspace({ projectId, onSpent }) {
                     onClose={() => setBudgetOpen(false)}
                     onSent={() => { setBudgetOpen(false); setBudgetSent(true); onSpent?.(); }} />
             )}
+        </div>
+    );
+}
+
+/* Honest progress (see lib/byteplus/exrProgress.mjs): real stage + queue
+   position from the server, bar estimated against the median duration of
+   past jobs — never a fake percentage. */
+export function fmtDur(ms) {
+    if (ms == null || !Number.isFinite(ms)) return '—';
+    const s = Math.max(0, Math.round(ms / 1000));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+const EXR_STAGE_LABELS = { queued: 'Queued', submitting: 'Sending', enhancing: 'Enhancing', done: 'Done' };
+const EXR_STAGE_ORDER = ['queued', 'submitting', 'enhancing', 'done'];
+
+function ExrProgressCard({ progress }) {
+    if (!progress) {
+        return <p className="text-ink-3">Generating the 16-bit output — this can take several minutes. Keep this page open.</p>;
+    }
+    const idx = Math.max(0, EXR_STAGE_ORDER.indexOf(progress.stage));
+    const pct = Math.round((progress.fraction ?? 0) * 100);
+    const detail = progress.stage === 'queued'
+        ? (progress.queuePosition != null ? `#${progress.queuePosition} in the queue — starts automatically.` : 'Waiting in the queue…')
+        : progress.stage === 'submitting'
+            ? 'Sending the clip to the enhancer…'
+            : progress.typicalMs
+                ? `${fmtDur(progress.elapsedMs)} elapsed · typically ~${fmtDur(progress.typicalMs)}${progress.etaMs != null ? ` · about ${fmtDur(progress.etaMs)} left` : ''}`
+                : `${fmtDur(progress.elapsedMs)} elapsed`;
+    return (
+        <div className="flex flex-col gap-2 rounded-lg border border-line bg-paper-2 p-3">
+            <div className="flex items-center justify-between">
+                {EXR_STAGE_ORDER.map((stage, i) => (
+                    <span key={stage} className={`text-[11px] font-semibold ${i < idx ? 'text-ink-3' : i === idx ? 'text-accent-hi' : 'text-ink-3/50'}`}>
+                        {i < idx ? '✓ ' : ''}{EXR_STAGE_LABELS[stage]}
+                    </span>
+                ))}
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-paper-3">
+                <div className="h-full rounded-full bg-accent transition-all duration-700" style={{ width: `${pct}%` }} />
+            </div>
+            <p className="text-[11px] text-ink-3">{detail} Keep this page open.</p>
         </div>
     );
 }
