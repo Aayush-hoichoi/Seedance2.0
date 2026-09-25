@@ -96,70 +96,99 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, access, onAtt
             </button>
             {open && (
                 <Popover>
-                    <div className="px-2 pb-1.5 text-[10px] font-bold uppercase tracking-wide text-white/50">Workflows</div>
-                    <div className="px-2 pb-2 max-w-[260px] text-[10px] leading-relaxed text-white/45">
-                        Attach a workflow and every generation follows its look and characters — a short prompt is enough.
-                    </div>
-                    {/* One approval unlocks everything: a single request
-                        banner instead of per-workflow buttons. */}
-                    {gated && (
-                        <div className="mx-2 mb-2 rounded-md border border-primary/20 bg-primary/[0.06] px-3 py-2.5">
-                            {access === 'pending' ? (
-                                <span className="text-[11px] font-semibold text-warn">Access requested — waiting for an admin to approve.</span>
-                            ) : (
-                                <button
-                                    type="button"
-                                    onClick={() => onRequest?.()}
-                                    className="w-full rounded-md border border-primary/40 bg-primary/10 px-2 py-1.5 text-[11px] font-bold text-primary transition-colors hover:bg-primary/20"
-                                >{access === 'denied' ? 'Request access again' : 'Request access to workflows'}</button>
+                    <div className="w-[300px] max-w-full">
+                        <div className="flex items-center justify-between px-2 pt-1 pb-1">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-white/50">Workflows</span>
+                            {gated && access === 'pending' && (
+                                <span className="rounded-full bg-warn/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-warn">Pending</span>
                             )}
                         </div>
-                    )}
-                    <div className="flex flex-col gap-1">
-                        {workflows.map((w) => {
-                            const attached = w.id === workflow?.id;
-                            return (
-                                <button
-                                    key={w.id}
-                                    type="button"
-                                    disabled={gated}
-                                    onClick={() => { onAttach?.(attached ? null : w.id); if (!attached) setOpenKey(null); }}
-                                    className={`w-full text-left px-3 py-2.5 rounded-md transition-colors border ${attached ? 'bg-primary/15 border-primary/30' : 'border-transparent'} ${gated ? 'cursor-not-allowed opacity-45' : 'hover:bg-white/[0.06]'}`}
-                                >
-                                    <div className="flex items-center justify-between gap-2">
-                                        <span className={`text-sm font-semibold ${attached ? 'text-primary' : 'text-white/90'}`}>{w.name}</span>
-                                        {attached && <span className="text-[9px] font-bold uppercase tracking-wide text-primary">Attached</span>}
-                                    </div>
-                                    {w.description && <div className="mt-0.5 max-w-[260px] text-[11px] leading-snug text-white/45">{w.description}</div>}
-                                </button>
-                            );
-                        })}
-                    </div>
-                    {looks.length > 1 && (
-                        <div className="mt-2 border-t border-white/[0.06] px-2 pt-2">
-                            <div className="pb-1 text-[10px] font-bold uppercase tracking-wide text-white/50">Look</div>
-                            <div className="flex flex-wrap gap-1">
-                                {looks.map((l) => {
-                                    const active = (look || workflow.style.defaultLook) === l.key;
-                                    return (
+                        <p className="px-2 pb-2.5 text-[11px] leading-relaxed text-white/40">
+                            Attach one and every generation follows its look and characters — a short prompt is enough.
+                        </p>
+                        {/* One approval unlocks everything: a single request
+                            banner instead of per-workflow buttons. */}
+                        {gated && (
+                            <div className="mx-1 mb-2 rounded-lg border border-primary/25 bg-primary/[0.07] p-3">
+                                {access === 'pending' ? (
+                                    <>
+                                        <div className="text-xs font-semibold text-white/85">Access requested</div>
+                                        <div className="mt-0.5 text-[11px] leading-relaxed text-white/45">
+                                            Your admins have been notified on Teams — workflows unlock the moment one approves.
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="mb-2 text-[11px] leading-relaxed text-white/55">
+                                            {access === 'denied'
+                                                ? 'Your request was declined. You can ask again.'
+                                                : 'Workflows need a one-time admin approval — one request unlocks all of them.'}
+                                        </div>
                                         <button
-                                            key={l.key}
                                             type="button"
-                                            onClick={() => onChangeLook?.(l.key)}
-                                            className={`rounded-md px-2 py-1 text-[11px] transition-colors ${active ? 'bg-primary/15 text-primary font-semibold' : 'text-white/60 hover:bg-white/[0.06] hover:text-white'}`}
-                                        >{l.name}</button>
-                                    );
-                                })}
+                                            onClick={() => onRequest?.()}
+                                            className="w-full rounded-md bg-primary py-2 text-xs font-bold text-black transition-colors hover:bg-primary/90"
+                                        >{access === 'denied' ? 'Request again' : 'Request access'}</button>
+                                    </>
+                                )}
                             </div>
+                        )}
+                        <div className="flex flex-col gap-1.5 px-1 pb-1">
+                            {workflows.map((w) => {
+                                const attached = w.id === workflow?.id;
+                                return (
+                                    <button
+                                        key={w.id}
+                                        type="button"
+                                        disabled={gated}
+                                        onClick={() => { onAttach?.(attached ? null : w.id); if (!attached) setOpenKey(null); }}
+                                        className={`w-full rounded-lg border px-3 py-2.5 text-left transition-colors ${attached
+                                            ? 'border-primary/40 bg-primary/[0.12]'
+                                            : 'border-white/[0.06] bg-white/[0.02]'} ${gated
+                                            ? 'cursor-not-allowed opacity-40'
+                                            : attached ? '' : 'hover:border-white/[0.14] hover:bg-white/[0.05]'}`}
+                                    >
+                                        <div className="flex items-center justify-between gap-2">
+                                            <span className={`truncate text-[13px] font-semibold ${attached ? 'text-primary' : 'text-white/90'}`}>{w.name}</span>
+                                            {attached ? (
+                                                <span className="shrink-0 rounded-full bg-primary/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary">Attached</span>
+                                            ) : gated ? (
+                                                <svg className="shrink-0 text-white/30" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                                            ) : null}
+                                        </div>
+                                        {w.description && <div className="mt-1 text-[11px] leading-snug text-white/40">{w.description}</div>}
+                                    </button>
+                                );
+                            })}
                         </div>
-                    )}
-                    {workflow && (
-                        <button
-                            type="button"
-                            onClick={() => { onAttach?.(null); setOpenKey(null); }}
-                            className="mt-1.5 w-full rounded-md px-3 py-2 text-left text-xs text-white/50 transition-colors hover:bg-white/[0.06] hover:text-white"
-                        >Detach — stop applying this workflow</button>
-                    )}
+                        {looks.length > 1 && (
+                            <div className="mx-1 mt-1.5 border-t border-white/[0.06] px-2 pt-2">
+                                <div className="pb-1.5 text-[10px] font-bold uppercase tracking-wider text-white/50">Look</div>
+                                <div className="flex flex-wrap gap-1 pb-1">
+                                    {looks.map((l) => {
+                                        const active = (look || workflow.style.defaultLook) === l.key;
+                                        return (
+                                            <button
+                                                key={l.key}
+                                                type="button"
+                                                onClick={() => onChangeLook?.(l.key)}
+                                                className={`rounded-md border px-2 py-1 text-[11px] transition-colors ${active
+                                                    ? 'border-primary/40 bg-primary/15 font-semibold text-primary'
+                                                    : 'border-white/[0.08] text-white/60 hover:bg-white/[0.06] hover:text-white'}`}
+                                            >{l.name}</button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                        {workflow && (
+                            <button
+                                type="button"
+                                onClick={() => { onAttach?.(null); setOpenKey(null); }}
+                                className="mx-1 mt-1 w-[calc(100%-0.5rem)] rounded-md px-2 py-2 text-left text-[11px] text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white"
+                            >Detach — stop applying this workflow</button>
+                        )}
+                    </div>
                 </Popover>
             )}
         </div>
