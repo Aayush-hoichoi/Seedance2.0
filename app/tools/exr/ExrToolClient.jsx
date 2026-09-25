@@ -233,9 +233,20 @@ function ExrWorkspace({ projectId, onSpent }) {
             for (let attempt = 0; attempt < 360; attempt += 1) {
                 if (!alive.current) return;
                 if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 5000));
-                const poll = await fetch(`/api/seedance/exr?task=${encodeURIComponent(d.taskToken)}`);
+                // Transient trouble (network blip, 5xx) must never fail the
+                // job — it keeps rendering server-side; only a definitive
+                // 4xx (revoked access, expired token) stops the wait.
+                let poll;
+                try {
+                    poll = await fetch(`/api/seedance/exr?task=${encodeURIComponent(d.taskToken)}`);
+                } catch {
+                    continue;
+                }
                 const result = await poll.json().catch(() => null);
-                if (!poll.ok) throw new Error(result?.error || `EXR status failed (${poll.status}).`);
+                if (!poll.ok) {
+                    if (poll.status >= 500) continue;
+                    throw new Error(result?.error || `EXR status failed (${poll.status}).`);
+                }
                 if (result?.status === 'queued' || result?.status === 'processing') {
                     // Live progress straight from the server: real stage,
                     // queue position, and elapsed-vs-typical duration.
