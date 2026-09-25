@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { gatewayContext } from '../../../lib/gateway/authz.js';
 import { userWorkflowId, workflowAccessFor } from '../../../lib/gateway/db.js';
 import { styleSummary } from '../../../lib/gateway/projectStyle.mjs';
+import { notifyTeamsWorkflowRequested } from '../../../lib/notify/teamsWorkflow.mjs';
 
 export const runtime = 'nodejs';
 
@@ -33,11 +34,22 @@ export async function POST(request) {
     if (!auth.ok) return auth.response;
     const { sql, user } = auth.ctx;
     const body = await request.json().catch(() => null);
+    const note = typeof body?.note === 'string' ? body.note.slice(0, 500) : null;
+    const [before] = await sql`SELECT status FROM workflow_access WHERE user_id = ${user.userId}`;
     const [row] = await sql`INSERT INTO workflow_access (user_id, note)
-        VALUES (${user.userId}, ${typeof body?.note === 'string' ? body.note.slice(0, 500) : null})
+        VALUES (${user.userId}, ${note})
         ON CONFLICT (user_id) DO UPDATE SET
             status = CASE WHEN workflow_access.status = 'denied' THEN 'pending' ELSE workflow_access.status END
-        RETURNING status`;
+        RETURNING status, note`;
+    // Teams card to every admin — only when the request NEWLY became pending,
+    // so a double-click never re-pings anyone. Best-effort: the request row is
+    // already committed, and the console Requests hub is the source of truth.
+    if (row.status === 'pending' && before?.status !== 'pending') {
+        await notifyTeamsWorkflowRequested({
+            request: { userId: user.userId, userEmail: user.email, note: row.note },
+            sql,
+        }).catch(() => {});
+    }
     return NextResponse.json({ access: row.status });
 }
 

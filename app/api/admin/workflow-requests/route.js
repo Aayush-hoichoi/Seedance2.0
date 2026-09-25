@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { isAdmin, getUser } from '../../../../lib/auth/user.js';
 import { getDb } from '../../../../lib/db/neon.js';
 import { writeAudit } from '../../../../lib/gateway/db.js';
+import { updateTeamsWorkflowCards } from '../../../../lib/notify/teamsWorkflow.mjs';
 
 export const runtime = 'nodejs';
 
@@ -45,5 +46,12 @@ export async function PATCH(request) {
         actorId: admin.userId, actorEmail: admin.email, action: `workflow.access_${status}`,
         targetType: 'user', targetId: userId,
     });
+    // Flip every admin's Teams card to its decided state — best-effort.
+    const [u] = await sql`SELECT email FROM users WHERE id = ${userId}`;
+    await updateTeamsWorkflowCards({
+        request: { userId, userEmail: u?.email ?? null },
+        decision: { status, decidedBy: admin.email || admin.userId },
+        sql,
+    }).catch(() => {});
     return NextResponse.json({ ok: true, status });
 }
