@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { gatewayContext } from '../../../../../lib/gateway/authz.js';
 import { apiError } from '../../../../../lib/gateway/httpError.mjs';
-import { usageForQuotas } from '../../../../../lib/gateway/db.js';
+import { projectAllocation, usageForQuotas } from '../../../../../lib/gateway/db.js';
 
 export const runtime = 'nodejs';
 
@@ -17,29 +17,36 @@ export async function GET(request) {
 
     const { sql } = auth.ctx;
     const params = new URL(request.url).searchParams;
-    const projectId = Number(params.get('projectId'));
+    const rawProjectId = params.get('projectId')?.trim() || null;
+    const projectId = rawProjectId == null ? null : Number(rawProjectId);
     const type = params.get('type') || 'usd';
     const window = params.get('window') || 'lifetime';
     const userId = params.get('userId')?.trim() || null;
     const modelId = params.get('modelId')?.trim() || null;
 
-    if (!Number.isInteger(projectId) || projectId <= 0) {
+    // projectId is optional so workspace-level budgets (no project) preview too.
+    if (rawProjectId != null && (!Number.isInteger(projectId) || projectId <= 0)) {
         return apiError('BAD_REQUEST', 'projectId must be a positive integer.');
     }
     if (!TYPES.includes(type) || !WINDOWS.includes(window)) {
         return apiError('BAD_REQUEST', 'A valid budget type and window are required.');
     }
 
-    const [project] = await sql`SELECT id, name FROM projects WHERE id = ${projectId} AND archived_at IS NULL`;
-    if (!project) return apiError('NOT_FOUND', 'Project not found.');
+    let project = null;
+    if (projectId != null) {
+        [project] = await sql`SELECT id, name FROM projects WHERE id = ${projectId} AND archived_at IS NULL`;
+        if (!project) return apiError('NOT_FOUND', 'Project not found.');
+    }
 
     let user = null;
     if (userId) {
-        [user] = await sql`SELECT u.id, u.email, u.name
-            FROM users u
-            JOIN project_memberships pm ON pm.user_id = u.id
-            WHERE u.id = ${userId} AND pm.project_id = ${projectId}`;
-        if (!user) return apiError('BAD_REQUEST', 'User must be a member of this project.');
+        [user] = projectId != null
+            ? await sql`SELECT u.id, u.email, u.name
+                FROM users u
+                JOIN project_memberships pm ON pm.user_id = u.id
+                WHERE u.id = ${userId} AND pm.project_id = ${projectId}`
+            : await sql`SELECT id, email, name FROM users WHERE id = ${userId}`;
+        if (!user) return apiError('BAD_REQUEST', projectId != null ? 'User must be a member of this project.' : 'User not found.');
     }
 
     let model = null;
@@ -51,7 +58,7 @@ export async function GET(request) {
     const [existingBudget] = await sql`SELECT id, hard_limit, policy, soft_overage_pct
         FROM quotas
         WHERE deleted_at IS NULL
-          AND project_id = ${projectId}
+          AND project_id IS NOT DISTINCT FROM ${projectId}
           AND user_id IS NOT DISTINCT FROM ${userId}
           AND model_id IS NOT DISTINCT FROM ${modelId}
           AND type = ${type}
@@ -77,6 +84,14 @@ export async function GET(request) {
     const remaining = existingBudget ? existingHardLimit - used : 0;
     const previouslyAllotted = existingBudget ? used + remaining : 0;
 
+    // Member budgets are carved out of the project's overall budget. The dialog
+    // needs the headroom to refuse an over-allocation before it is submitted,
+    // instead of only learning about it from the POST. null = no overall budget
+    // set, so members are uncapped.
+    const { overallCap, allocated } = projectId == null
+        ? { overallCap: null, allocated: 0 }
+        : await projectAllocation(sql, projectId);
+
     return NextResponse.json({
         project,
         user: user || { id: null, email: 'Everyone', name: 'Everyone' },
@@ -87,6 +102,13 @@ export async function GET(request) {
         reserved,
         remaining,
         previouslyAllotted,
+        // cap null = no overall budget set, so members are uncapped. `allocated`
+        // is still meaningful then: it is the floor for setting a cap at all.
+        overallBudget: {
+            cap: overallCap,
+            allocated,
+            available: overallCap == null ? null : Math.max(0, overallCap - allocated),
+        },
         existingBudget: existingBudget ? {
             id: existingBudget.id,
             hardLimit: existingHardLimit,

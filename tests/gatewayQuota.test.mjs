@@ -89,8 +89,15 @@ test('tightest limit binds first when multiple layered caps are exhausted', () =
 
 // --- independent layered caps -----------------------------------------------------------
 
-test('an exhausted shared project budget blocks despite personal headroom', () => {
-    const r = evalWith({ used: { 1: 100, 2: 99, 3: 10 } }); // shared 99+10 > 100, personal 10+10 ≤ 50
+test('an exhausted per-model shared pool is forgiven for a member whose personal wallet has room', () => {
+    // An everyone pool scoped to one model — NOT the project's overall cap.
+    const pool = { id: 8, project_id: 7, user_id: null, model_id: 'seedance', type: 'usd', window: 'monthly', hard_limit: 100, policy: 'hard', soft_overage_pct: 5 };
+    const r = evalWith({ quotas: [pool, QUOTAS[2]], used: { 8: 99, 3: 10 } }); // pool 99+10 > 100, personal 10+10 ≤ 50
+    assert.equal(r.ok, true);
+});
+
+test('the project overall cap is the total cumulative budget — a personal wallet never forgives it', () => {
+    const r = evalWith({ used: { 1: 100, 2: 99, 3: 10 } }); // overall cap 99+10 > 100
     assert.equal(r.ok, false);
     assert.equal(r.violations[0].quota.id, 2);
 });
@@ -155,16 +162,31 @@ test('quotaBalances returns every applicable cap ordered by tightest headroom', 
     assert.equal(rows[0].used, 45);
 });
 
-test('quotaBalances keeps shared and personal caps so the tightest one governs', () => {
+test('a drained overall cap still governs — it is shown ahead of the personal wallet', () => {
     const rows = quotaBalances({
-        quotas: QUOTAS.slice(1, 3), // shared 100 + personal 50
+        quotas: QUOTAS.slice(1, 3), // overall cap 100 + personal 50
         projectId: 7,
         userId: 'u1',
         modelId: null,
         usedByQuota: { 2: 99, 3: 8 },
     });
+    // The cap binds, so $1 is all this member can actually spend — showing only
+    // the personal wallet's $42 would overstate the headroom.
     assert.deepEqual(rows.map((r) => r.quota.id), [2, 3]);
     assert.equal(rows[0].remaining, 1);
+});
+
+test('quotaBalances shows the per-model pool once a personal wallet is drained', () => {
+    const pool = { id: 8, project_id: 7, user_id: null, model_id: 'seedance', type: 'usd', window: 'monthly', hard_limit: 100, policy: 'hard', soft_overage_pct: 5 };
+    const rows = quotaBalances({
+        quotas: [pool, QUOTAS[2]], // per-model pool 100 + personal 50
+        projectId: 7,
+        userId: 'u1',
+        modelId: 'seedance',
+        usedByQuota: { 8: 40, 3: 50 },
+    });
+    assert.deepEqual(rows.map((r) => r.quota.id), [8]);
+    assert.equal(rows[0].remaining, 60);
 });
 
 // --- alert thresholds ------------------------------------------------------------------------

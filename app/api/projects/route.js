@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { gatewayContext, clientIp } from '../../../lib/gateway/authz.js';
 import { apiError } from '../../../lib/gateway/httpError.mjs';
 import { writeAudit } from '../../../lib/gateway/db.js';
+import { styleSummary } from '../../../lib/gateway/projectStyle.mjs';
 
 export const runtime = 'nodejs';
 
@@ -44,7 +45,11 @@ export async function GET() {
                   AND b.event_type IN ('settlement', 'failure')) AS my_spent_usd
            FROM projects p JOIN project_memberships m2 ON m2.project_id = p.id AND m2.user_id = ${user.userId}
            WHERE p.archived_at IS NULL ORDER BY p.created_at`;
-    return NextResponse.json({ items: rows, role, canManageProjects });
+    // p.* now carries projects.style, whose briefs run to several KB per
+    // project. The studio needs the look LIST to draw its picker, not the prose
+    // — send the summary and keep the briefs server-side.
+    const items = rows.map(({ style, ...project }) => ({ ...project, style: styleSummary(style) }));
+    return NextResponse.json({ items, role, canManageProjects });
 }
 
 export async function POST(request) {

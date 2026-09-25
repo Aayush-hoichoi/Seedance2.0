@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { gatewayContext, clientIp } from '../../../../lib/gateway/authz.js';
 import { apiError } from '../../../../lib/gateway/httpError.mjs';
 import { writeAudit, emitEvent } from '../../../../lib/gateway/db.js';
+import { styleError } from '../../../../lib/gateway/projectStyle.mjs';
 
 export const runtime = 'nodejs';
 
@@ -55,6 +56,28 @@ export async function PATCH(request, { params }) {
         await writeAudit(sql, {
             actorId: user.userId, actorEmail: user.email, action: 'project.rename',
             targetType: 'project', targetId: project.id, before: { name: project.name }, after: { name: body.name.trim() }, ip: clientIp(request),
+        });
+    }
+    // Project style memory. `null` clears it (which turns the layer off for the
+    // project — NULL is the opt-out). Validated before it is stored: this text
+    // is appended to every generation the project makes, so a malformed object
+    // saved here would be a silent per-generation failure, not a save error.
+    if (body.style !== undefined) {
+        const invalid = styleError(body.style);
+        if (invalid) return apiError('BAD_REQUEST', invalid);
+        // Monotonic per project so the evaluation views can attribute like-rate
+        // to a specific revision; the editor never has to manage the number.
+        const next = body.style === null
+            ? null
+            : { ...body.style, version: (project.style?.version ?? 0) + 1 };
+        await sql`UPDATE projects SET style = ${next === null ? null : JSON.stringify(next)}::jsonb WHERE id = ${project.id}`;
+        await writeAudit(sql, {
+            actorId: user.userId, actorEmail: user.email, action: next === null ? 'project.style_clear' : 'project.style_update',
+            targetType: 'project', targetId: project.id,
+            // The full before/after is the version history — there is no
+            // separate style-revision table, and audit_log already keeps it.
+            before: { style: project.style ?? null }, after: { style: next },
+            reason: body.reason ?? null, ip: clientIp(request),
         });
     }
     const [fresh] = await sql`SELECT * FROM projects WHERE id = ${project.id}`;

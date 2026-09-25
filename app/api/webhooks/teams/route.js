@@ -105,6 +105,7 @@ export async function POST(request) {
             model_inactive: 'The requested model is no longer active.',
             quality_unconfigured: 'Quality tiers are not configured for every selected model.',
             requester_ineligible: 'The requester is no longer an active member of that project.',
+            overall_cap: `This would exceed that project's overall budget — only $${Number(result.overCommit?.available ?? 0).toFixed(2)} is unallotted. Raise the overall budget in the console first.`,
         }[result.error] || 'Could not record that decision — try the console.';
         return messageResponse(explain);
     }

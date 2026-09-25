@@ -7,7 +7,8 @@ import toast from 'react-hot-toast';
 import { PageHeader, Card, Badge, Button, Modal, Field, Input, Select, DataTable, ProgressBar, EmptyState, DateRangePicker, DateTimePicker } from '../../ui.jsx';
 import { useApi, sendJson, fmtUsd, fmtInt, fmtDate, monthStartIso } from '../../lib.js';
 import { supportedResolutionsFor } from '../../../../lib/seedance/constants.js';
-import { History, PauseCircle, Pencil, PlayCircle, Plus, ShieldBan, ShieldCheck, Trash2, Wallet } from 'lucide-react';
+import { groupProjectBudgets, projectOverallBudget } from '../projectBudgetGroups.mjs';
+import { ChevronDown, History, PauseCircle, Pencil, PlayCircle, Plus, ShieldBan, ShieldCheck, Trash2, Wallet } from 'lucide-react';
 
 const SpendDonut = dynamic(() => import('../../charts.jsx').then((m) => m.SpendDonut), { ssr: false });
 const TopBars = dynamic(() => import('../../charts.jsx').then((m) => m.TopBars), { ssr: false });
@@ -21,6 +22,9 @@ const BUDGET_TYPES = [
 export default function ProjectDetailClient({ projectId }) {
     const [editingBudget, setEditingBudget] = useState(null);
     const [historyQuota, setHistoryQuota] = useState(null);
+    // Add-budget modal target: null = closed, lockedUserId null = free member
+    // choice, '' = locked to Everyone, otherwise locked to that member.
+    const [addingBudget, setAddingBudget] = useState(null);
     const [lifetimeRange, setLifetimeRange] = useState({ from: '', to: '' });
     const detail = useApi(`/api/projects/${projectId}`);
     const models = useApi(`/api/models?projectId=${projectId}`);
@@ -36,9 +40,14 @@ export default function ProjectDetailClient({ projectId }) {
     const usageCurrent = useApi(`/api/projects/${projectId}/usage?${userUsageQuery}&from=${monthStartIso()}`);
     const usageLifetime = useApi(`/api/projects/${projectId}/usage?${userUsageQuery}${lifetimeRangeQuery}`);
     const budgetModels = useApi(isAdmin ? '/api/admin/models' : null);
+    // Budget cards poll like the studio's budget pill so spend moves while
+    // jobs settle. spendByUser is a separate lifetime fetch on purpose — the
+    // Usage tab's date-range picker must not shift the cards' "spent" figures.
     const quotas = useApi(isAdmin
         ? `/api/admin/quotas?withUsage=1&withModelBreakdown=1&projectId=${projectId}`
-        : null);
+        : null, { refreshInterval: 30_000 });
+    const spendByUser = useApi(isAdmin ? `/api/projects/${projectId}/usage?group_by=user&include_model_breakdown=1` : null,
+        { refreshInterval: 30_000 });
 
     if (detail.error) return <EmptyState title="Not available" hint={detail.error.message} />;
     const { project, members = [], grants = [], overrides = [] } = detail.data || {};
@@ -55,6 +64,9 @@ export default function ProjectDetailClient({ projectId }) {
     }
 
     const projectQuotas = (quotas.data?.items ?? []).filter((q) => q.project_id === project.id);
+    const spendRows = spendByUser.data?.items ?? [];
+    const overallBudget = projectOverallBudget({ quotas: projectQuotas, spendRows });
+    const budgetGroups = groupProjectBudgets({ quotas: projectQuotas, spendRows, members });
     // Quotas store the Clerk user id; show the email humans recognize.
     const emailOf = (id) => {
         const projectMember = members.find((member) => member.user_id === id);
@@ -78,6 +90,7 @@ export default function ProjectDetailClient({ projectId }) {
                     {isAdmin && <Tabs.Trigger value="overrides" className={TAB}>Overrides</Tabs.Trigger>}
                     <Tabs.Trigger value="budget" className={TAB}>Budget</Tabs.Trigger>
                     <Tabs.Trigger value="usage" className={TAB}>Usage</Tabs.Trigger>
+                    {isAdmin && <Tabs.Trigger value="style" className={TAB}>Style</Tabs.Trigger>}
                 </Tabs.List>
 
                 <Tabs.Content value="members">
@@ -94,68 +107,189 @@ export default function ProjectDetailClient({ projectId }) {
                     </Tabs.Content>
                 )}
                 <Tabs.Content value="budget">
+                    <OverallBudgetCard
+                        overall={overallBudget}
+                        // Without this the card reads an empty quota list as
+                        // "no cap, nothing allotted" and prints it as fact —
+                        // an admin could set a cap below what members hold.
+                        loading={quotas.isLoading || spendByUser.isLoading}
+                        isAdmin={isAdmin}
+                        onSetCap={() => setAddingBudget({ lockedUserId: '', overallCap: true, label: 'Overall project budget' })}
+                        onEditCap={() => setEditingBudget(overallBudget.quota)}
+                        onHistory={() => setHistoryQuota(overallBudget.quota)}
+                    />
                     <div className="grid gap-3 lg:grid-cols-2">
-                        {projectQuotas.map((q) => (
-                            <Card key={q.id}>
-                                <div className="mb-3 flex items-start justify-between gap-3">
-                                    <div>
-                                        <div className="text-sm font-medium text-ink">{q.project_name || project.name}</div>
-                                        <div className="mt-0.5 text-xs text-ink-3">{q.type} · {q.window}{q.model_name ? ` · ${q.model_name}` : ''}</div>
-                                    </div>
-                                    <div className="flex items-center gap-1.5">
-                                        <Badge tone={q.policy === 'hard' ? 'red' : 'amber'}>{q.policy}{q.policy === 'soft' ? ` +${q.soft_overage_pct}%` : ''}</Badge>
-                                        {isAdmin ? (
-                                            <>
-                                                <Button variant="ghost" size="xs" title="Change history" aria-label="Change history"
-                                                    onClick={() => setHistoryQuota(q)}>
-                                                    <History size={13} />
+                        {budgetGroups.map((group) => (
+                            <Card key={group.userId ?? 'everyone'} className="self-start">
+                                <details className="group/budget">
+                                    <summary className="flex cursor-pointer list-none items-start justify-between gap-3 [&::-webkit-details-marker]:hidden">
+                                        <div className="min-w-0">
+                                            <div className="truncate text-sm font-medium text-ink">
+                                                {group.userId ? emailOf(group.userId) : 'Everyone · shared pool'}
+                                            </div>
+                                            <div className="mt-0.5 text-xs text-ink-3">
+                                                {group.allottedUsd != null
+                                                    ? <>Lifetime: <span className="font-mono tabular-nums text-ink-2">{fmtUsd(group.spentUsd)}</span> spent of <span className="font-mono tabular-nums text-ink-2">{fmtUsd(group.allottedUsd)}</span> allotted</>
+                                                    : <>Lifetime: <span className="font-mono tabular-nums text-ink-2">{fmtUsd(group.spentUsd)}</span> spent</>}
+                                                {group.reservedUsd > 0 ? <> + <span className="font-mono tabular-nums text-ink-2">{fmtUsd(group.reservedUsd)}</span> in flight</> : null}
+                                                {' · '}{group.rows.length ? `${group.rows.length} budget${group.rows.length === 1 ? '' : 's'}` : 'no budgets'}
+                                            </div>
+                                            {group.allottedUsd > 0 ? (
+                                                <div className="mt-1.5 max-w-56">
+                                                    <ProgressBar value={group.spentUsd + group.reservedUsd} max={group.allottedUsd} />
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                        <div className="flex shrink-0 items-center gap-1.5">
+                                            {isAdmin ? (
+                                                <Button variant="outline" size="xs"
+                                                    onClick={(e) => {
+                                                        // A click on the button must not toggle the <details>.
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                        setAddingBudget({
+                                                            lockedUserId: group.userId ?? '',
+                                                            label: group.userId ? emailOf(group.userId) : 'Everyone',
+                                                        });
+                                                    }}>
+                                                    <Plus size={13} /> Add budget
                                                 </Button>
-                                                <Button variant="ghost" size="xs" title="Edit budget cap" aria-label="Edit budget cap"
-                                                    onClick={() => setEditingBudget(q)}>
-                                                    <Pencil size={13} />
-                                                </Button>
-                                            </>
-                                        ) : null}
+                                            ) : null}
+                                            <ChevronDown size={15} aria-hidden="true"
+                                                className="mt-1 text-ink-3 transition-transform group-open/budget:rotate-180" />
+                                        </div>
+                                    </summary>
+                                {group.rows.length ? (
+                                    <div className="mt-3 space-y-3">
+                                        {group.rows.map((q) => {
+                                            const format = q.type === 'usd' ? fmtUsd : fmtInt;
+                                            const used = Number(q.used);
+                                            const reserved = Number(q.reserved || 0);
+                                            const remaining = Math.max(0, Number(q.hard_limit) - used - reserved);
+                                            return (
+                                                <div key={q.id} className="border-t border-line pt-3 first:border-t-0 first:pt-0">
+                                                    <div className="mb-1 flex items-center justify-between gap-2">
+                                                        <div className="min-w-0 truncate text-xs font-medium text-ink">
+                                                            {q.model_id ? (q.model_name || q.model_id) : 'All models'}
+                                                            <span className="ml-1.5 font-normal text-ink-3">{q.type} · {q.window}</span>
+                                                        </div>
+                                                        <div className="flex shrink-0 items-center gap-1.5">
+                                                            <Badge tone={q.policy === 'hard' ? 'red' : 'amber'}>{q.policy}{q.policy === 'soft' ? ` +${q.soft_overage_pct}%` : ''}</Badge>
+                                                            {isAdmin ? (
+                                                                <>
+                                                                    <Button variant="ghost" size="xs" title="Change history" aria-label="Change history"
+                                                                        onClick={() => setHistoryQuota(q)}>
+                                                                        <History size={13} />
+                                                                    </Button>
+                                                                    <Button variant="ghost" size="xs" title="Edit budget cap" aria-label="Edit budget cap"
+                                                                        onClick={() => setEditingBudget(q)}>
+                                                                        <Pencil size={13} />
+                                                                    </Button>
+                                                                </>
+                                                            ) : null}
+                                                        </div>
+                                                    </div>
+                                                    <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
+                                                        <span className="text-ink-2">{format(used)} spent{reserved > 0 ? ` + ${format(reserved)} in flight` : ''}</span>
+                                                        <span className="font-mono tabular-nums text-ink">{format(remaining)} left of {format(q.hard_limit)}</span>
+                                                    </div>
+                                                    <BudgetProgressBar quota={q} />
+                                                </div>
+                                            );
+                                        })}
                                     </div>
-                                </div>
-                                <div className="mb-3 grid grid-cols-3 gap-3 rounded-md border border-line bg-paper-3 px-3 py-2.5">
-                                    <BudgetCardValue label="Project" value={q.project_name || project.name} />
-                                    <BudgetCardValue label="User" value={q.user_id ? emailOf(q.user_id) : 'Everyone'} />
-                                    <BudgetCardValue
-                                        label="Spent"
-                                        value={q.type === 'usd' ? fmtUsd(q.used) : fmtInt(q.used)}
-                                        hint={Number(q.reserved) > 0 ? `+${q.type === 'usd' ? fmtUsd(q.reserved) : fmtInt(q.reserved)} in flight` : null}
-                                    />
-                                </div>
-                                <div className="mb-2 flex items-center justify-between gap-3 text-xs text-ink-3">
-                                    <span>Budget usage</span>
-                                    <span className="font-mono tabular-nums text-ink-2">
-                                        {q.type === 'usd' ? fmtUsd(Number(q.used) + Number(q.reserved || 0)) : fmtInt(Number(q.used) + Number(q.reserved || 0))}
-                                        {' '}of {q.type === 'usd' ? fmtUsd(q.hard_limit) : fmtInt(q.hard_limit)}
-                                    </span>
-                                </div>
-                                <BudgetProgressBar quota={q} />
+                                ) : (
+                                    <div className="mt-3 rounded-md border border-dashed border-line px-3 py-2 text-xs text-ink-3">
+                                        No budgets — spending is uncapped for {group.userId ? 'this member' : 'this project'}.
+                                    </div>
+                                )}
+                                {group.unbudgeted.length ? (
+                                    <div className="mt-3 space-y-3">
+                                        {group.unbudgeted.map((row) => (
+                                            <div key={row.model_id} className="border-t border-line pt-3">
+                                                <div className="mb-1 flex items-center justify-between gap-2">
+                                                    <div className="min-w-0 truncate text-xs font-medium text-ink">
+                                                        {row.model_name || row.model_id}
+                                                        <span className="ml-1.5 font-normal text-warn">no model budget</span>
+                                                    </div>
+                                                    <span className="shrink-0 text-xs text-ink-3">
+                                                        {group.overallCapUsd != null ? 'within the All models budget' : 'uncapped'}
+                                                    </span>
+                                                </div>
+                                                <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
+                                                    <span className="text-ink-2">{fmtUsd(row.cost_usd)} spent</span>
+                                                    {group.overallCapUsd != null ? (
+                                                        <span className="font-mono tabular-nums text-ink-3">of {fmtUsd(group.overallCapUsd)} shared cap</span>
+                                                    ) : null}
+                                                </div>
+                                                <ProgressBar value={row.cost_usd} max={group.overallCapUsd ?? group.spentUsd} />
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : null}
+                                {group.spendBreakdown.length ? (
+                                    <div className="mt-3 rounded-md border border-line bg-paper-3 px-3 py-2.5">
+                                        <div className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.1em] text-ink-3">Lifetime spend by model</div>
+                                        <div className="space-y-1">
+                                            {group.spendBreakdown.map((row) => (
+                                                <div key={row.model_id} className="flex items-center justify-between gap-3 text-xs">
+                                                    <span className="min-w-0 truncate text-ink-2">{row.model_name || row.model_id}</span>
+                                                    <span className="shrink-0 font-mono tabular-nums text-ink">{fmtUsd(row.cost_usd)}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <div className="mt-1.5 flex items-center justify-between gap-3 border-t border-line pt-1.5 text-xs">
+                                            <span className="text-ink-3">Total spent</span>
+                                            <span className="font-mono tabular-nums text-ink">{fmtUsd(group.spentUsd)}</span>
+                                        </div>
+                                    </div>
+                                ) : null}
+                                </details>
                             </Card>
                         ))}
                         {isAdmin ? (
-                            <AddBudgetCard
-                                project={project}
-                                members={members}
-                                models={budgetModels.data?.items ?? []}
-                                modelsLoading={budgetModels.isLoading}
-                                modelsError={budgetModels.error}
-                                onCreated={() => quotas.mutate()}
-                            />
-                        ) : !projectQuotas.length ? (
+                            <Card className="flex min-h-32 flex-col items-center justify-center border-dashed text-center">
+                                <span className="mb-3 grid size-9 place-items-center rounded-full border border-line bg-paper-3 text-ink-2">
+                                    <Wallet size={17} />
+                                </span>
+                                <div className="text-sm font-medium text-ink">Add a budget</div>
+                                <div className="mt-1 max-w-xs text-xs text-ink-3">Cap spend or usage for this project, a member, or a model.</div>
+                                <Button variant="primary" className="mt-3" onClick={() => setAddingBudget({ lockedUserId: null })}>
+                                    <Plus size={14} /> Add budget
+                                </Button>
+                            </Card>
+                        ) : !budgetGroups.length ? (
                             <EmptyState title="No budgets on this project" hint="An admin can add a project, per-user, or per-model budget here." />
                         ) : null}
                     </div>
+                    {addingBudget ? (
+                        <AddBudgetModal
+                            key={addingBudget.lockedUserId ?? 'free'}
+                            project={project}
+                            members={members}
+                            models={budgetModels.data?.items ?? []}
+                            modelsLoading={budgetModels.isLoading}
+                            modelsError={budgetModels.error}
+                            lockedUserId={addingBudget.lockedUserId}
+                            lockedUserLabel={addingBudget.label}
+                            overallCap={addingBudget.overallCap}
+                            onClose={() => setAddingBudget(null)}
+                            onCreated={() => {
+                                setAddingBudget(null);
+                                quotas.mutate();
+                                spendByUser.mutate();
+                            }}
+                        />
+                    ) : null}
                     {editingBudget ? (
                         <EditBudgetModal
                             key={editingBudget.id}
                             quota={editingBudget}
                             projectName={editingBudget.project_name || project.name}
                             userName={editingBudget.user_id ? emailOf(editingBudget.user_id) : 'Everyone'}
+                            // Lowering the overall budget must not strand what
+                            // members already hold; the server refuses it too.
+                            allocatedUsd={editingBudget.id === overallBudget.quota?.id ? overallBudget.allocatedUsd : 0}
                             onClose={() => setEditingBudget(null)}
                             onUpdated={() => {
                                 setEditingBudget(null);
@@ -195,10 +329,138 @@ export default function ProjectDetailClient({ projectId }) {
                         <a className="text-xs text-accent-hi hover:underline" href={`/api/projects/${projectId}/usage?${userUsageQuery}${lifetimeRangeQuery}&format=csv`}>Export lifetime CSV</a>
                     </div>
                 </Tabs.Content>
+                {isAdmin && (
+                    <Tabs.Content value="style">
+                        <StyleTab projectId={projectId} project={project} onChange={refresh} />
+                    </Tabs.Content>
+                )}
             </Tabs.Root>
         </div>
     );
 }
+
+// Per-project style memory. The brief is appended to every generation this
+// project makes, so this editor is the one place the look is defined — the
+// alternative is what the teams do today, which is hand-pasting it into each
+// prompt and watching it drift.
+function StyleTab({ projectId, project, onChange }) {
+    const stored = project?.style ?? null;
+    const [draft, setDraft] = useState(() => JSON.stringify(stored ?? EMPTY_STYLE, null, 2));
+    const [saving, setSaving] = useState(false);
+    const perf = useApi(`/api/projects/${projectId}/style-performance`);
+
+    const save = async (value) => {
+        setSaving(true);
+        const res = await sendJson(`/api/projects/${projectId}`, 'PATCH', { style: value });
+        setSaving(false);
+        if (!res.ok) {
+            // styleError's messages are written for this toast — they name the
+            // look and what is wrong with it.
+            toast.error(res.data?.message || res.data?.error || 'Could not save the style.');
+            return;
+        }
+        toast.success(value === null ? 'Project style cleared.' : `Project style saved as v${res.data?.style?.version ?? '?'}.`);
+        if (value === null) setDraft(JSON.stringify(EMPTY_STYLE, null, 2));
+        onChange?.();
+        perf.mutate?.();
+    };
+
+    let parsed = null;
+    let parseError = null;
+    try { parsed = JSON.parse(draft); } catch (error) { parseError = error.message; }
+
+    return (
+        <div className="space-y-6">
+            <Card>
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                        <h3 className="text-sm font-semibold text-ink">Style memory</h3>
+                        <p className="mt-1 max-w-2xl text-xs text-ink-2">
+                            Applied automatically to every generation in this project — studio, MCP and API alike.
+                            Each look is a brief; the default look applies unless someone picks another.
+                            Characters are injected only when a prompt names them.
+                            {stored ? ` Currently v${stored.version ?? 1}.` : ' Not set — this project has no style.'}
+                        </p>
+                    </div>
+                    <div className="flex gap-2">
+                        {stored && (
+                            <Button variant="outline" disabled={saving} onClick={() => { if (confirm('Clear this project\'s style? New generations will no longer be styled.')) save(null); }}>
+                                Clear style
+                            </Button>
+                        )}
+                        <Button variant="primary" disabled={saving || !!parseError} onClick={() => save(parsed)}>
+                            {saving ? 'Saving…' : 'Save style'}
+                        </Button>
+                    </div>
+                </div>
+                <textarea
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    spellCheck={false}
+                    rows={22}
+                    className="w-full rounded-lg border border-line bg-paper-2 p-3 font-mono text-xs text-ink outline-none focus:border-accent"
+                />
+                {parseError
+                    ? <p className="mt-2 text-xs text-danger">Not valid JSON — {parseError}</p>
+                    : <p className="mt-2 text-xs text-ink-2">{(parsed?.looks ? Object.keys(parsed.looks).length : 0)} look(s), {(parsed?.characters ? Object.keys(parsed.characters).length : 0)} character(s). The version number is assigned on save.</p>}
+            </Card>
+
+            <Card>
+                <h3 className="mb-1 text-sm font-semibold text-ink">Is it working?</h3>
+                <p className="mb-3 text-xs text-ink-2">
+                    Like rate per style version, against this project&apos;s unstyled baseline. If a version is not beating the baseline, the brief is the problem — not the model.
+                </p>
+                <DataTable
+                    searchable={false}
+                    columns={[
+                        {
+                            accessorKey: 'label',
+                            header: 'Cohort',
+                            cell: ({ row }) => (row.original.baseline
+                                ? <span className="text-ink-2">No style (baseline)</span>
+                                : <span className="text-ink">{row.original.label}</span>),
+                        },
+                        { accessorKey: 'generations', header: 'Generations', cell: ({ getValue }) => <span className="font-mono text-ink-3">{fmtInt(getValue())}</span> },
+                        { accessorKey: 'liked', header: 'Liked', cell: ({ getValue }) => <span className="font-mono text-ink-3">{fmtInt(getValue())}</span> },
+                        {
+                            accessorKey: 'like_rate',
+                            header: 'Like rate',
+                            cell: ({ row }) => {
+                                const { like_rate: rate, baseline } = row.original;
+                                const base = perf.data?.baselineLikeRate;
+                                // Only meaningful against the project's own history.
+                                const delta = baseline || base == null ? null : rate - base;
+                                return (
+                                    <span className="font-mono">
+                                        <span className="text-ink">{(rate * 100).toFixed(1)}%</span>
+                                        {delta == null ? null : (
+                                            <span className={delta >= 0 ? 'ml-2 text-ok' : 'ml-2 text-danger'}>
+                                                {delta >= 0 ? '+' : ''}{(delta * 100).toFixed(1)}
+                                            </span>
+                                        )}
+                                    </span>
+                                );
+                            },
+                        },
+                    ]}
+                    data={(perf.data?.items ?? []).map((row) => ({
+                        ...row,
+                        baseline: row.style_look == null,
+                        label: `${row.style_look} · v${row.style_version ?? '?'}`,
+                    }))}
+                    empty="No generations yet — numbers appear once this project generates something."
+                />
+            </Card>
+        </div>
+    );
+}
+
+const EMPTY_STYLE = {
+    enabled: true,
+    defaultLook: 'default',
+    looks: { default: { name: 'Default look', brief: '', negatives: '' } },
+    characters: {},
+};
 
 function UsageBreakdown({ title, usage, usageByModel, detailed, controls = null }) {
     return (
@@ -225,6 +487,83 @@ function UsageBreakdown({ title, usage, usageByModel, detailed, controls = null 
                 </Card>
             </div>
         </section>
+    );
+}
+
+// The project ceiling: every member and every model, lifetime. Optional — with
+// no cap the project is uncapped and this card just tracks what it has spent.
+function OverallBudgetCard({ overall, loading = false, isAdmin, onSetCap, onEditCap, onHistory }) {
+    const { quota, capUsd, spentUsd, reservedUsd, allocatedUsd } = overall;
+    const committed = spentUsd + reservedUsd;
+    const uncapped = capUsd == null;
+    const overAllotted = !loading && !uncapped && allocatedUsd > capUsd;
+    // Until the budgets land, every figure here would be a zero invented from
+    // an empty list — "no cap, $0.00 allotted" reads as fact. Show nothing
+    // instead, and hold the actions: a cap must never be set against a total
+    // that has not loaded.
+    const value = (text) => (loading ? '—' : text);
+    return (
+        <Card className="mb-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="grid size-7 place-items-center rounded-full border border-line bg-paper-3 text-ink-2">
+                            <Wallet size={14} />
+                        </span>
+                        <span className="text-sm font-medium text-ink">Overall project budget</span>
+                        {loading
+                            ? <Badge tone="zinc">loading…</Badge>
+                            : <Badge tone={uncapped ? 'amber' : 'green'}>{uncapped ? 'no cap' : 'capped'}</Badge>}
+                        {loading || uncapped ? null : (
+                            <Badge tone={quota.policy === 'hard' ? 'red' : 'amber'}>
+                                {quota.policy}{quota.policy === 'soft' ? ` +${quota.soft_overage_pct}%` : ''}
+                            </Badge>
+                        )}
+                    </div>
+                    <div className="mt-1 text-xs text-ink-3">
+                        Every member and every model, lifetime.{' '}
+                        {loading
+                            ? 'Checking this project’s budgets…'
+                            : uncapped
+                                ? 'No cap set — spending is unlimited and only tracked here.'
+                                : quota.policy === 'hard'
+                                    ? 'Member budgets are carved out of this cap, and requests are rejected once it is reached.'
+                                    : `Member budgets are carved out of this cap, and spending may run up to ${quota.soft_overage_pct}% past it.`}
+                    </div>
+                </div>
+                {isAdmin ? (
+                    <div className="flex shrink-0 items-center gap-1.5">
+                        {loading || uncapped ? null : (
+                            <Button variant="ghost" size="xs" title="Change history" aria-label="Change history" onClick={onHistory}>
+                                <History size={13} />
+                            </Button>
+                        )}
+                        <Button variant={uncapped && !loading ? 'primary' : 'outline'} size="xs" disabled={loading}
+                            onClick={uncapped ? onSetCap : onEditCap}>
+                            {uncapped ? <><Plus size={13} /> Set overall cap</> : <><Pencil size={13} /> Edit cap</>}
+                        </Button>
+                    </div>
+                ) : null}
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <BudgetCardValue label="Total spent" value={value(fmtUsd(spentUsd))}
+                    hint={!loading && reservedUsd > 0 ? `+ ${fmtUsd(reservedUsd)} in flight` : null} />
+                <BudgetCardValue label="Overall cap" value={value(uncapped ? 'No cap' : fmtUsd(capUsd))}
+                    hint={!loading && uncapped ? 'unlimited' : null} />
+                <BudgetCardValue label="Allotted to members" value={value(fmtUsd(allocatedUsd))}
+                    hint={!loading && !uncapped ? `${fmtUsd(Math.max(0, capUsd - allocatedUsd))} unallotted` : null} />
+                <BudgetCardValue label="Remaining" value={value(uncapped ? '—' : fmtUsd(Math.max(0, capUsd - committed)))} />
+            </div>
+
+            {loading || uncapped ? null : <div className="mt-3"><ProgressBar value={committed} max={capUsd} /></div>}
+            {overAllotted ? (
+                <div className="mt-2 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn">
+                    Members are allotted {fmtUsd(allocatedUsd)} — more than the {fmtUsd(capUsd)} overall cap. Existing
+                    budgets are never clawed back, but no member budget can grow until the overall cap is raised.
+                </div>
+            ) : null}
+        </Card>
     );
 }
 
@@ -266,6 +605,8 @@ function BudgetTimelineModal({ quota, onClose }) {
                                                 {prev != null || next != null ? (
                                                     <> · {prev != null ? format(prev) : '—'} → {next != null ? format(next) : 'removed'}</>
                                                 ) : null}
+                                                {entry.before?.policy && entry.after?.policy && entry.before.policy !== entry.after.policy
+                                                    ? <> · policy: {entry.before.policy} → {entry.after.policy}</> : null}
                                                 {entry.action === 'quota.rescope' ? <> · model scope: {entry.before?.model_id || 'all'} → {entry.after?.model_id || 'all'}</> : null}
                                                 {entry.reason ? <> · “{entry.reason}”</> : null}
                                             </div>
@@ -278,7 +619,9 @@ function BudgetTimelineModal({ quota, onClose }) {
     );
 }
 
-function EditBudgetModal({ quota, projectName, userName, onClose, onUpdated }) {
+// allocatedUsd > 0 only for the overall project budget: it may never drop below
+// the member budgets carved out of it, on top of the usual spent + in-flight floor.
+function EditBudgetModal({ quota, projectName, userName, allocatedUsd = 0, onClose, onUpdated }) {
     const format = quota.type === 'usd' ? fmtUsd : fmtInt;
     const wholeNumber = quota.type === 'image_count' || quota.type === 'request_count';
     const [snapshot, setSnapshot] = useState({
@@ -287,6 +630,11 @@ function EditBudgetModal({ quota, projectName, userName, onClose, onUpdated }) {
         reserved: Number(quota.reserved || 0),
     });
     const [newCapInput, setNewCapInput] = useState(String(quota.hard_limit));
+    const [policy, setPolicy] = useState(quota.policy);
+    // `|| 5`, not `?? 5`: hard budgets created by a budget-request approval
+    // store 0, and 0 is not a usable starting point if the admin switches this
+    // budget to soft — the overage field only accepts 1–50.
+    const [softOveragePct, setSoftOveragePct] = useState(Number(quota.soft_overage_pct) || 5);
     const [reason, setReason] = useState('');
     const [saving, setSaving] = useState(false);
     const [deleting, setDeleting] = useState(false);
@@ -294,14 +642,20 @@ function EditBudgetModal({ quota, projectName, userName, onClose, onUpdated }) {
     const [error, setError] = useState('');
 
     const newCap = Number(newCapInput);
-    const minimumCap = snapshot.used + snapshot.reserved;
+    const spentFloor = snapshot.used + snapshot.reserved;
+    const minimumCap = Math.max(spentFloor, allocatedUsd);
     const unusedAllowance = Math.max(0, snapshot.hardLimit - minimumCap);
     const delta = newCap - snapshot.hardLimit;
     const reducing = Number.isFinite(newCap) && delta < 0;
     const validNumber = Number.isFinite(newCap) && newCap >= 0 && (!wholeNumber || Number.isInteger(newCap));
+    const validOveragePct = policy !== 'soft'
+        || (Number.isInteger(softOveragePct) && softOveragePct >= 1 && softOveragePct <= 50);
+    const policyChanged = policy !== quota.policy
+        || (policy === 'soft' && softOveragePct !== (Number(quota.soft_overage_pct) || 5));
     const valid = validNumber
+        && validOveragePct
         && newCap >= minimumCap
-        && newCap !== snapshot.hardLimit
+        && (newCap !== snapshot.hardLimit || policyChanged)
         && (!reducing || reason.trim().length >= 3);
 
     async function save() {
@@ -312,6 +666,8 @@ function EditBudgetModal({ quota, projectName, userName, onClose, onUpdated }) {
             id: quota.id,
             newHardLimit: newCap,
             expectedHardLimit: snapshot.hardLimit,
+            newPolicy: policy,
+            newSoftOveragePct: softOveragePct,
             reason: reason.trim() || null,
         });
         setSaving(false);
@@ -329,7 +685,7 @@ function EditBudgetModal({ quota, projectName, userName, onClose, onUpdated }) {
             return;
         }
 
-        toast.success(reducing ? 'Budget cap reduced' : 'Budget cap updated');
+        toast.success(reducing ? 'Budget cap reduced' : newCap === snapshot.hardLimit ? 'Budget policy updated' : 'Budget cap updated');
         onUpdated();
     }
 
@@ -351,12 +707,16 @@ function EditBudgetModal({ quota, projectName, userName, onClose, onUpdated }) {
         : !validNumber
             ? wholeNumber ? 'This budget requires a non-negative whole number.' : 'Enter zero or a positive number.'
             : newCap < minimumCap
-                ? `The cap cannot be below ${format(minimumCap)} (spent plus in-flight usage).`
-                : newCap === snapshot.hardLimit
-                    ? 'Enter an amount different from the current cap.'
-                    : reducing && reason.trim().length < 3
-                        ? 'Add a short reason for reducing this budget.'
-                        : '';
+                ? allocatedUsd > spentFloor
+                    ? `The overall budget cannot be below ${format(allocatedUsd)} already allotted to members. Reduce their budgets first.`
+                    : `The cap cannot be below ${format(minimumCap)} (spent plus in-flight usage).`
+                : !validOveragePct
+                    ? 'The soft overage must be a whole number between 1 and 50 percent.'
+                    : newCap === snapshot.hardLimit && !policyChanged
+                        ? 'Change the cap or the policy.'
+                        : reducing && reason.trim().length < 3
+                            ? 'Add a short reason for reducing this budget.'
+                            : '';
 
     return (
         <Modal open onOpenChange={(nextOpen) => { if (!nextOpen && !saving && !deleting) onClose(); }} title={confirmDelete ? 'Delete this budget?' : 'Edit budget cap'}
@@ -381,7 +741,8 @@ function EditBudgetModal({ quota, projectName, userName, onClose, onUpdated }) {
                     <BudgetCardValue label="Spent" value={format(snapshot.used)} />
                     <BudgetCardValue label="In flight" value={format(snapshot.reserved)} />
                     <BudgetCardValue label="Current cap" value={format(snapshot.hardLimit)} />
-                    <BudgetCardValue label="Minimum safe cap" value={format(minimumCap)} />
+                    <BudgetCardValue label="Minimum safe cap" value={format(minimumCap)}
+                        hint={allocatedUsd > spentFloor ? `${format(allocatedUsd)} allotted to members` : null} />
                 </div>
             </Card>
 
@@ -400,6 +761,21 @@ function EditBudgetModal({ quota, projectName, userName, onClose, onUpdated }) {
                     onChange={(event) => { setNewCapInput(event.target.value); setError(''); }}
                     onKeyDown={(event) => { if (event.key === 'Enter') save(); }} />
             </Field>
+
+            <Field label="Policy">
+                <Select className="w-full" value={policy}
+                    onChange={(event) => { setPolicy(event.target.value); setError(''); }}>
+                    <option value="hard">hard — reject at limit</option>
+                    <option value="soft">soft — allow small overage</option>
+                </Select>
+            </Field>
+
+            {policy === 'soft' ? (
+                <Field label="Overage % — how far past the cap spending may go">
+                    <Input type="number" min="1" max="50" step="1" value={softOveragePct}
+                        onChange={(event) => { setSoftOveragePct(Number(event.target.value)); setError(''); }} />
+                </Field>
+            ) : null}
 
             {validNumber && newCap >= minimumCap && newCap !== snapshot.hardLimit ? (
                 <div className={`rounded-md border px-3 py-2 text-xs ${reducing ? 'border-danger/30 bg-danger/10 text-danger' : 'border-line bg-paper-2 text-ink-2'}`}>
@@ -424,11 +800,14 @@ function EditBudgetModal({ quota, projectName, userName, onClose, onUpdated }) {
     );
 }
 
-function AddBudgetCard({ project, members, models, modelsLoading, modelsError, onCreated }) {
-    const initialForm = { type: 'usd', window: 'lifetime', addAmount: '', policy: 'hard', softOveragePct: 5, userId: '', modelId: '' };
-    const [open, setOpen] = useState(false);
+// lockedUserId: null = free member choice, '' = locked to Everyone, otherwise
+// locked to that member — the per-user budget cards open this with their user
+// pinned so "Add budget" always lands on the right person.
+// overallCap: opened from the overall-budget card, so the scope that defines
+// that budget (everyone, all models, USD) is fixed and only the amount is free.
+function AddBudgetModal({ project, members, models, modelsLoading, modelsError, lockedUserId = null, lockedUserLabel, overallCap = false, onClose, onCreated }) {
     const [saving, setSaving] = useState(false);
-    const [form, setForm] = useState(initialForm);
+    const [form, setForm] = useState({ type: 'usd', window: 'lifetime', addAmount: '', policy: 'hard', softOveragePct: 5, userId: lockedUserId || '', modelId: '' });
     const previewParams = new URLSearchParams({
         projectId: String(project.id),
         type: form.type,
@@ -436,7 +815,7 @@ function AddBudgetCard({ project, members, models, modelsLoading, modelsError, o
         ...(form.userId ? { userId: form.userId } : {}),
         ...(form.modelId ? { modelId: form.modelId } : {}),
     });
-    const preview = useApi(open ? `/api/admin/quotas/preview?${previewParams}` : null);
+    const preview = useApi(`/api/admin/quotas/preview?${previewParams}`);
     const previewData = preview.data;
     const previewFormat = form.type === 'usd' ? fmtUsd : fmtInt;
     const existingBudget = previewData?.existingBudget;
@@ -445,12 +824,20 @@ function AddBudgetCard({ project, members, models, modelsLoading, modelsError, o
     const newCap = previousCap + addAmount;
     const effectivePolicy = existingBudget?.policy || form.policy;
     const wholeNumber = form.type === 'image_count' || form.type === 'request_count';
-    const validAddAmount = addAmount > 0 && (!wholeNumber || Number.isInteger(addAmount));
-
-    function changeOpen(nextOpen) {
-        setOpen(nextOpen);
-        if (!nextOpen && !saving) setForm(initialForm);
-    }
+    // Per-user budgets must name a model; "all models" is only for the whole project.
+    const needsModel = !!form.userId && !form.modelId;
+    // The overall project budget and the member budgets carved out of it are
+    // two sides of one rule, checked here so the admin sees the problem before
+    // submitting. The POST refuses either again server-side.
+    //   member budget → the amount is a delta on top of what is allotted today,
+    //                   and must fit the unallotted headroom
+    //   overall budget → its resulting cap must cover what members already hold
+    const allocation = previewData?.overallBudget;
+    const overallHeadroom = form.userId && form.type === 'usd' && allocation?.cap != null ? allocation : null;
+    const exceedsOverall = !!overallHeadroom && addAmount > overallHeadroom.available;
+    const belowAllocations = overallCap && allocation ? newCap < allocation.allocated : false;
+    const validAddAmount = addAmount > 0 && (!wholeNumber || Number.isInteger(addAmount))
+        && !needsModel && !exceedsOverall && !belowAllocations;
 
     async function create() {
         setSaving(true);
@@ -467,34 +854,23 @@ function AddBudgetCard({ project, members, models, modelsLoading, modelsError, o
         if (!r.ok) return toast.error(r.data?.message || 'Failed to add budget');
         const toppedUp = !!existingBudget || r.data?.created === false;
         toast.success(toppedUp ? 'Budget topped up' : 'Budget created — enforced on the next request');
-        setOpen(false);
-        setForm(initialForm);
         onCreated();
     }
 
     return (
-        <>
-            <Card className="flex min-h-32 flex-col items-center justify-center border-dashed text-center">
-                <span className="mb-3 grid size-9 place-items-center rounded-full border border-line bg-paper-3 text-ink-2">
-                    <Wallet size={17} />
-                </span>
-                <div className="text-sm font-medium text-ink">Add a budget</div>
-                <div className="mt-1 max-w-xs text-xs text-ink-3">Cap spend or usage for this project, a member, or a model.</div>
-                <Button variant="primary" className="mt-3" onClick={() => setOpen(true)}>
-                    <Plus size={14} /> Add budget
-                </Button>
-            </Card>
-
-            <Modal open={open} onOpenChange={changeOpen} title={`Add budget · ${project.name}`}
+        <Modal open onOpenChange={(nextOpen) => { if (!nextOpen && !saving) onClose(); }}
+            title={overallCap ? 'Set the overall project budget' : `Add budget · ${lockedUserLabel || project.name}`}
                 footer={<>
-                    <Button variant="outline" onClick={() => changeOpen(false)} disabled={saving}>Cancel</Button>
+                    <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
                     <Button variant="primary" onClick={create} loading={saving}
                         disabled={!validAddAmount || preview.isLoading || !!preview.error}>
                         {existingBudget ? 'Add to budget' : 'Create budget'}
                     </Button>
                 </>}>
                 <p className="mb-3 text-xs leading-relaxed text-ink-3">
-                    This budget applies to <span className="font-medium text-ink-2">{project.name}</span>. Leave member and model blank to cap the whole project. If this scope already has a budget, the amount entered below is added on top of its current cap.
+                    {overallCap
+                        ? <>This caps <span className="font-medium text-ink-2">{project.name}</span> as a whole — every member, every model. Member budgets are carved out of it and can never sum past it. Leave it unset to keep the project uncapped.</>
+                        : <>This budget applies to <span className="font-medium text-ink-2">{project.name}</span>. Leave member and model blank to cap the whole project. If this scope already has a budget, the amount entered below is added on top of its current cap.</>}
                 </p>
                 <Card className="mb-4 bg-paper-3">
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -524,7 +900,9 @@ function AddBudgetCard({ project, members, models, modelsLoading, modelsError, o
                 </Card>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <Field label="Type">
-                        <Select className="w-full" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+                        <Select className="w-full" value={form.type} disabled={overallCap}
+                            title={overallCap ? 'The overall project budget is always in dollars' : undefined}
+                            onChange={(e) => setForm({ ...form, type: e.target.value })}>
                             {BUDGET_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                         </Select>
                     </Field>
@@ -552,19 +930,49 @@ function AddBudgetCard({ project, members, models, modelsLoading, modelsError, o
                         </Select>
                     </Field>
                     <Field label="Member (blank = everyone)">
-                        <Select className="w-full" value={form.userId} onChange={(e) => setForm({ ...form, userId: e.target.value })}>
+                        <Select className="w-full" value={form.userId} disabled={lockedUserId != null}
+                            title={lockedUserId != null ? 'This card adds budget for a fixed scope' : undefined}
+                            onChange={(e) => setForm({ ...form, userId: e.target.value })}>
                             <option value="">—</option>
+                            {lockedUserId && !members.some((m) => m.user_id === lockedUserId)
+                                ? <option value={lockedUserId}>{lockedUserLabel || lockedUserId}</option> : null}
                             {members.map((member) => <option key={member.user_id} value={member.user_id}>{member.email || member.name || member.user_id}</option>)}
                         </Select>
                     </Field>
-                    <Field label="Model (blank = all models)">
-                        <Select className="w-full" value={form.modelId} disabled={!models.length}
+                    <Field label={form.userId ? 'Model (required for member budgets)' : 'Model (blank = all models)'}>
+                        <Select className="w-full" value={form.modelId} disabled={overallCap || !models.length}
+                            title={overallCap ? 'The overall project budget covers every model' : undefined}
                             onChange={(e) => setForm({ ...form, modelId: e.target.value })}>
-                            <option value="">{modelsError ? 'Could not load models' : modelsLoading ? 'Loading models…' : '—'}</option>
+                            <option value="">{modelsError ? 'Could not load models' : modelsLoading ? 'Loading models…' : form.userId ? 'Select a model…' : '—'}</option>
                             {models.map((model) => <option key={model.id} value={model.id}>{model.display_name} · {model.category}</option>)}
                         </Select>
                     </Field>
                 </div>
+                {needsModel ? (
+                    <div className="mt-3 text-xs text-ink-3">Pick a model — member budgets can no longer cover all models at once.</div>
+                ) : null}
+                {belowAllocations ? (
+                    <div className="mt-3 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs leading-relaxed text-danger">
+                        Members of this project are already allotted {fmtUsd(allocation.allocated)}. The overall budget has to
+                        be at least that much — {fmtUsd(newCap)} would strand budgets that are already in use. Set{' '}
+                        {fmtUsd(allocation.allocated)} or more, or reduce the member budgets first.
+                    </div>
+                ) : overallCap && allocation?.allocated > 0 ? (
+                    <div className="mt-3 text-xs text-ink-3">
+                        Members are already allotted {fmtUsd(allocation.allocated)} — the overall budget cannot be set below that.
+                    </div>
+                ) : null}
+                {exceedsOverall ? (
+                    <div className="mt-3 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs leading-relaxed text-danger">
+                        This exceeds the project&rsquo;s overall budget of {fmtUsd(overallHeadroom.cap)}. Members are already
+                        allotted {fmtUsd(overallHeadroom.allocated)}, leaving {fmtUsd(overallHeadroom.available)} to hand out.
+                        Raise the overall budget first, or add {fmtUsd(overallHeadroom.available)} or less.
+                    </div>
+                ) : overallHeadroom ? (
+                    <div className="mt-3 text-xs text-ink-3">
+                        {fmtUsd(overallHeadroom.available)} of the {fmtUsd(overallHeadroom.cap)} overall project budget is still unallotted.
+                    </div>
+                ) : null}
                 {effectivePolicy === 'soft' && !existingBudget ? (
                     <Field label="Overage % — how far past the limit the budget may go">
                         <Input
@@ -576,8 +984,7 @@ function AddBudgetCard({ project, members, models, modelsLoading, modelsError, o
                         />
                     </Field>
                 ) : null}
-            </Modal>
-        </>
+        </Modal>
     );
 }
 

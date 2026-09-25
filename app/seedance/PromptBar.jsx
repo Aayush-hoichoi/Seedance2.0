@@ -67,6 +67,104 @@ const DropIcon = () => (<svg {...ic} className="opacity-75"><path d="M12 3s6 6 6
 const MusicIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></svg>);
 const ImageIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" /></svg>);
 const FilmIcon = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="M7 4v16M17 4v16M2 9h5M2 15h5M17 9h5M17 15h5" /></svg>);
+// Project style ("the project's memory") — sized to sit inside a pill badge.
+const BrainIcon = () => (<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-black"><path d="M12 5a3 3 0 0 0-6 0 3 3 0 0 0-1 5.8A3 3 0 0 0 7 17a3 3 0 0 0 5 2.2V5Z" /><path d="M12 5a3 3 0 0 1 6 0 3 3 0 0 1 1 5.8A3 3 0 0 1 17 17a3 3 0 0 1-5 2.2V5Z" /></svg>);
+// Workspace workflows — three connected nodes.
+const WorkflowIcon = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="6" height="6" rx="1.5" /><rect x="15" y="15" width="6" height="6" rx="1.5" /><path d="M9 6h5a2 2 0 0 1 2 2v7" /></svg>);
+
+/* ── workspace workflows ─────────────────────────────────────────────────
+   Morphic-style picker: a pill that opens a card list. Attaching a workflow
+   makes every generation follow its style until detached — that is the whole
+   point: a short prompt plus the workflow replaces the hand-pasted brief. */
+function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, access, onAttach, onRequest, look, onChangeLook }) {
+    const open = openKey === 'workflows';
+    if (!workflows?.length) return null;
+    const looks = workflow?.style?.looks || [];
+    const gated = access !== 'approved'; // one approval unlocks every workflow
+    return (
+        <div className="relative">
+            <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : 'workflows'); }}
+                className={`${PILL} ${open || workflow ? PILL_ON : PILL_IDLE}`}
+            >
+                <span className={workflow ? 'text-primary' : 'text-white/65'}><WorkflowIcon /></span>
+                <span className={`text-xs font-semibold transition-colors ${open || workflow ? 'text-primary' : 'text-white/90 group-hover:text-primary'}`}>
+                    {workflow ? workflow.name : 'Workflows'}
+                </span>
+                <Chevron />
+            </button>
+            {open && (
+                <Popover>
+                    <div className="px-2 pb-1.5 text-[10px] font-bold uppercase tracking-wide text-white/50">Workflows</div>
+                    <div className="px-2 pb-2 max-w-[260px] text-[10px] leading-relaxed text-white/45">
+                        Attach a workflow and every generation follows its look and characters — a short prompt is enough.
+                    </div>
+                    {/* One approval unlocks everything: a single request
+                        banner instead of per-workflow buttons. */}
+                    {gated && (
+                        <div className="mx-2 mb-2 rounded-md border border-primary/20 bg-primary/[0.06] px-3 py-2.5">
+                            {access === 'pending' ? (
+                                <span className="text-[11px] font-semibold text-warn">Access requested — waiting for an admin to approve.</span>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={() => onRequest?.()}
+                                    className="w-full rounded-md border border-primary/40 bg-primary/10 px-2 py-1.5 text-[11px] font-bold text-primary transition-colors hover:bg-primary/20"
+                                >{access === 'denied' ? 'Request access again' : 'Request access to workflows'}</button>
+                            )}
+                        </div>
+                    )}
+                    <div className="flex flex-col gap-1">
+                        {workflows.map((w) => {
+                            const attached = w.id === workflow?.id;
+                            return (
+                                <button
+                                    key={w.id}
+                                    type="button"
+                                    disabled={gated}
+                                    onClick={() => { onAttach?.(attached ? null : w.id); if (!attached) setOpenKey(null); }}
+                                    className={`w-full text-left px-3 py-2.5 rounded-md transition-colors border ${attached ? 'bg-primary/15 border-primary/30' : 'border-transparent'} ${gated ? 'cursor-not-allowed opacity-45' : 'hover:bg-white/[0.06]'}`}
+                                >
+                                    <div className="flex items-center justify-between gap-2">
+                                        <span className={`text-sm font-semibold ${attached ? 'text-primary' : 'text-white/90'}`}>{w.name}</span>
+                                        {attached && <span className="text-[9px] font-bold uppercase tracking-wide text-primary">Attached</span>}
+                                    </div>
+                                    {w.description && <div className="mt-0.5 max-w-[260px] text-[11px] leading-snug text-white/45">{w.description}</div>}
+                                </button>
+                            );
+                        })}
+                    </div>
+                    {looks.length > 1 && (
+                        <div className="mt-2 border-t border-white/[0.06] px-2 pt-2">
+                            <div className="pb-1 text-[10px] font-bold uppercase tracking-wide text-white/50">Look</div>
+                            <div className="flex flex-wrap gap-1">
+                                {looks.map((l) => {
+                                    const active = (look || workflow.style.defaultLook) === l.key;
+                                    return (
+                                        <button
+                                            key={l.key}
+                                            type="button"
+                                            onClick={() => onChangeLook?.(l.key)}
+                                            className={`rounded-md px-2 py-1 text-[11px] transition-colors ${active ? 'bg-primary/15 text-primary font-semibold' : 'text-white/60 hover:bg-white/[0.06] hover:text-white'}`}
+                                        >{l.name}</button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+                    {workflow && (
+                        <button
+                            type="button"
+                            onClick={() => { onAttach?.(null); setOpenKey(null); }}
+                            className="mt-1.5 w-full rounded-md px-3 py-2 text-left text-xs text-white/50 transition-colors hover:bg-white/[0.06] hover:text-white"
+                        >Detach — stop applying this workflow</button>
+                    )}
+                </Popover>
+            )}
+        </div>
+    );
+}
 
 /* ── popover shell ──────────────────────────────────────────────────────── */
 function Popover({ children }) {
@@ -520,6 +618,9 @@ export default function PromptBar({
     imageStudio = false, onChangeImageModel,
     imageRefs = [], onUploadImageRefs, removeImageRef, reorderImageRefs,
     cinematic = null, onOpenCinematic,
+    projectStyle = null, styleLook = null, onChangeStyleLook,
+    workflows = [], workflow = null, workflowAccess = 'none', onAttachWorkflow, onRequestWorkflow,
+    workflowLook = null, onChangeWorkflowLook,
 }) {
     const isImage = mediaType === 'image';
     // Editing, extension and first/last-frame tasks take the output ratio from
@@ -853,6 +954,40 @@ export default function PromptBar({
 
                 {/* controls (selectors left, toggles right) + generate (own row, right) */}
                 <div className="flex flex-col gap-2 pt-2 border-t border-white/[0.03]">
+                    {/* Workspace workflows + project style. Above the image/
+                        video split because a style governs both media types.
+                        An attached workflow overrides the project style, so
+                        the project pill hides while one is attached. */}
+                    {(workflows.length > 0 || projectStyle?.looks?.length > 0) && (
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                            <WorkflowsPill
+                                openKey={openKey} setOpenKey={setOpenKey}
+                                workflows={workflows} workflow={workflow} access={workflowAccess}
+                                onAttach={onAttachWorkflow} onRequest={onRequestWorkflow}
+                                look={workflowLook} onChangeLook={onChangeWorkflowLook}
+                            />
+                    {!workflow && projectStyle?.looks?.length > 0 && (
+                            <PillSelect
+                                id="style" openKey={openKey} setOpenKey={setOpenKey}
+                                badge={<span className={`w-4 h-4 rounded flex items-center justify-center ${styleLook === 'none' ? 'bg-white/20' : 'bg-primary'}`}><BrainIcon /></span>}
+                                display={styleLook === 'none'
+                                    ? 'Style off'
+                                    : (projectStyle.looks.find((l) => l.key === (styleLook || projectStyle.defaultLook))?.name || 'Project style')}
+                                label="Project style"
+                                note="Applied automatically to every generation in this project, so the look stays consistent."
+                                value={styleLook || projectStyle.defaultLook}
+                                options={[
+                                    ...projectStyle.looks.map((l) => ({
+                                        value: l.key,
+                                        label: l.key === projectStyle.defaultLook ? `${l.name} (default)` : l.name,
+                                    })),
+                                    { value: 'none', label: 'No style — this generation only' },
+                                ]}
+                                onSelect={(v) => onChangeStyleLook?.(v)}
+                            />
+                    )}
+                        </div>
+                    )}
                     {isImage ? (
                     <div className="flex items-center gap-1.5 flex-wrap">
                         <PillSelect

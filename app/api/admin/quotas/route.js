@@ -1,12 +1,29 @@
 import { NextResponse } from 'next/server';
 import { gatewayContext, clientIp } from '../../../../lib/gateway/authz.js';
 import { apiError } from '../../../../lib/gateway/httpError.mjs';
-import { changeQuotaCapSafely, modelUsageForQuotas, writeAudit, usageForQuotas } from '../../../../lib/gateway/db.js';
+import { resolvePolicyEdit } from '../../../../lib/gateway/quota.mjs';
+import { changeQuotaCapSafely, changeQuotaScopeSafely, modelUsageForQuotas, overCommitsProject, projectAllocation, writeAudit, usageForQuotas } from '../../../../lib/gateway/db.js';
 
 export const runtime = 'nodejs';
 
 const TYPES = ['usd', 'credits', 'image_count', 'video_seconds', 'request_count'];
 const WINDOWS = ['daily', 'monthly', 'lifetime'];
+const POLICIES = ['hard', 'soft'];
+
+const usd = (n) => `$${Number(n).toFixed(2)}`;
+
+// Member budgets are carved out of the project's overall budget, so one that
+// would push the allotted total past it is refused rather than silently
+// over-committing the project.
+function overCommitError(v) {
+    return apiError('BUDGET_EXCEEDS_PROJECT_CAP',
+        `This exceeds the project's overall budget of ${usd(v.overallCap)}. Members are already allotted ${usd(v.allocated)}, leaving ${usd(v.available)} — raise the overall budget first.`,
+        v);
+}
+
+// The overall budget row itself: everyone, all models, USD, lifetime.
+const isOverallBudget = (q) => q.project_id != null && !q.user_id && !q.model_id
+    && q.type === 'usd' && q.window === 'lifetime';
 
 export async function GET(request) {
     const auth = await gatewayContext({ permission: 'quota.manage' });
@@ -75,9 +92,30 @@ export async function POST(request) {
         return apiError('BAD_REQUEST', 'Project budgets must use the lifetime window.');
     }
     const modelId = typeof b.modelId === 'string' && b.modelId.trim() ? b.modelId.trim() : null;
+    if (b.userId && !modelId) {
+        return apiError('BAD_REQUEST', 'Per-user budgets must name a specific model — all-models budgets for a user are disabled.');
+    }
     if (modelId) {
         const [model] = await sql`SELECT id FROM models WHERE id = ${modelId} AND active = true`;
         if (!model) return apiError('BAD_REQUEST', 'modelId must identify an active model.');
+    }
+    // The upsert below ADDS to any existing budget for this scope, so the
+    // amount asked for is the delta against the project's allotted total.
+    const overCommit = await overCommitsProject(sql, {
+        projectId: b.projectId ?? null, userId: b.userId ?? null, type: b.type, window: b.window,
+        nextLimit: Number(b.hardLimit),
+    });
+    if (overCommit) return overCommitError(overCommit);
+    // Setting the overall budget for the first time has the mirror constraint:
+    // it cannot open below the member budgets already carved out of it.
+    if (isOverallBudget({ project_id: b.projectId ?? null, user_id: b.userId ?? null, model_id: modelId, type: b.type, window: b.window })) {
+        const { overallCap, allocated } = await projectAllocation(sql, b.projectId);
+        const resulting = (overallCap ?? 0) + Number(b.hardLimit);
+        if (resulting < allocated) {
+            return apiError('BUDGET_BELOW_ALLOCATIONS',
+                `Members of this project are already allotted ${usd(allocated)}. The overall budget must be at least that much — ${usd(resulting)} would strand budgets that are already in use.`,
+                { allocated, requested: resulting });
+        }
     }
     // The active-scope unique index makes this safe under concurrent requests:
     // if another admin creates the same scope after the preview loaded, this
@@ -128,8 +166,102 @@ export async function PATCH(request) {
     const [before] = await sql`SELECT * FROM quotas WHERE id = ${id} AND deleted_at IS NULL`;
     if (!before) return apiError('NOT_FOUND', 'Budget not found.');
 
-    // Absolute cap correction. Scope, type, window and policy deliberately stay
-    // immutable here; this action only repairs an accidental allocation.
+    // Model-scope change (widen to all models, or move/narrow to one model).
+    // Usage re-attributes itself from billing_events on the next read, so a
+    // widened budget can wake up over-cap — that is by design; the console
+    // previews the jump before saving. Narrowing frees headroom, so it needs a
+    // reason, like cap reductions below.
+    if (Object.hasOwn(body, 'newModelId')) {
+        if (!Object.hasOwn(body, 'expectedModelId')) {
+            return apiError('BAD_REQUEST', 'expectedModelId is required (null means all models).');
+        }
+        const newModelId = typeof body.newModelId === 'string' && body.newModelId.trim() ? body.newModelId.trim() : null;
+        const expectedModelId = typeof body.expectedModelId === 'string' && body.expectedModelId.trim() ? body.expectedModelId.trim() : null;
+        const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+        if ((before.model_id ?? null) !== expectedModelId) {
+            return apiError('BUDGET_CONFLICT', 'This budget was changed by another admin. Review the latest values and try again.', {
+                currentModelId: before.model_id ?? null,
+            });
+        }
+        if ((before.model_id ?? null) === newModelId) {
+            return apiError('BAD_REQUEST', 'The new model scope must differ from the current scope.');
+        }
+        if (before.user_id && !newModelId) {
+            return apiError('BAD_REQUEST', 'A per-user budget cannot be widened to all models — all-models budgets for a user are disabled.');
+        }
+        if (newModelId) {
+            const [model] = await sql`SELECT id FROM models WHERE id = ${newModelId} AND active = true`;
+            if (!model) return apiError('BAD_REQUEST', 'newModelId must identify an active model.');
+            if (reason.length < 3) {
+                return apiError('BAD_REQUEST', 'A short reason is required when scoping a budget to one model — it frees the other models\' spend.');
+            }
+        }
+        if (reason.length > 500) {
+            return apiError('BAD_REQUEST', 'The reason must be 500 characters or fewer.');
+        }
+        // Widening an everyone budget to all models turns it INTO the project's
+        // overall budget, so its cap has to clear what members already hold.
+        if (isOverallBudget({ ...before, model_id: newModelId })) {
+            const { allocated } = await projectAllocation(sql, before.project_id);
+            if (Number(before.hard_limit) < allocated) {
+                return apiError('BUDGET_BELOW_ALLOCATIONS',
+                    `Widening this to all models makes it the project's overall budget, but members are already allotted ${usd(allocated)} — more than its ${usd(before.hard_limit)} cap.`,
+                    { allocated, requested: Number(before.hard_limit) });
+            }
+        }
+
+        // Usage under both scopes, recorded in the audit row: the permanent
+        // explanation of why this budget's "used" figure jumped or dropped.
+        const { usedByQuota, reservedByQuota } = await usageForQuotas(sql, [
+            { ...before, id: 'old' },
+            { ...before, id: 'new', model_id: newModelId },
+        ]);
+        const usage = {
+            before: { used: usedByQuota.old ?? 0, reserved: reservedByQuota.old ?? 0 },
+            after: { used: usedByQuota.new ?? 0, reserved: reservedByQuota.new ?? 0 },
+        };
+
+        let quota;
+        try {
+            quota = await changeQuotaScopeSafely(sql, {
+                id, newModelId, before, actor: user, reason: reason || null, ip: clientIp(request), usage,
+            });
+        } catch (error) {
+            // The unique active-scope index can still fire if another flow that
+            // does not take the scope advisory locks (e.g. POST upsert) inserts
+            // the target scope concurrently.
+            if (error?.code === '23505' || /duplicate key/i.test(error?.message || '')) {
+                return apiError('SCOPE_CONFLICT', 'A budget already covers that scope — top it up or delete it first.');
+            }
+            throw error;
+        }
+        if (!quota) {
+            const [current] = await sql`SELECT * FROM quotas WHERE id = ${id} AND deleted_at IS NULL`;
+            if (!current) return apiError('NOT_FOUND', 'Budget not found.');
+            if ((current.model_id ?? null) !== expectedModelId) {
+                return apiError('BUDGET_CONFLICT', 'This budget was changed by another admin. Review the latest values and try again.', {
+                    currentModelId: current.model_id ?? null,
+                });
+            }
+            const [colliding] = await sql`SELECT id, hard_limit FROM quotas
+                WHERE id <> ${id} AND deleted_at IS NULL
+                  AND project_id IS NOT DISTINCT FROM ${current.project_id}
+                  AND user_id IS NOT DISTINCT FROM ${current.user_id}
+                  AND model_id IS NOT DISTINCT FROM ${newModelId}
+                  AND type = ${current.type} AND "window" = ${current.window}`;
+            if (colliding) {
+                return apiError('SCOPE_CONFLICT', 'A budget already covers that scope — top it up or delete it first.', {
+                    existingBudgetId: colliding.id, existingHardLimit: Number(colliding.hard_limit),
+                });
+            }
+            return apiError('BUDGET_CONFLICT', 'This budget changed while you were saving. Refresh and try again.');
+        }
+        return NextResponse.json({ ...quota, used: usage.after.used, reserved: usage.after.reserved });
+    }
+
+    // Absolute cap correction, and the enforcement policy that goes with it:
+    // hard rejects at the limit, soft allows the overage %. Type and window stay
+    // immutable here; model scope changes go through the newModelId branch above.
     if (body?.newHardLimit != null) {
         const newHardLimit = Number(body.newHardLimit);
         const expectedHardLimit = Number(body.expectedHardLimit);
@@ -141,14 +273,22 @@ export async function PATCH(request) {
         if (['image_count', 'request_count'].includes(before.type) && !Number.isInteger(newHardLimit)) {
             return apiError('BAD_REQUEST', `${before.type} budgets require a whole-number cap.`);
         }
+        const edit = resolvePolicyEdit(body, before);
+        if (edit.error === 'policy') {
+            return apiError('BAD_REQUEST', `newPolicy must be one of ${POLICIES.join('|')}.`);
+        }
+        if (edit.error === 'overage') {
+            return apiError('BAD_REQUEST', 'newSoftOveragePct must be a whole number between 1 and 50.');
+        }
+        const { policy: newPolicy, softOveragePct: newSoftOveragePct, changed: policyChanged } = edit;
 
         if (currentHardLimit !== expectedHardLimit) {
             return apiError('BUDGET_CONFLICT', 'This budget was changed by another admin. Review the latest values and try again.', {
                 currentHardLimit,
             });
         }
-        if (newHardLimit === currentHardLimit) {
-            return apiError('BAD_REQUEST', 'The new cap must differ from the current cap.');
+        if (newHardLimit === currentHardLimit && !policyChanged) {
+            return apiError('BAD_REQUEST', 'Change the cap or the policy — nothing here differs from the current budget.');
         }
         if (newHardLimit < currentHardLimit && reason.length < 3) {
             return apiError('BAD_REQUEST', 'A short reason is required when reducing a budget.');
@@ -156,11 +296,30 @@ export async function PATCH(request) {
         if (reason.length > 500) {
             return apiError('BAD_REQUEST', 'The reason must be 500 characters or fewer.');
         }
+        // Raising a member budget must stay inside the project's overall
+        // budget; lowering the overall budget must not strand the member
+        // budgets already carved out of it. Same invariant, both directions.
+        if (isOverallBudget(before)) {
+            const { allocated } = await projectAllocation(sql, before.project_id);
+            if (newHardLimit < allocated) {
+                return apiError('BUDGET_BELOW_ALLOCATIONS',
+                    `Members are already allotted ${usd(allocated)} of this project. Reduce their budgets before lowering the overall budget to ${usd(newHardLimit)}.`,
+                    { allocated, requested: newHardLimit });
+            }
+        } else {
+            const overCommit = await overCommitsProject(sql, {
+                projectId: before.project_id, userId: before.user_id, type: before.type, window: before.window,
+                quotaId: id, nextLimit: newHardLimit,
+            });
+            if (overCommit) return overCommitError(overCommit);
+        }
 
         const quota = await changeQuotaCapSafely(sql, {
             id,
             newHardLimit,
             expectedHardLimit,
+            newPolicy,
+            newSoftOveragePct,
             before,
             actor: user,
             reason: reason || null,
@@ -197,6 +356,12 @@ export async function PATCH(request) {
     if (['image_count', 'request_count'].includes(before.type) && !Number.isInteger(addAmount)) {
         return apiError('BAD_REQUEST', `${before.type} budgets require a whole-number amount.`);
     }
+    // A top-up is a delta, so nothing is excluded from the allotted total.
+    const topUpOverCommit = await overCommitsProject(sql, {
+        projectId: before.project_id, userId: before.user_id, type: before.type, window: before.window,
+        nextLimit: addAmount,
+    });
+    if (topUpOverCommit) return overCommitError(topUpOverCommit);
     const [quota] = await sql`UPDATE quotas
         SET hard_limit = hard_limit + ${addAmount}
         WHERE id = ${id} AND deleted_at IS NULL
