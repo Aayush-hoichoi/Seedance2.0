@@ -14,6 +14,7 @@ import { buildTags, modeSupportsTags, normalizePromptForApi, restorePromptTokens
 import { getAsset, isAssetGone, resolveMediaRefs, cleanupOldAssets, registerAssetFromUrl } from '../../lib/seedance/assetsClient.js';
 import { ASSET_TTL_MS } from '../../lib/seedance/assetTtl.mjs';
 import { useEvents } from '../hooks/useEvents.js';
+import ExrProgressCard from '../tools/exr/ExrProgressCard.jsx';
 import { enhancePrompt } from '../../lib/seedance/enhance.js';
 import { friendlyError } from '../../lib/seedance/friendlyError.js';
 import { moveItem } from '../../lib/seedance/reorder.mjs';
@@ -754,7 +755,12 @@ export default function SeedanceStudio() {
                 if (attempt < 359) continue;
                 throw new Error(result?.error || `EXR status failed (${poll.status}).`);
             }
-            if (result?.status === 'queued' || result?.status === 'processing') continue;
+            if (result?.status === 'queued' || result?.status === 'processing') {
+                // Live progress from the server: real stage, queue position,
+                // and elapsed-vs-typical duration (see ExrProgressCard).
+                if (result.progress) patchJob(job.id, { exrProgress: result.progress });
+                continue;
+            }
             if (result?.status === 'failed') throw new Error(result.error || 'BytePlus EXR enhancement failed.');
             if (result?.status === 'cancelled') throw new Error('The EXR job was cancelled by an administrator.');
             if (result?.status === 'succeeded' && result.url) {
@@ -3077,7 +3083,7 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                                 {exrAccess?.granted ? 'EXR' : exrAccess?.status === 'pending' ? 'EXR access pending' : 'Request EXR access'}
                             </button>
                             {(job.exrStatus === 'submitting' || job.exrStatus === 'processing') && (
-                                <p className="text-[11px] leading-relaxed text-ink-3">Generating 16-bit EXR…</p>
+                                <ExrProgressCard progress={job.exrProgress} />
                             )}
                             {job.exrStatus === 'failed' && job.exrError && (
                                 <>
@@ -3232,7 +3238,7 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                             </div>
                         )}
                         {(job.exrStatus === 'submitting' || job.exrStatus === 'processing') && (
-                            <p className="mt-4 text-xs text-ink-3">EXR is processing — you can keep this window open while we check the status.</p>
+                            <div className="mt-4"><ExrProgressCard progress={job.exrProgress} /></div>
                         )}
 
                         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
