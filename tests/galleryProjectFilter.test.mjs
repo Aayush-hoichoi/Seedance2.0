@@ -48,6 +48,7 @@ async function fixture() {
         VALUES ('video-a', 'video A', false), ('video-b', 'video B', true);
         INSERT INTO exr_jobs (user_id, request_body, status, result, finished_at)
         VALUES ('u1', '{"_gallery":{"sourceTaskId":"video-a"}}', 'succeeded', '{"url":"https://byteplus.example/video-a.exr"}', '2026-09-20T13:00:00Z');
+        VALUES ('u1', '{"_gallery":{"sourceTaskId":"video-a"},"_billing":{"sourceTaskId":"video-a"}}', 'succeeded', '{"url":"https://byteplus.example/video-a.exr"}', '2026-09-20T13:00:00Z');
     `);
     return { db, sql: neonLike(db) };
 }

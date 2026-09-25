@@ -27,17 +27,20 @@ export default function RequestsClient() {
     const budgets = useApi('/api/admin/budget-requests', { refreshInterval: 30_000, revalidateOnFocus: true });
     const projects = useApi('/api/admin/project-requests', { refreshInterval: 30_000, revalidateOnFocus: true });
     const exr = useApi('/api/admin/exr-queue', { refreshInterval: 30_000, revalidateOnFocus: true });
+    const workflows = useApi('/api/admin/workflow-requests', { refreshInterval: 30_000, revalidateOnFocus: true });
 
     const accessPending = (access.data?.requests ?? []).filter((r) => r.status === 'pending' || (r.status === 'approved' && r.pending_max_resolution));
     const budgetPending = (budgets.data?.requests ?? []).filter((r) => r.status === 'pending').length;
     const projectPending = (projects.data?.requests ?? []).length;
     const exrPending = (exr.data?.accessRequests ?? []).filter((r) => r.status === 'pending');
+    const workflowPending = workflows.data?.requests ?? [];
 
     const TABS = [
         { id: 'access', label: 'Model access', count: accessPending.length },
         { id: 'budgets', label: 'Budgets', count: budgetPending },
         { id: 'projects', label: 'Projects', count: projectPending },
         { id: 'exr', label: 'EXR access', count: exrPending.length },
+        { id: 'workflows', label: 'Workflows', count: workflowPending.length },
     ];
 
     return (
@@ -58,7 +61,43 @@ export default function RequestsClient() {
             {tab === 'budgets' && <BudgetRequestsClient embedded />}
             {tab === 'projects' && <ProjectsTab requests={projects.data?.requests ?? []} mutate={projects.mutate} />}
             {tab === 'exr' && <ExrAccessTab requests={exrPending} mutate={exr.mutate} />}
+            {tab === 'workflows' && <WorkflowAccessTab requests={workflowPending} mutate={workflows.mutate} />}
         </div>
+    );
+}
+
+// Workflow access — one request per user; approving unlocks EVERY workflow
+// for the requester in the studio's Workflows picker.
+function WorkflowAccessTab({ requests, mutate }) {
+    async function decide(userId, action) {
+        const r = await sendJson('/api/admin/workflow-requests', 'PATCH', { userId, action });
+        if (!r.ok) return toast.error(r.data?.error || 'Could not decide the workflow request.');
+        toast.success(action === 'approve' ? 'Workflow access approved.' : 'Workflow access denied.');
+        mutate();
+    }
+    if (!requests.length) {
+        return <EmptyState icon={Inbox} title="No pending workflow requests" hint="Users request access from the studio's Workflows picker; one approval unlocks every workflow for them." />;
+    }
+    return (
+        <Card>
+            <ul className="divide-y divide-line/60">
+                {requests.map((r) => (
+                    <li key={r.user_id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                        <div className="min-w-0 text-sm">
+                            <div className="font-medium text-ink">{r.user_email || r.user_id}</div>
+                            <div className="text-xs text-ink-3">
+                                Wants access to all workflows{r.note ? ` · ${r.note}` : ''} · {timeAgo(r.created_at)}
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Badge tone="amber">pending</Badge>
+                            <Button variant="primary" size="xs" onClick={() => decide(r.user_id, 'approve')}>Approve</Button>
+                            <Button variant="outline" size="xs" onClick={() => decide(r.user_id, 'deny')}>Deny</Button>
+                        </div>
+                    </li>
+                ))}
+            </ul>
+        </Card>
     );
 }
 

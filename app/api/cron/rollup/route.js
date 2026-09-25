@@ -4,6 +4,7 @@ import { sweep } from '../../../../lib/gateway/sweep.mjs';
 import { cleanupOldAssets } from '../../../../lib/byteplus/assetsServer.js';
 import { backfillTeamsCards } from '../../../../lib/notify/teamsBackfill.mjs';
 import { drainExrQueue } from '../../../../scripts/exr-queue-worker.mjs';
+import { refreshWorkflowStyles } from '../../../../lib/gateway/workflowRefresh.mjs';
 
 // The single daily Vercel cron (Hobby plan allows 1/day): materializes
 // yesterday's billing events into usage_rollups_daily and runs a forced
@@ -72,5 +73,12 @@ export async function GET(request) {
     await drainExrQueue({ maxMs: 60_000 })
         .catch((error) => { console.error('[exr-worker] cron drain failed:', error.message); });
 
-    return NextResponse.json({ ok: true, rolledUp: rows.length, sweptAssets, teamsCards });
+    // Nightly workflow self-refresh: fold the day's LIKED generations back
+    // into each workflow's style (new version + audit row; guardrailed in
+    // workflowRefresh.mjs). Riding this job because vercel.json is on the
+    // Hobby one-cron-per-day limit. Best-effort like its siblings.
+    const workflowRefresh = await refreshWorkflowStyles(sql)
+        .catch((error) => { console.error('[workflows] cron refresh failed:', error.message); return null; });
+
+    return NextResponse.json({ ok: true, rolledUp: rows.length, sweptAssets, teamsCards, workflowRefresh });
 }

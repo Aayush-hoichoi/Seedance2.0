@@ -77,14 +77,29 @@ test('an exhausted personal hard limit blocks even while the shared project budg
     assert.equal(row, null, 'the user limit must bind independently of the shared project budget');
 });
 
-test('an exhausted shared project budget blocks despite personal headroom', async () => {
+test('an exhausted per-model shared pool is topped up by a personal budget with headroom', async () => {
     const sql = await reservationDb();
-    await addQuota(sql, { userId: null, limit: 100 });
+    // An everyone pool scoped to ONE model — not the project's overall cap.
+    await addQuota(sql, { userId: null, modelId: 'seedance', limit: 100 });
     await addQuota(sql, { userId: 'neha', limit: 500 });
     await settle(sql, { userId: 'other', usd: 99 });            // shared pool drained by the team
 
     const row = await reserve(sql, 5);
-    assert.equal(row, null, 'the project limit must bind independently of personal headroom');
+    assert.ok(row, 'personal budget should top up the drained per-model pool');
+});
+
+// The SQL half of the rule in evaluateQuotas (quota.mjs). evaluateQuotas runs
+// first and rejects with a friendly message, but THIS is the atomic check that
+// two simultaneous requests serialize on — if it still forgave the overall cap,
+// the cap would be the one budget a race could walk past.
+test('the project overall cap is never forgiven by a personal budget with headroom', async () => {
+    const sql = await reservationDb();
+    await addQuota(sql, { userId: null, limit: 100 });          // overall cap: everyone, every model
+    await addQuota(sql, { userId: 'neha', limit: 500 });        // personal wallet with plenty of room
+    await settle(sql, { userId: 'other', usd: 99 });            // cap drained by the team
+
+    const row = await reserve(sql, 5);
+    assert.equal(row, null, 'the overall cap binds despite personal headroom');
 });
 
 test('blocks when multiple layered hard limits are exhausted', async () => {

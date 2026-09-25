@@ -92,6 +92,12 @@ export async function POST(request, { params }) {
         user,
         projectId: Number(request.headers.get('x-seedance-project')) || null,
         mode: request.headers.get('x-seedance-mode') || null,
+        // Which project style look to apply, or 'none' to skip it for this one
+        // generation. Absent means the project's default look.
+        styleLook: request.headers.get('x-seedance-style-look') || null,
+        // The workspace workflow the user attached in the studio; its style
+        // overrides the project's own for this generation.
+        workflowId: Number(request.headers.get('x-seedance-workflow')) || null,
         request: parsed ?? {},
     });
     return NextResponse.json(result.body, { status: result.status });

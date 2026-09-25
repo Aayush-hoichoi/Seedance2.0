@@ -242,6 +242,48 @@ export default function SeedanceStudio() {
     const [projectId, setProjectId] = useState(null);
     const [projectsLoaded, setProjectsLoaded] = useState(false); // false → don't render the rail yet
     const [canManageProjects, setCanManageProjects] = useState(false); // admins/managers may create projects
+    // Workspace workflows: named reusable styles, independent of any project.
+    // The attached one governs every generation (image and video) until
+    // detached, so a short prompt is enough — the workflow carries the look.
+    // The attachment lives on the SERVER (users.workflow_id), so it follows
+    // the user across browsers/devices and MCP/API calls inherit it.
+    const [workflows, setWorkflows] = useState([]);
+    const [workflowId, setWorkflowId] = useState(null);
+    const [workflowLook, setWorkflowLook] = useState(null); // null = the workflow's default look
+    // One admin approval unlocks every workflow. Only with approved access
+    // does the stored attachment count — a revoked grant leaves the id
+    // behind, and the gateway ignores it the same way.
+    const [workflowAccess, setWorkflowAccess] = useState('none');
+    const workflow = workflowAccess === 'approved'
+        ? workflows.find((w) => w.id === workflowId) || null
+        : null;
+    const requestWorkflow = async () => {
+        const r = await fetch('/api/workflows', { method: 'POST' }).catch(() => null);
+        const d = await r?.json().catch(() => null);
+        if (d?.access) setWorkflowAccess(d.access);
+    };
+    const attachWorkflow = (id) => {
+        setWorkflowId(id); // optimistic — the PATCH below persists it
+        setWorkflowLook(null); // a fresh attachment starts on the workflow's default look
+        fetch('/api/workflows', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ workflowId: id }),
+        }).catch(() => {});
+    };
+    useEffect(() => {
+        let alive = true;
+        fetch('/api/workflows')
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => {
+                if (!alive) return;
+                if (Array.isArray(d?.items)) setWorkflows(d.items);
+                setWorkflowId(d?.attachedId ?? null);
+                setWorkflowAccess(d?.access ?? 'none');
+            })
+            .catch(() => {});
+        return () => { alive = false; };
+    }, []);
     const [spendRank, setSpendRank] = useState(null); // workspace-wide current-month leaderboard position
     const [permsVersion, setPermsVersion] = useState(0); // bump → refetch access
     const [budgetVersion, setBudgetVersion] = useState(0); // settlement/release → refresh remaining balance
@@ -1199,7 +1241,9 @@ export default function SeedanceStudio() {
         // pre-flight (resolveMediaRefs), so nothing raw reaches ModelArk's scan.
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
-                const taskId = await createTask(payload, creation.modeId ?? modeId, projectId);
+                const created = await createTask(payload, creation.modeId ?? modeId, projectId,
+                    workflow ? workflowLook : null, workflow?.id ?? null);
+                const taskId = created.id;
                 savePrompt(taskId, promptText); // survives any history wipe
                 savePromptRecord({
                     taskId,
@@ -1212,7 +1256,15 @@ export default function SeedanceStudio() {
                 // submitAttempts survives on the job so an issue report filed
                 // later can say how many submit retries this cost, not just how
                 // many times the user pressed Generate.
-                patchJob(job.id, { taskId, status: 'queued', submitAttempts: attempt });
+                // styleApplied is the SERVER's word that a workflow/project
+                // style was composed into the prompt — shown as a tag on the
+                // card so nobody has to guess whether the attachment worked.
+                patchJob(job.id, {
+                    taskId, status: 'queued', submitAttempts: attempt,
+                    styleApplied: created.style
+                        ? { ...created.style, name: workflows.find((w) => w.id === created.style.workflowId)?.name ?? null }
+                        : null,
+                });
                 watchJob(job.id, taskId);
                 return;
             } catch (e) {
@@ -1338,6 +1390,9 @@ export default function SeedanceStudio() {
                         // ChatGPT Image 2.5 only (models declaring variants/qualities).
                         variant: imgModelDef?.variants ? (options.imageVariant || null) : null,
                         quality: imgModelDef?.qualities ? (options.imageQuality || null) : null,
+                        // Attached workspace workflow: its style governs this
+                        // generation (overrides the project's own style).
+                        ...(workflow ? { styleWorkflowId: workflow.id, ...(workflowLook ? { styleLook: workflowLook } : {}) } : {}),
                     },
                 }),
             });
@@ -1346,6 +1401,11 @@ export default function SeedanceStudio() {
                 patchJob(job.id, { status: 'error', error: data?.error?.message || data?.message || 'Image generation could not start.' });
                 return;
             }
+            patchJob(job.id, {
+                styleApplied: data.style
+                    ? { ...data.style, name: workflows.find((w) => w.id === data.style.workflowId)?.name ?? null }
+                    : null,
+            });
             pollImageJob(job.id, data.generationId);
         } catch (e) {
             patchJob(job.id, { status: 'error', error: e.message });
@@ -2238,6 +2298,13 @@ export default function SeedanceStudio() {
                 reorderImageRefs={reorderImageRefs}
                 cinematic={cinematic}
                 onOpenCinematic={() => setShowCinematic(true)}
+                workflows={workflows}
+                workflow={workflow}
+                workflowAccess={workflowAccess}
+                onAttachWorkflow={attachWorkflow}
+                onRequestWorkflow={requestWorkflow}
+                workflowLook={workflowLook}
+                onChangeWorkflowLook={setWorkflowLook}
             />
 
             <CinematicPanel
@@ -2284,6 +2351,21 @@ export default function SeedanceStudio() {
                 />
             )}
         </div>
+    );
+}
+
+// "✓ <workflow> applied" — the SERVER's confirmation (from the create
+// response) that a style was composed into this generation's prompt. Absent
+// means no style fired, so an attached-but-skipped workflow is visible too.
+function StyleTag({ styleApplied, compact }) {
+    if (!styleApplied) return null;
+    const name = styleApplied.name || 'Project style';
+    const title = `${name} applied (${styleApplied.look} look)`;
+    return (
+        <span
+            title={title}
+            className={`inline-flex items-center gap-1 rounded-full bg-primary/90 font-bold text-black backdrop-blur-sm ${compact ? 'px-1 py-px text-[8px]' : 'px-2 py-0.5 text-[10px]'}`}
+        >✓{compact ? '' : ` ${name}`}</span>
     );
 }
 
@@ -2352,6 +2434,7 @@ function BigStage({ job, onCancel, onFullscreen, onReuse, onRefresh, onReportIss
                                 }}
                                 className="w-full max-h-[82vh] object-contain bg-black"
                             />
+                            {job.styleApplied && <div className="absolute top-3 left-3"><StyleTag styleApplied={job.styleApplied} /></div>}
                             <div className="absolute top-3 right-3 flex gap-2">
                                 <button type="button" onClick={onFullscreen} title="Fullscreen" className="p-2 rounded-full bg-black/60 border border-white/10 text-white/80 hover:text-white hover:bg-black/80 transition-colors backdrop-blur-sm">
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 3H5a2 2 0 00-2 2v3M16 3h3a2 2 0 012 2v3M16 21h3a2 2 0 002-2v-3M8 21H5a2 2 0 01-2-2v-3" /></svg>
@@ -2725,6 +2808,9 @@ function HistoryRail({ jobs, selectedId, onSelect, onRemove, onToggleLike, onRef
                                         <span className="text-[9px] text-danger leading-tight line-clamp-3" title={job.error || undefined}>{friendlyError(job.error) || 'Failed'}</span>
                                     )}
                                 </div>
+                            )}
+                            {job.styleApplied && (
+                                <div className="absolute bottom-1 left-1"><StyleTag styleApplied={job.styleApplied} compact /></div>
                             )}
                             {/* Like mark — top-left, opposite the remove cross. Stays
                                 lit once liked; otherwise reveals on hover like the X. */}

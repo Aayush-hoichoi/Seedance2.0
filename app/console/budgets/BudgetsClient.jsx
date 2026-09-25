@@ -4,7 +4,7 @@ import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { PageHeader, Card, Badge, Button, Modal, Field, Input, Select, ProgressBar, EmptyState } from '../ui.jsx';
 import { useApi, sendJson, fmtUsd, fmtInt } from '../lib.js';
-import { Wallet, Plus, Trash2, History } from 'lucide-react';
+import { Wallet, Plus, Trash2, Pencil, History } from 'lucide-react';
 
 const TYPES = [
     ['usd', 'Dollars (USD)'], ['image_count', 'Image count'],
@@ -22,6 +22,41 @@ export default function BudgetsClient() {
     const [form, setForm] = useState({ type: 'usd', window: 'lifetime', hardLimit: '', policy: 'hard', softOveragePct: 5, projectId: '', userId: '', modelId: '' });
     const [toHistory, setToHistory] = useState(null);
     const history = useApi(toHistory ? `/api/admin/quotas?historyFor=${toHistory.id}` : null);
+    const [toRescope, setToRescope] = useState(null);
+    const [rescopeModel, setRescopeModel] = useState('');
+    const [rescopeReason, setRescopeReason] = useState('');
+    const [rescoping, setRescoping] = useState(false);
+
+    // Rescope preview: same billing-event math that enforces the saved budget,
+    // fetched only once the selection actually differs from the current scope.
+    const rescopeChanged = !!toRescope && (rescopeModel || null) !== (toRescope.model_id || null);
+    const rescopeNarrowing = rescopeChanged && !!rescopeModel;
+    const rescopePreview = useApi(rescopeChanged
+        ? `/api/admin/quotas/preview?type=${toRescope.type}&window=${toRescope.window}`
+          + (toRescope.project_id ? `&projectId=${toRescope.project_id}` : '')
+          + (toRescope.user_id ? `&userId=${encodeURIComponent(toRescope.user_id)}` : '')
+          + (rescopeModel ? `&modelId=${encodeURIComponent(rescopeModel)}` : '')
+        : null);
+
+    function openRescope(q) {
+        setToRescope(q);
+        setRescopeModel(q.model_id || '');
+        setRescopeReason('');
+    }
+    async function rescope() {
+        setRescoping(true);
+        const r = await sendJson('/api/admin/quotas', 'PATCH', {
+            id: toRescope.id,
+            newModelId: rescopeModel || null,
+            expectedModelId: toRescope.model_id || null,
+            reason: rescopeReason.trim() || undefined,
+        });
+        setRescoping(false);
+        if (!r.ok) return toast.error(r.data?.message || 'Failed');
+        toast.success('Scope changed — enforced on the next request');
+        setToRescope(null);
+        quotas.mutate();
+    }
 
     async function create() {
         const r = await sendJson('/api/admin/quotas', 'POST', {
@@ -90,6 +125,7 @@ export default function BudgetsClient() {
                                             <div className="flex items-center gap-1.5">
                                                 <Badge tone={q.policy === 'hard' ? 'red' : 'amber'}>{q.policy}{q.policy === 'soft' ? ` +${q.soft_overage_pct}%` : ''}</Badge>
                                                 <Button variant="ghost" size="xs" title="Change history" onClick={() => setToHistory(q)}><History size={13} /></Button>
+                                                <Button variant="ghost" size="xs" title="Change model scope" onClick={() => openRescope(q)}><Pencil size={13} /></Button>
                                                 <Button variant="ghost" size="xs" title="Delete budget" onClick={() => setToRemove(q)}><Trash2 size={13} className="text-danger" /></Button>
                                             </div>
                                         </div>
@@ -113,7 +149,7 @@ export default function BudgetsClient() {
             <Modal open={open} onOpenChange={setOpen} title="New budget"
                 footer={<>
                     <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-                    <Button variant="primary" onClick={create} disabled={!(Number(form.hardLimit) > 0)}>Create</Button>
+                    <Button variant="primary" onClick={create} disabled={!(Number(form.hardLimit) > 0) || (!!form.userId && !form.modelId)}>Create</Button>
                 </>}>
                 <p className="mb-3 text-xs leading-relaxed text-ink-3">
                     A budget caps spend or usage <span className="text-ink-2">before a job runs</span>. Scope it to a
@@ -156,11 +192,11 @@ export default function BudgetsClient() {
                             {(users.data?.users ?? []).map((u) => <option key={u.id} value={u.id}>{u.email || u.name || u.id}</option>)}
                         </Select>
                     </Field>
-                    <Field label="Model (blank = all models)">
+                    <Field label={form.userId ? 'Model (required for user budgets)' : 'Model (blank = all models)'}>
                         <Select className="w-full" value={form.modelId} disabled={!modelItems.length}
                             onChange={(e) => setForm({ ...form, modelId: e.target.value })}>
                             <option value="">
-                                {models.error ? 'Could not load models' : models.isLoading ? 'Loading models…' : '—'}
+                                {models.error ? 'Could not load models' : models.isLoading ? 'Loading models…' : form.userId ? 'Select a model…' : '—'}
                             </option>
                             {modelItems.map((m) => <option key={m.id} value={m.id}>{m.display_name} · {m.category}</option>)}
                         </Select>
@@ -178,6 +214,60 @@ export default function BudgetsClient() {
                         ? 'Requests past the limit are rejected.'
                         : `Allows a ~${form.softOveragePct}% overage, then just warns.`}
                 </div>
+            </Modal>
+            <Modal open={!!toRescope} onOpenChange={(nextOpen) => { if (!nextOpen && !rescoping) setToRescope(null); }}
+                title="Change model scope"
+                footer={<>
+                    <Button variant="outline" onClick={() => setToRescope(null)} disabled={rescoping}>Cancel</Button>
+                    <Button variant="primary" onClick={rescope} loading={rescoping}
+                        disabled={!rescopeChanged || (rescopeNarrowing && rescopeReason.trim().length < 3) || !!rescopePreview.data?.existingBudget}>
+                        Change scope
+                    </Button>
+                </>}>
+                {toRescope ? (() => {
+                    const p = rescopePreview.data;
+                    const cap = Number(toRescope.hard_limit);
+                    const after = p ? Number(p.used) + Number(p.reserved) : null;
+                    return (
+                        <>
+                            <p className="mb-3 text-xs leading-relaxed text-ink-3">
+                                Usage always re-counts under the budget's <span className="text-ink-2">current</span> scope, so
+                                widening to all models can instantly consume the cap with spend from other models, and narrowing
+                                to one model frees the rest — which is why narrowing needs a reason.
+                            </p>
+                            <Field label={toRescope.user_id ? 'Model (user budgets need one model)' : 'Model (blank = all models)'}>
+                                <Select className="w-full" value={rescopeModel} onChange={(e) => setRescopeModel(e.target.value)}>
+                                    {/* A per-user budget can narrow to a model but never widen back
+                                        to all models; keep the option visible (it may be the current
+                                        scope on older budgets) but unselectable. */}
+                                    <option value="" disabled={!!toRescope.user_id}>— all models —</option>
+                                    {modelItems.map((m) => <option key={m.id} value={m.id}>{m.display_name} · {m.category}</option>)}
+                                </Select>
+                            </Field>
+                            {rescopeNarrowing ? (
+                                <Field label="Reason — required when narrowing to one model">
+                                    <Input value={rescopeReason} onChange={(e) => setRescopeReason(e.target.value)} placeholder="Why this budget should stop covering the other models" />
+                                </Field>
+                            ) : null}
+                            {rescopeChanged ? (
+                                p?.existingBudget ? (
+                                    <div className="mt-3 rounded-md border border-danger/40 bg-danger/5 px-3 py-2 text-xs leading-relaxed text-danger">
+                                        A budget already covers that scope ({fmt(toRescope, p.existingBudget.hardLimit)} cap).
+                                        Top that one up or delete it first — two budgets on one scope are not allowed.
+                                    </div>
+                                ) : p ? (
+                                    <div className={`mt-3 rounded-md border px-3 py-2 text-xs leading-relaxed ${after >= cap ? 'border-danger/40 bg-danger/5 text-danger' : 'border-line bg-paper-2 text-ink-2'}`}>
+                                        After this change: <span className="font-medium">{fmt(toRescope, p.used)} used
+                                        {Number(p.reserved) > 0 ? ` + ${fmt(toRescope, p.reserved)} in flight` : ''} of {fmt(toRescope, cap)}</span>.
+                                        {after >= cap ? ' This budget would be exhausted immediately — every new request under it will be rejected until the cap is raised.' : ''}
+                                    </div>
+                                ) : (
+                                    <div className="mt-3 text-xs text-ink-3">{rescopePreview.error ? 'Could not load usage preview.' : 'Loading usage preview…'}</div>
+                                )
+                            ) : null}
+                        </>
+                    );
+                })() : null}
             </Modal>
             <Modal open={!!toHistory} onOpenChange={(nextOpen) => { if (!nextOpen) setToHistory(null); }}
                 title="Budget timeline"
