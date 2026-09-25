@@ -10,6 +10,7 @@ import { pollEnhancement, submitEnhancement } from '../lib/byteplus/vodEnhance.m
 import {
     EXR_MAX_SUBMIT_ATTEMPTS,
     EXR_POLL_DELAY_MS,
+    claimNextArchiveUpgrade,
     claimNextExrJob,
     finishExrJob,
     markExrSubmitted,
@@ -38,7 +39,7 @@ function isPermanent(error) {
 // reservation is always closed (settled on success, zero-cost failure otherwise).
 async function finish(sql, job, outcome) {
     const row = await finishExrJob(sql, job.id, outcome);
-    if (!row) return; // someone else (cancel) already finished it
+    if (!row) return null; // someone else (cancel) already finished it
     try {
         if (outcome.status === 'succeeded') {
             const up = row.request_body?._upscale;
@@ -54,6 +55,41 @@ async function finish(sql, job, outcome) {
         }
     } catch (error) {
         console.error(`[exr-worker] billing close failed for job ${row.id}:`, error.message);
+    }
+    return row;
+}
+
+// Copy a finished job's provider output into durable TOS storage and swap the
+// stored URL. Runs AFTER the job is already succeeded: a crash or serverless
+// kill here loses nothing — the lease lapses and a later pass retries.
+async function upgradeArchive(sql, job) {
+    const src = job.result || {};
+    if (!src.url) return;
+    try {
+        const up = job.request_body?._upscale;
+        const safeId = String(job.provider_task_id).replace(/[^a-zA-Z0-9._-]/g, '_');
+        const archived = await archiveExr(up
+            ? { url: src.url, taskId: job.provider_task_id, key: `upscale/${safeId}.${up.container}`, contentType: up.container === 'mov' ? 'video/quicktime' : 'video/mp4' }
+            : { url: src.url, taskId: job.provider_task_id });
+        await sql`UPDATE exr_jobs
+            SET result = ${JSON.stringify({
+                ...src,
+                url: archived.url,
+                archiveKey: archived.key,
+                durable: archived.durable,
+                bytes: archived.bytes || null,
+                archiveError: archived.archiveError || null,
+            })}, lease_until = NULL, updated_at = now()
+            WHERE id = ${job.id} AND status = 'succeeded'`;
+    } catch (error) {
+        // ponytail: count attempts so a job whose output can't be copied stops
+        // burning bandwidth after 5 tries; a TOS fetch-from-URL task (copy
+        // inside BytePlus's network) is the upgrade path for multi-GB outputs.
+        console.error(`[exr-worker] archive upgrade failed for job ${job.id}:`, error.message);
+        await sql`UPDATE exr_jobs
+            SET result = ${JSON.stringify({ ...src, archiveAttempts: (Number(src.archiveAttempts) || 0) + 1 })},
+                lease_until = NULL, updated_at = now()
+            WHERE id = ${job.id} AND status = 'succeeded'`.catch(() => { /* next pass recounts */ });
     }
 }
 
@@ -75,7 +111,14 @@ async function recoverStaleExrReservations(sql) {
 
 async function runOne(sql) {
     const job = await claimNextExrJob(sql);
-    if (!job) return false;
+    if (!job) {
+        // No active work: heal one succeeded job whose durable copy is still
+        // pending (its earlier upgrade attempt was killed mid-transfer).
+        const pending = await claimNextArchiveUpgrade(sql);
+        if (!pending) return false;
+        await upgradeArchive(sql, pending);
+        return true;
+    }
 
     if (!job.provider_task_id) {
         try {
@@ -111,23 +154,16 @@ async function runOne(sql) {
         } else if (result.status === 'failed') {
             await finish(sql, job, { status: 'failed', error: { message: result.error || 'BytePlus EXR enhancement failed.' } });
         } else if (result.status === 'succeeded' && result.url) {
-            const up = job.request_body?._upscale;
-            const safeId = String(job.provider_task_id).replace(/[^a-zA-Z0-9._-]/g, '_');
-            const archived = await archiveExr(up
-                ? { url: result.url, taskId: job.provider_task_id, key: `upscale/${safeId}.${up.container}`, contentType: up.container === 'mov' ? 'video/quicktime' : 'video/mp4' }
-                : { url: result.url, taskId: job.provider_task_id });
-            await finish(sql, job, {
+            // Reflect success IMMEDIATELY with the provider's own URL. The
+            // durable copy of a multi-GB output can outlive a serverless
+            // invocation (EXR-7 sat "processing" for an hour after BytePlus
+            // finished because the killed copy restarted forever) — so the
+            // archive is a background upgrade, never a gate on "done".
+            const finished = await finish(sql, job, {
                 status: 'succeeded',
-                result: {
-                    url: archived.url,
-                    archiveKey: archived.key,
-                    durable: archived.durable,
-                    bytes: archived.bytes || null,
-                    archiveError: archived.archiveError || null,
-                    metadata: result.metadata || null,
-                    expiresAt: result.expiresAt || null,
-                },
+                result: { url: result.url, durable: false, metadata: result.metadata || null, expiresAt: result.expiresAt || null },
             });
+            if (finished) await upgradeArchive(sql, { ...job, result: { url: result.url, metadata: result.metadata || null, expiresAt: result.expiresAt || null } });
         } else {
             await finish(sql, job, { status: 'failed', error: { message: 'BytePlus returned no EXR output URL.' } });
         }
