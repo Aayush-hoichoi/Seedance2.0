@@ -747,9 +747,20 @@ export default function SeedanceStudio() {
     // provider task behind a signed server token and store the durable key plus
     // the latest signed URL in the local job history.
     const pollExr = async (job, taskToken) => {
+        // Transient network errors (wifi blip, laptop sleep, dev-server
+        // restart) must never fail the job: the enhancement keeps running
+        // server-side, and `fetch` throwing here used to surface a bare
+        // "Failed to fetch" on a job that was actually fine. Ride them out
+        // like a non-OK response — the job is persisted and a reload resumes
+        // this poll, so the only real deadline is the 30-minute cap below.
         for (let attempt = 0; attempt < 360; attempt += 1) {
             await new Promise((resolve) => setTimeout(resolve, 5000));
-            const poll = await fetch(`/api/seedance/exr?task=${encodeURIComponent(taskToken)}`);
+            let poll;
+            try {
+                poll = await fetch(`/api/seedance/exr?task=${encodeURIComponent(taskToken)}`);
+            } catch {
+                continue;
+            }
             const result = await poll.json().catch(() => null);
             if (!poll.ok) {
                 if (attempt < 359) continue;
@@ -902,8 +913,14 @@ export default function SeedanceStudio() {
         saveJobs(restored);
         const inFlight = restored.filter((j) => ACTIVE_STATUSES.includes(j.status) && j.taskId);
         for (const j of inFlight) watchJob(j.id, j.taskId);
-        const inFlightExr = restored.filter((j) => j.exrStatus === 'processing' && j.exrTaskToken);
+        // Resume processing jobs — and re-check "failed" ones that hold a task
+        // token but no output: a browser-side failure (network blip mid-poll)
+        // says nothing about the server-side job, which may have kept rendering
+        // to success. One reload reconciles the card with the server's truth.
+        const inFlightExr = restored.filter((j) => j.exrTaskToken && !j.exrUrl
+            && (j.exrStatus === 'processing' || j.exrStatus === 'failed'));
         for (const j of inFlightExr) {
+            if (j.exrStatus === 'failed') patchJob(j.id, { exrStatus: 'processing', exrError: null });
             pollExr(j, j.exrTaskToken).catch((error) => {
                 patchJob(j.id, { exrStatus: 'failed', exrError: error.message || 'EXR enhancement failed.' });
             });
