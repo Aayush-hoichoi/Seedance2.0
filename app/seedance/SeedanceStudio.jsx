@@ -1086,6 +1086,12 @@ export default function SeedanceStudio() {
                                 archiveKey: isImage ? null : (it.taskId ? archiveKeyForTask(it.taskId) : null),
                                 imageUrl: isImage ? (it.imageUrl || null) : null,
                                 imageUrls: isImage ? (it.imageUrls || null) : null,
+                                // A finished EXR survives a reload: the gallery row
+                                // carries its URL/key/resolution from exr_jobs.
+                                exrUrl: it.exrUrl || null,
+                                exrArchiveKey: it.exrArchiveKey || null,
+                                exrStatus: it.exrUrl ? 'succeeded' : null,
+                                exrMetadata: it.exrResolution ? { resolution: it.exrResolution } : null,
                                 error: null,
                                 liked: !!it.liked,
                                 deleted: false,
@@ -2946,6 +2952,12 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
     const createdText = created && !Number.isNaN(created.getTime())
         ? created.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
         : null;
+    // Resolution rows: the generation's own, and the EXR output's once an EXR
+    // has been run (provider-reported metadata wins over the requested option).
+    const genResolution = job.options?.resolution || null;
+    const exrResolution = job.exrStatus
+        ? (job.exrMetadata?.resolution || job.exrOptions?.resolution || null)
+        : null;
 
     useEffect(() => {
         const onKey = (e) => {
@@ -3068,6 +3080,8 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                         <dl className="space-y-2 text-xs">
                             {modelName && <DetailRow k="Model" v={modelName} />}
                             {job.meta && <DetailRow k="Output" v={job.meta} />}
+                            {genResolution && <DetailRow k="Resolution" v={genResolution === '4k' ? '4K' : genResolution} />}
+                            {exrResolution && <DetailRow k="EXR resolution" v={exrResolution === '4k' ? '4K' : exrResolution} />}
                             {createdText && <DetailRow k="Created" v={createdText} />}
                             {job.taskId && <DetailRow k="Task" v={<span className="break-all font-mono text-[10px]">{job.taskId}</span>} />}
                         </dl>
