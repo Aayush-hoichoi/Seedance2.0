@@ -76,9 +76,10 @@ const WorkflowIcon = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill
    Morphic-style picker: a pill that opens a card list. Attaching a workflow
    makes every generation follow its style until detached — that is the whole
    point: a short prompt plus the workflow replaces the hand-pasted brief. */
-function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, access, onAttach, onRequest, look, onChangeLook }) {
+function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, access, onAttach, onRequest, onCreate, onDelete, look, onChangeLook }) {
     const open = openKey === 'workflows';
-    if (!workflows?.length) return null;
+    const [creating, setCreating] = useState(false);
+    if (!workflows?.length && access !== 'approved') return null;
     const looks = workflow?.style?.looks || [];
     const gated = access !== 'approved'; // one approval unlocks every workflow
     return (
@@ -137,30 +138,50 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, access, onAtt
                             {workflows.map((w) => {
                                 const attached = w.id === workflow?.id;
                                 return (
-                                    <button
+                                    <div
                                         key={w.id}
-                                        type="button"
-                                        disabled={gated}
-                                        onClick={() => { onAttach?.(attached ? null : w.id); if (!attached) setOpenKey(null); }}
-                                        className={`w-full rounded-lg border px-3 py-2.5 text-left transition-colors ${attached
+                                        role="button"
+                                        tabIndex={gated ? -1 : 0}
+                                        onClick={() => { if (gated) return; onAttach?.(attached ? null : w.id); if (!attached) setOpenKey(null); }}
+                                        onKeyDown={(e) => { if (!gated && e.key === 'Enter') { onAttach?.(attached ? null : w.id); if (!attached) setOpenKey(null); } }}
+                                        className={`group/wf w-full rounded-lg border px-3 py-2.5 text-left transition-colors ${attached
                                             ? 'border-primary/40 bg-primary/[0.12]'
                                             : 'border-white/[0.06] bg-white/[0.02]'} ${gated
                                             ? 'cursor-not-allowed opacity-40'
-                                            : attached ? '' : 'hover:border-white/[0.14] hover:bg-white/[0.05]'}`}
+                                            : `cursor-pointer ${attached ? '' : 'hover:border-white/[0.14] hover:bg-white/[0.05]'}`}`}
                                     >
                                         <div className="flex items-center justify-between gap-2">
                                             <span className={`truncate text-[13px] font-semibold ${attached ? 'text-primary' : 'text-white/90'}`}>{w.name}</span>
-                                            {attached ? (
-                                                <span className="shrink-0 rounded-full bg-primary/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary">Attached</span>
-                                            ) : gated ? (
-                                                <svg className="shrink-0 text-white/30" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
-                                            ) : null}
+                                            <span className="flex shrink-0 items-center gap-1.5">
+                                                {w.mine && <span className="rounded-full bg-white/[0.08] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white/50">Yours</span>}
+                                                {attached ? (
+                                                    <span className="rounded-full bg-primary/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary">Attached</span>
+                                                ) : gated ? (
+                                                    <svg className="text-white/30" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                                                ) : null}
+                                                {w.mine && !gated && (
+                                                    <button
+                                                        type="button"
+                                                        title="Delete this workflow"
+                                                        aria-label={`Delete ${w.name}`}
+                                                        onClick={(e) => { e.stopPropagation(); onDelete?.(w.id); }}
+                                                        className="hidden h-4 w-4 items-center justify-center rounded-full border border-white/20 text-[10px] leading-none text-white/50 hover:text-danger group-hover/wf:flex"
+                                                    >×</button>
+                                                )}
+                                            </span>
                                         </div>
                                         {w.description && <div className="mt-1 text-[11px] leading-snug text-white/40">{w.description}</div>}
-                                    </button>
+                                    </div>
                                 );
                             })}
                         </div>
+                        {!gated && (
+                            <button
+                                type="button"
+                                onClick={() => { setOpenKey(null); setCreating(true); }}
+                                className="mx-1 mt-1.5 w-[calc(100%-0.5rem)] rounded-lg border border-dashed border-white/[0.14] px-3 py-2 text-left text-xs font-semibold text-white/55 transition-colors hover:border-primary/40 hover:text-primary"
+                            >＋ Create your own workflow</button>
+                        )}
                         {looks.length > 1 && (
                             <div className="mx-1 mt-1.5 border-t border-white/[0.06] px-2 pt-2">
                                 <div className="pb-1.5 text-[10px] font-bold uppercase tracking-wider text-white/50">Look</div>
@@ -191,6 +212,7 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, access, onAtt
                     </div>
                 </Popover>
             )}
+            {creating && <CreateWorkflowModal onClose={() => setCreating(false)} onCreate={onCreate} />}
         </div>
     );
 }
@@ -649,7 +671,7 @@ export default function PromptBar({
     cinematic = null, onOpenCinematic,
     projectStyle = null, styleLook = null, onChangeStyleLook,
     workflows = [], workflow = null, workflowAccess = 'none', onAttachWorkflow, onRequestWorkflow,
-    workflowLook = null, onChangeWorkflowLook,
+    onCreateWorkflow, onDeleteWorkflow, workflowLook = null, onChangeWorkflowLook,
 }) {
     const isImage = mediaType === 'image';
     // Editing, extension and first/last-frame tasks take the output ratio from
@@ -993,6 +1015,7 @@ export default function PromptBar({
                                 openKey={openKey} setOpenKey={setOpenKey}
                                 workflows={workflows} workflow={workflow} access={workflowAccess}
                                 onAttach={onAttachWorkflow} onRequest={onRequestWorkflow}
+                                onCreate={onCreateWorkflow} onDelete={onDeleteWorkflow}
                                 look={workflowLook} onChangeLook={onChangeWorkflowLook}
                             />
                     {!workflow && projectStyle?.looks?.length > 0 && (
@@ -1283,6 +1306,55 @@ export default function PromptBar({
                     onClose={() => setAccessRequest(null)}
                 />
             )}
+        </div>
+    );
+}
+
+// The "Build a workflow" modal: name + plain-words description in, a full
+// structured style guide out (drafted server-side by the enhancer model,
+// falling back to the raw description as the brief). Creating auto-attaches.
+function CreateWorkflowModal({ onClose, onCreate }) {
+    const [name, setName] = useState('');
+    const [description, setDescription] = useState('');
+    const [example, setExample] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState(null);
+    const field = 'mt-1 w-full rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white/90 outline-none placeholder:text-white/25 focus:border-primary/50';
+    const submit = async () => {
+        if (busy) return;
+        setBusy(true); setError(null);
+        const result = await onCreate({ name: name.trim(), description: description.trim(), examplePrompt: example.trim() || undefined });
+        setBusy(false);
+        if (result?.error) setError(result.error);
+        else onClose();
+    };
+    return (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+            <div className="w-full max-w-md rounded-xl border border-white/10 bg-paper-1 p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-sm font-bold text-white/90">Create a workflow</h3>
+                <p className="mt-1 text-[11px] leading-relaxed text-white/45">
+                    Describe the look in your own words — it becomes a full style guide applied to every generation while attached, and it keeps improving from the generations you like. Only you can see it.
+                </p>
+                <label className="mt-4 block text-[10px] font-bold uppercase tracking-wider text-white/50">Name</label>
+                <input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} placeholder="e.g. Noir Kolkata" className={field} />
+                <label className="mt-3 block text-[10px] font-bold uppercase tracking-wider text-white/50">Describe the look</label>
+                <textarea
+                    value={description} onChange={(e) => setDescription(e.target.value)} rows={4} maxLength={2000}
+                    placeholder="Moody black-and-white 1960s Kolkata streets in heavy rain, film grain, slow dolly moves, hard rim light. Never color, never handheld shake…"
+                    className={`${field} resize-none custom-scrollbar`}
+                />
+                <label className="mt-3 block text-[10px] font-bold uppercase tracking-wider text-white/50">Example prompt that nails it <span className="font-normal normal-case text-white/30">(optional)</span></label>
+                <textarea value={example} onChange={(e) => setExample(e.target.value)} rows={2} maxLength={5000} placeholder="Paste a prompt whose output looked exactly right." className={`${field} resize-none custom-scrollbar`} />
+                {error && <p className="mt-2 text-[11px] text-danger">{error}</p>}
+                <div className="mt-4 flex justify-end gap-2">
+                    <button type="button" onClick={onClose} className="rounded-md border border-white/10 px-3 py-2 text-xs font-semibold text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white">Cancel</button>
+                    <button
+                        type="button" onClick={submit}
+                        disabled={busy || !name.trim() || description.trim().length < 10}
+                        className="rounded-md bg-primary px-4 py-2 text-xs font-bold text-black transition-colors hover:bg-primary/90 disabled:opacity-40"
+                    >{busy ? 'Creating…' : 'Create & attach'}</button>
+                </div>
+            </div>
         </div>
     );
 }

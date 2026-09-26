@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { acceptRefreshedStyle, buildRefreshMessages } from '../lib/gateway/workflowRefresh.mjs';
+import { acceptRefreshedStyle, buildRefreshMessages, fallbackStyle } from '../lib/gateway/workflowRefresh.mjs';
+import { styleError } from '../lib/gateway/projectStyle.mjs';
 
 const CURRENT = {
     enabled: true, version: 3, defaultLook: 'pixar', sourceProjects: [28],
@@ -37,6 +38,16 @@ test('a no-op proposal reports unchanged instead of minting an empty version', (
     const out = acceptRefreshedStyle(CURRENT, JSON.parse(JSON.stringify(CURRENT)));
     assert.equal(out.unchanged, true);
     assert.equal(out.style, undefined);
+});
+
+test('the creation fallback always yields a valid style — user text becomes the brief verbatim', () => {
+    const style = fallbackStyle('Noir Kolkata', 'Moody black-and-white 1960s streets, heavy rain, film grain.');
+    assert.equal(styleError(style), null);
+    assert.equal(style.version, 1);
+    assert.match(style.looks[style.defaultLook].brief, /heavy rain/);
+    // Oversized inputs are clamped to the schema caps, never rejected.
+    const big = fallbackStyle('N'.repeat(500), 'x'.repeat(10_000));
+    assert.equal(styleError(big), null);
 });
 
 test('refresh messages carry the current style and every liked exemplar', () => {

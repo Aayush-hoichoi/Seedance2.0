@@ -263,6 +263,31 @@ export default function SeedanceStudio() {
         const d = await r?.json().catch(() => null);
         if (d?.access) setWorkflowAccess(d.access);
     };
+    // Create a custom workflow from a plain-words description (drafted into a
+    // full style guide server-side) and attach it immediately — creating one
+    // and not wanting it on would be the odd case.
+    const createWorkflow = async (data) => {
+        const r = await fetch('/api/workflows/custom', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        }).catch(() => null);
+        const d = await r?.json().catch(() => null);
+        if (!r?.ok || !d?.item) return { error: d?.error || 'Could not create the workflow.' };
+        setWorkflows((prev) => [...prev, d.item]);
+        attachWorkflow(d.item.id);
+        return { item: d.item };
+    };
+    const deleteWorkflow = async (id) => {
+        const r = await fetch('/api/workflows/custom', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ workflowId: id }),
+        }).catch(() => null);
+        if (!r?.ok) return;
+        setWorkflows((prev) => prev.filter((w) => w.id !== id));
+        if (workflowId === id) attachWorkflow(null);
+    };
     const attachWorkflow = (id) => {
         setWorkflowId(id); // optimistic — the PATCH below persists it
         setWorkflowLook(null); // a fresh attachment starts on the workflow's default look
@@ -2332,6 +2357,8 @@ export default function SeedanceStudio() {
                 workflowAccess={workflowAccess}
                 onAttachWorkflow={attachWorkflow}
                 onRequestWorkflow={requestWorkflow}
+                onCreateWorkflow={createWorkflow}
+                onDeleteWorkflow={deleteWorkflow}
                 workflowLook={workflowLook}
                 onChangeWorkflowLook={setWorkflowLook}
             />

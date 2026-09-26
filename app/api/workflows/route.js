@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { gatewayContext } from '../../../lib/gateway/authz.js';
-import { userWorkflowId, workflowAccessFor } from '../../../lib/gateway/db.js';
+import { userWorkflowId, workflowAccessFor, listWorkflowsFor } from '../../../lib/gateway/db.js';
 import { styleSummary } from '../../../lib/gateway/projectStyle.mjs';
 import { notifyTeamsWorkflowRequested } from '../../../lib/notify/teamsWorkflow.mjs';
 
@@ -15,11 +15,13 @@ export async function GET() {
     const auth = await gatewayContext({});
     if (!auth.ok) return auth.response;
     const { sql, user, isPlatformAdmin } = auth.ctx;
-    const rows = await sql`SELECT id, name, description, style FROM workflows
-        WHERE deleted_at IS NULL ORDER BY name`;
+    const rows = await listWorkflowsFor(sql, user.userId);
     return NextResponse.json({
         items: rows
-            .map((w) => ({ id: w.id, name: w.name, description: w.description, style: styleSummary(w.style) }))
+            .map((w) => ({
+                id: w.id, name: w.name, description: w.description, style: styleSummary(w.style),
+                mine: w.created_by === user.userId, // own customs are deletable in the picker
+            }))
             .filter((w) => w.style), // a workflow with no usable looks can't be attached
         access: isPlatformAdmin ? 'approved' : await workflowAccessFor(sql, user.userId),
         attachedId: await userWorkflowId(sql, user.userId),
@@ -63,7 +65,10 @@ export async function PATCH(request) {
     const body = await request.json().catch(() => null);
     const id = body?.workflowId == null ? null : Number(body.workflowId);
     if (id !== null) {
-        const [found] = await sql`SELECT id FROM workflows WHERE id = ${id} AND deleted_at IS NULL`;
+        // Officials are attachable by anyone (with access); a custom only by
+        // its creator — another user's private workflow is invisible here.
+        const [found] = await sql`SELECT id FROM workflows WHERE id = ${id} AND deleted_at IS NULL
+            AND (created_by IS NULL OR created_by = ${user.userId})`;
         if (!found) return NextResponse.json({ error: 'Unknown workflow.' }, { status: 404 });
         if (!isPlatformAdmin && await workflowAccessFor(sql, user.userId) !== 'approved') {
             return NextResponse.json({ error: 'Workflows need admin approval first — request access from the picker.' }, { status: 403 });
