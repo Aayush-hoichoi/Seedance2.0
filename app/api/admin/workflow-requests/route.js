@@ -17,7 +17,13 @@ export async function GET() {
         LEFT JOIN users u ON u.id = r.user_id
         WHERE r.status = 'pending'
         ORDER BY r.created_at`;
-    return NextResponse.json({ requests });
+    // Customs whose owners asked to share them with the whole workspace.
+    const publishRequests = await sql`
+        SELECT w.id, w.name, w.description, w.created_at, u.email AS user_email
+        FROM workflows w LEFT JOIN users u ON u.id = w.created_by
+        WHERE w.deleted_at IS NULL AND w.visibility = 'pending'
+        ORDER BY w.created_at`;
+    return NextResponse.json({ requests, publishRequests });
 }
 
 // Decide one: { userId, action: 'approve' | 'deny' }.
@@ -28,6 +34,22 @@ export async function PATCH(request) {
     const body = await request.json().catch(() => null);
     const userId = body?.userId;
     const action = body?.action;
+    // Publish decisions: the owner already asked (visibility 'pending');
+    // the admin's word makes it public or sends it back to private.
+    if (['approve_publish', 'deny_publish'].includes(action)) {
+        const id = Number(body?.workflowId);
+        if (!id) return NextResponse.json({ error: 'workflowId is required.' }, { status: 400 });
+        const visibility = action === 'approve_publish' ? 'public' : 'private';
+        const [row] = await sql`UPDATE workflows SET visibility = ${visibility}
+            WHERE id = ${id} AND deleted_at IS NULL AND visibility = 'pending'
+            RETURNING id`;
+        if (!row) return NextResponse.json({ error: 'Publish request not found or already decided.' }, { status: 404 });
+        await writeAudit(sql, {
+            actorId: admin.userId, actorEmail: admin.email, action: `workflow.publish_${visibility === 'public' ? 'approved' : 'denied'}`,
+            targetType: 'workflow', targetId: id,
+        });
+        return NextResponse.json({ ok: true, visibility });
+    }
     if (!userId || !['approve', 'deny'].includes(action)) {
         return NextResponse.json({ error: 'userId and action (approve|deny) are required.' }, { status: 400 });
     }
