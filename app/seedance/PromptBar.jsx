@@ -5,6 +5,7 @@
 // control pills + a cyan Generate button below. Wired to the Seedance modes/options.
 
 import { Fragment, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Lock } from 'lucide-react';
 import { MODES, RATIOS, RESOLUTIONS, IMAGE_RATIOS, IMAGE_STUDIO_ID, modeAllowedForModel, resolutionWithinTier, imageRefMax, durationMaxFor, ratioIsInherited, imageResolutionsFor } from '../../lib/seedance/constants.js';
 import { estimateLabel, unitEstimate } from './estimateLabel.mjs';
@@ -165,13 +166,13 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, access, onAtt
                                                         title="Delete this workflow"
                                                         aria-label={`Delete ${w.name}`}
                                                         onClick={(e) => { e.stopPropagation(); onDelete?.(w.id); }}
-                                                        className="hidden h-4 w-4 items-center justify-center rounded-full border border-white/20 text-[10px] leading-none text-white/50 hover:text-danger group-hover/wf:flex"
+                                                        className="flex h-4 w-4 items-center justify-center rounded-full border border-white/15 text-[10px] leading-none text-white/35 transition-colors hover:border-danger/50 hover:text-danger"
                                                     >×</button>
                                                 )}
                                             </span>
                                         </div>
                                         {w.description && <div className="mt-1 text-[11px] leading-snug text-white/40">{w.description}</div>}
-                                        {!w.mine && w.creator && <div className="mt-1 text-[10px] text-white/30">Shared by {w.creator}</div>}
+                                        {!w.mine && w.creator && <div className="mt-1 truncate text-[10px] text-white/30">Shared by {w.creator}</div>}
                                         {/* Sharing takes both sides: the owner asks here,
                                             an admin approves in the console. Private again
                                             is one click, any time. */}
@@ -232,7 +233,13 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, access, onAtt
                     </div>
                 </Popover>
             )}
-            {creating && <CreateWorkflowModal onClose={() => setCreating(false)} onCreate={onCreate} />}
+            {/* Portaled to <body>: the prompt bar's backdrop-blur makes it the
+                containing block for fixed descendants, which trapped this
+                modal INSIDE the bar — clipped and off-center. */}
+            {creating && createPortal(
+                <CreateWorkflowModal onClose={() => setCreating(false)} onCreate={onCreate} />,
+                document.body,
+            )}
         </div>
     );
 }
