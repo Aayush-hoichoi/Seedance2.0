@@ -35,11 +35,11 @@ async function workflowDb() {
         CREATE TABLE workflows (
             id serial PRIMARY KEY, name text NOT NULL, description text,
             style jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), deleted_at timestamptz,
-            created_by text
+            created_by text, visibility text NOT NULL DEFAULT 'private'
         );
     `);
     await db.exec(`
-        CREATE TABLE users (id text PRIMARY KEY, workflow_id integer);
+        CREATE TABLE users (id text PRIMARY KEY, email text, workflow_id integer);
         CREATE TABLE workflow_access (
             user_id text PRIMARY KEY, status text NOT NULL DEFAULT 'pending', note text,
             decided_by text, decided_at timestamptz,
@@ -94,6 +94,21 @@ test('listWorkflowsFor shows officials plus ONLY the caller\'s own customs, offi
     assert.deepEqual(mine.map((w) => w.name), ['Mahi Style', 'My Noir']); // no deleted, no Their Secret
     const theirs = await listWorkflowsFor(sql, 'u_other');
     assert.deepEqual(theirs.map((w) => w.name), ['Mahi Style', 'Their Secret']);
+});
+
+test('a PUBLIC custom is listed and usable by everyone with access; pending is not', async () => {
+    const sql = await workflowDb();
+    await sql`INSERT INTO workflow_access (user_id, status) VALUES ('u_other', 'approved')`;
+    await sql`INSERT INTO workflows (name, style, created_by, visibility)
+        VALUES ('Shared Noir', ${JSON.stringify(STYLE)}::jsonb, 'u_attached', 'public'),
+               ('Half Shared', ${JSON.stringify(STYLE)}::jsonb, 'u_attached', 'pending')`;
+    const others = await listWorkflowsFor(sql, 'u_other');
+    assert.ok(others.some((w) => w.name === 'Shared Noir'));       // published: visible
+    assert.ok(!others.some((w) => w.name === 'Half Shared'));      // owner asked, admin has not agreed
+    const [shared] = await sql`SELECT id FROM workflows WHERE name = 'Shared Noir'`;
+    assert.deepEqual(await workflowStyle(sql, shared.id, { userId: 'u_other' }), STYLE);
+    const [half] = await sql`SELECT id FROM workflows WHERE name = 'Half Shared'`;
+    assert.equal(await workflowStyle(sql, half.id, { userId: 'u_other' }), null);
 });
 
 test('userWorkflowId returns the stored attachment; null when detached or unknown', async () => {

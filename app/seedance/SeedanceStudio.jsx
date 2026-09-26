@@ -278,6 +278,15 @@ export default function SeedanceStudio() {
         attachWorkflow(d.item.id);
         return { item: d.item };
     };
+    const setWorkflowVisibility = async (id, action) => {
+        const r = await fetch('/api/workflows/custom', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ workflowId: id, action }),
+        }).catch(() => null);
+        const d = await r?.json().catch(() => null);
+        if (d?.visibility) setWorkflows((prev) => prev.map((w) => (w.id === id ? { ...w, visibility: d.visibility } : w)));
+    };
     const deleteWorkflow = async (id) => {
         const r = await fetch('/api/workflows/custom', {
             method: 'DELETE',
@@ -2359,6 +2368,7 @@ export default function SeedanceStudio() {
                 onRequestWorkflow={requestWorkflow}
                 onCreateWorkflow={createWorkflow}
                 onDeleteWorkflow={deleteWorkflow}
+                onSetWorkflowVisibility={setWorkflowVisibility}
                 workflowLook={workflowLook}
                 onChangeWorkflowLook={setWorkflowLook}
             />

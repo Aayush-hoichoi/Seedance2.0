@@ -21,6 +21,8 @@ export async function GET() {
             .map((w) => ({
                 id: w.id, name: w.name, description: w.description, style: styleSummary(w.style),
                 mine: w.created_by === user.userId, // own customs are deletable in the picker
+                visibility: w.created_by ? w.visibility : 'public', // officials are inherently shared
+                creator: w.created_by && w.created_by !== user.userId ? (w.creator_email || null) : null,
             }))
             .filter((w) => w.style), // a workflow with no usable looks can't be attached
         access: isPlatformAdmin ? 'approved' : await workflowAccessFor(sql, user.userId),
@@ -65,10 +67,10 @@ export async function PATCH(request) {
     const body = await request.json().catch(() => null);
     const id = body?.workflowId == null ? null : Number(body.workflowId);
     if (id !== null) {
-        // Officials are attachable by anyone (with access); a custom only by
-        // its creator — another user's private workflow is invisible here.
+        // Officials and PUBLIC customs are attachable by anyone (with access);
+        // a private custom only by its creator.
         const [found] = await sql`SELECT id FROM workflows WHERE id = ${id} AND deleted_at IS NULL
-            AND (created_by IS NULL OR created_by = ${user.userId})`;
+            AND (created_by IS NULL OR created_by = ${user.userId} OR visibility = 'public')`;
         if (!found) return NextResponse.json({ error: 'Unknown workflow.' }, { status: 404 });
         if (!isPlatformAdmin && await workflowAccessFor(sql, user.userId) !== 'approved') {
             return NextResponse.json({ error: 'Workflows need admin approval first — request access from the picker.' }, { status: 403 });

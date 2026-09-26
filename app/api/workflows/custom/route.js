@@ -48,6 +48,39 @@ export async function POST(request) {
     });
 }
 
+// Owner-side visibility moves. Publishing takes BOTH sides: the owner asks
+// here ('request_publish' → pending), an admin approves in the console hub.
+// Going private again needs only one side — owner (or admin) at any time.
+export async function PATCH(request) {
+    const auth = await gatewayContext({});
+    if (!auth.ok) return auth.response;
+    const { sql, user, isPlatformAdmin } = auth.ctx;
+    const body = await request.json().catch(() => null);
+    const id = Number(body?.workflowId);
+    const action = body?.action;
+    if (!id || !['request_publish', 'unpublish'].includes(action)) {
+        return NextResponse.json({ error: 'workflowId and action (request_publish|unpublish) are required.' }, { status: 400 });
+    }
+    const next = action === 'request_publish' ? 'pending' : 'private';
+    // An admin publishing THEIR OWN workflow is both sides at once.
+    const publishNow = action === 'request_publish' && isPlatformAdmin;
+    const [row] = await sql`UPDATE workflows SET visibility = ${publishNow ? 'public' : next}
+        WHERE id = ${id} AND deleted_at IS NULL AND created_by IS NOT NULL
+          AND (created_by = ${user.userId} OR ${isPlatformAdmin})
+        RETURNING visibility`;
+    if (!row) return NextResponse.json({ error: 'Workflow not found, or it is not yours.' }, { status: 404 });
+    // Newly-private workflows must stop styling other people's generations.
+    if (row.visibility === 'private') {
+        await sql`UPDATE users SET workflow_id = NULL WHERE workflow_id = ${id} AND id <> (
+            SELECT created_by FROM workflows WHERE id = ${id})`;
+    }
+    await writeAudit(sql, {
+        actorId: user.userId, actorEmail: user.email, action: `workflow.visibility_${row.visibility}`,
+        targetType: 'workflow', targetId: id,
+    });
+    return NextResponse.json({ visibility: row.visibility });
+}
+
 // Delete your own custom workflow (platform admins may delete any). Soft
 // delete, and anyone attached to it is detached — the gateway would ignore a
 // deleted workflow anyway, this just keeps their picker truthful.

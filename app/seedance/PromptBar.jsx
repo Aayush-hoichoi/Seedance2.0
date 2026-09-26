@@ -76,7 +76,7 @@ const WorkflowIcon = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill
    Morphic-style picker: a pill that opens a card list. Attaching a workflow
    makes every generation follow its style until detached — that is the whole
    point: a short prompt plus the workflow replaces the hand-pasted brief. */
-function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, access, onAttach, onRequest, onCreate, onDelete, look, onChangeLook }) {
+function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, access, onAttach, onRequest, onCreate, onDelete, onSetVisibility, look, onChangeLook }) {
     const open = openKey === 'workflows';
     const [creating, setCreating] = useState(false);
     if (!workflows?.length && access !== 'approved') return null;
@@ -171,6 +171,26 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, access, onAtt
                                             </span>
                                         </div>
                                         {w.description && <div className="mt-1 text-[11px] leading-snug text-white/40">{w.description}</div>}
+                                        {!w.mine && w.creator && <div className="mt-1 text-[10px] text-white/30">Shared by {w.creator}</div>}
+                                        {/* Sharing takes both sides: the owner asks here,
+                                            an admin approves in the console. Private again
+                                            is one click, any time. */}
+                                        {w.mine && !gated && (
+                                            <div className="mt-1.5 flex items-center gap-2">
+                                                {w.visibility === 'public' ? (
+                                                    <>
+                                                        <span className="text-[9px] font-bold uppercase tracking-wide text-primary/80">Public</span>
+                                                        <button type="button" onClick={(e) => { e.stopPropagation(); onSetVisibility?.(w.id, 'unpublish'); }}
+                                                            className="text-[10px] text-white/40 transition-colors hover:text-white">Make private</button>
+                                                    </>
+                                                ) : w.visibility === 'pending' ? (
+                                                    <span className="text-[9px] font-bold uppercase tracking-wide text-warn">Publish requested — awaiting admin</span>
+                                                ) : (
+                                                    <button type="button" onClick={(e) => { e.stopPropagation(); onSetVisibility?.(w.id, 'request_publish'); }}
+                                                        className="text-[10px] text-white/40 transition-colors hover:text-primary">Share with everyone…</button>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 );
                             })}
@@ -671,7 +691,7 @@ export default function PromptBar({
     cinematic = null, onOpenCinematic,
     projectStyle = null, styleLook = null, onChangeStyleLook,
     workflows = [], workflow = null, workflowAccess = 'none', onAttachWorkflow, onRequestWorkflow,
-    onCreateWorkflow, onDeleteWorkflow, workflowLook = null, onChangeWorkflowLook,
+    onCreateWorkflow, onDeleteWorkflow, onSetWorkflowVisibility, workflowLook = null, onChangeWorkflowLook,
 }) {
     const isImage = mediaType === 'image';
     // Editing, extension and first/last-frame tasks take the output ratio from
@@ -1016,6 +1036,7 @@ export default function PromptBar({
                                 workflows={workflows} workflow={workflow} access={workflowAccess}
                                 onAttach={onAttachWorkflow} onRequest={onRequestWorkflow}
                                 onCreate={onCreateWorkflow} onDelete={onDeleteWorkflow}
+                                onSetVisibility={onSetWorkflowVisibility}
                                 look={workflowLook} onChangeLook={onChangeWorkflowLook}
                             />
                     {!workflow && projectStyle?.looks?.length > 0 && (
