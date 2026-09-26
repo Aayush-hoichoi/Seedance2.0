@@ -148,7 +148,7 @@ export function Select({ className, children, value, onChange, title, disabled }
 export function Modal({ open, onOpenChange, title, children, footer, className }) {
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className={cn('w-[min(92vw,480px)] rounded-xl border-line bg-paper-1 p-5 sm:max-w-[480px]', className)}>
+            <DialogContent className={cn('max-h-[85dvh] w-[min(94vw,480px)] overflow-y-auto rounded-xl border-line bg-paper-1 p-4 sm:max-w-[480px] sm:p-5', className)}>
                 <DialogHeader>
                     <DialogTitle className="font-display text-base font-semibold text-ink">{title}</DialogTitle>
                 </DialogHeader>

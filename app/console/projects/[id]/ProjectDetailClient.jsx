@@ -107,7 +107,10 @@ export default function ProjectDetailClient({ projectId }) {
                     </Tabs.Content>
                 )}
                 <Tabs.Content value="budget">
-                    <OverallBudgetCard
+                    {/* Members can't read the quota/spend APIs — without this
+                        guard the card renders never-fetched data as "$0.00,
+                        no cap" and presents it as fact. */}
+                    {isAdmin && <OverallBudgetCard
                         overall={overallBudget}
                         // Without this the card reads an empty quota list as
                         // "no cap, nothing allotted" and prints it as fact —
@@ -117,7 +120,7 @@ export default function ProjectDetailClient({ projectId }) {
                         onSetCap={() => setAddingBudget({ lockedUserId: '', overallCap: true, label: 'Overall project budget' })}
                         onEditCap={() => setEditingBudget(overallBudget.quota)}
                         onHistory={() => setHistoryQuota(overallBudget.quota)}
-                    />
+                    />}
                     <div className="grid gap-3 lg:grid-cols-2">
                         {budgetGroups.map((group) => (
                             <Card key={group.userId ?? 'everyone'} className="self-start">
@@ -189,7 +192,7 @@ export default function ProjectDetailClient({ projectId }) {
                                                             ) : null}
                                                         </div>
                                                     </div>
-                                                    <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
+                                                    <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 text-xs">
                                                         <span className="text-ink-2">{format(used)} spent{reserved > 0 ? ` + ${format(reserved)} in flight` : ''}</span>
                                                         <span className="font-mono tabular-nums text-ink">{format(remaining)} left of {format(q.hard_limit)}</span>
                                                     </div>
