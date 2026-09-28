@@ -98,7 +98,11 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
             </button>
             {open && (
                 <Popover>
-                    <div className="w-[300px] max-w-full">
+                    {/* Fixed header (title, banner, create, polish toggle) and
+                        fixed footer (look row, detach) — ONLY the workflow
+                        list scrolls. The inner cap keeps the outer popover's
+                        own scroll from ever engaging. */}
+                    <div className="flex max-h-[min(56vh,21rem)] w-[300px] max-w-full flex-col">
                         <div className="flex items-center justify-between px-2 pt-1 pb-1">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-white/50">Workflows</span>
                             {gated && access === 'pending' && (
@@ -111,7 +115,7 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
                         {/* One approval unlocks everything: a single request
                             banner instead of per-workflow buttons. */}
                         {gated && (
-                            <div className="mx-1 mb-2 rounded-lg border border-primary/25 bg-primary/[0.07] p-3">
+                            <div className="mx-1 mb-2 shrink-0 rounded-lg border border-primary/25 bg-primary/[0.07] p-3">
                                 {access === 'pending' ? (
                                     <>
                                         <div className="text-xs font-semibold text-white/85">Access requested</div>
@@ -135,13 +139,22 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
                                 )}
                             </div>
                         )}
+                        {/* Create sits ON TOP, fixed with the polish toggle —
+                            only the workflow list below scrolls. */}
+                        {!gated && (
+                            <button
+                                type="button"
+                                onClick={() => { setOpenKey(null); setCreating(true); }}
+                                className="mx-1 mb-2 w-[calc(100%-0.5rem)] shrink-0 rounded-lg border border-dashed border-white/[0.14] px-3 py-2 text-left text-xs font-semibold text-white/55 transition-colors hover:border-primary/40 hover:text-primary"
+                            >＋ Create your own workflow</button>
+                        )}
                         {/* AI prompt polish — an enhancer call per generation, so
                             it is the user's explicit choice, remembered. */}
                         {!gated && (attached?.video || attached?.image) && (
                             <button
                                 type="button"
                                 onClick={() => onTogglePolish?.()}
-                                className="mx-1 mb-2 flex w-[calc(100%-0.5rem)] items-center justify-between gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-left transition-colors hover:border-white/[0.14]"
+                                className="mx-1 mb-2 flex w-[calc(100%-0.5rem)] shrink-0 items-center justify-between gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-left transition-colors hover:border-white/[0.14]"
                             >
                                 <span className="min-w-0">
                                     <span className={`block text-xs font-semibold ${polish ? 'text-primary' : 'text-white/80'}`}>✨ AI prompt polish</span>
@@ -152,7 +165,7 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
                                 </span>
                             </button>
                         )}
-                        <div className="flex flex-col gap-1.5 px-1 pb-1">
+                        <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-1.5 px-1 pb-1">
                             {workflows.map((w) => {
                                 // Which slot(s) this workflow currently occupies —
                                 // one video and one image workflow may be on at once.
@@ -225,15 +238,8 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
                                 );
                             })}
                         </div>
-                        {!gated && (
-                            <button
-                                type="button"
-                                onClick={() => { setOpenKey(null); setCreating(true); }}
-                                className="mx-1 mt-1.5 w-[calc(100%-0.5rem)] rounded-lg border border-dashed border-white/[0.14] px-3 py-2 text-left text-xs font-semibold text-white/55 transition-colors hover:border-primary/40 hover:text-primary"
-                            >＋ Create your own workflow</button>
-                        )}
                         {looks.length > 1 && (
-                            <div className="mx-1 mt-1.5 border-t border-white/[0.06] px-2 pt-2">
+                            <div className="mx-1 mt-1.5 shrink-0 border-t border-white/[0.06] px-2 pt-2">
                                 <div className="pb-1.5 text-[10px] font-bold uppercase tracking-wider text-white/50">Look</div>
                                 <div className="flex flex-wrap gap-1 pb-1">
                                     {looks.map((l) => {
@@ -256,7 +262,7 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
                             <button
                                 type="button"
                                 onClick={() => { onDetach?.('all'); setOpenKey(null); }}
-                                className="mx-1 mt-1 w-[calc(100%-0.5rem)] rounded-md px-2 py-2 text-left text-[11px] text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white"
+                                className="mx-1 mt-1 w-[calc(100%-0.5rem)] shrink-0 rounded-md px-2 py-2 text-left text-[11px] text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white"
                             >Detach all — stop applying workflows</button>
                         )}
                     </div>
