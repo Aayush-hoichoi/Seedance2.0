@@ -1353,6 +1353,7 @@ export default function SeedanceStudio() {
                 // card so nobody has to guess whether the attachment worked.
                 patchJob(job.id, {
                     taskId, status: 'queued', submitAttempts: attempt,
+                    gatewayId: created.jobId ?? null, // the viewer fetches the sent prompt by this
                     styleApplied: created.style
                         ? { ...created.style, name: workflows.find((w) => w.id === created.style.workflowId)?.name ?? null }
                         : null,
@@ -3003,6 +3004,36 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
     const [measuredVideoDuration, setMeasuredVideoDuration] = useState(null);
     const modelName = job.model ? (MODELS.find((m) => m.id === job.model)?.name ?? IMAGE_MODELS.find((m) => m.id === job.model)?.name ?? job.model) : null;
     const prompt = job.userPrompt || job.prompt || '';
+    // The gateway record holds the truth this panel can't know locally: the
+    // EXACT prompt the provider received (enhancer + workflow style composed
+    // in) and which style/look/version fired. Fetched once per job.
+    const [promptTab, setPromptTab] = useState('yours');
+    const [sent, setSent] = useState(null);
+    const serverId = job.genId || job.gatewayId || null;
+    useEffect(() => {
+        let alive = true;
+        if (!serverId) return undefined;
+        fetch(`/api/generations/${serverId}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => {
+                if (!alive || !d?.request_body) return;
+                setSent({ prompt: d.request_body.prompt || null, options: d.request_body.options || null });
+            })
+            .catch(() => {});
+        return () => { alive = false; };
+    }, [serverId]);
+    // "Enhanced" = what the model actually received. Server record first;
+    // for older jobs, the enhancer output the browser kept is the fallback.
+    const enhancedPrompt = (sent?.prompt && sent.prompt !== prompt ? sent.prompt : null)
+        ?? (job.prompt && job.userPrompt && job.prompt !== job.userPrompt ? job.prompt : null);
+    const shownPrompt = promptTab === 'enhanced' && enhancedPrompt ? enhancedPrompt : prompt;
+    const styleLook = job.styleApplied?.look ?? sent?.options?.style_look ?? null;
+    const styleInfo = styleLook ? {
+        workflow: job.styleApplied?.name
+            ?? (sent?.options?.style_workflow ? `Workflow #${sent.options.style_workflow}` : 'Project style'),
+        look: styleLook,
+        version: sent?.options?.style_version ?? null,
+    } : null;
     const requestedDurationSeconds = Number(job.options?.duration);
     const exrDurationSeconds = Number.isFinite(measuredVideoDuration) && measuredVideoDuration > 0
         ? measuredVideoDuration
@@ -3125,15 +3156,40 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                 <div className="flex-1 overflow-y-auto custom-scrollbar">
                     <section className="border-b border-line px-4 py-3">
                         <div className="mb-2 flex items-center justify-between">
-                            <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-3">Prompt</span>
-                            {prompt && (
-                                <button type="button" onClick={() => navigator.clipboard?.writeText(prompt)} className="text-[11px] font-medium text-ink-3 transition-colors hover:text-ink">Copy</button>
+                            {enhancedPrompt ? (
+                                <div className="flex items-center gap-1">
+                                    {[['yours', 'Your prompt'], ['enhanced', 'Enhanced prompt']].map(([id, label]) => (
+                                        <button
+                                            key={id} type="button" onClick={() => setPromptTab(id)}
+                                            className={`rounded-md px-2 py-1 text-[11px] font-semibold transition-colors ${promptTab === id ? 'bg-accent/15 text-accent-hi' : 'text-ink-3 hover:text-ink'}`}
+                                        >{label}</button>
+                                    ))}
+                                </div>
+                            ) : (
+                                <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-3">Prompt</span>
+                            )}
+                            {shownPrompt && (
+                                <button type="button" onClick={() => navigator.clipboard?.writeText(shownPrompt)} className="text-[11px] font-medium text-ink-3 transition-colors hover:text-ink">Copy</button>
                             )}
                         </div>
-                        {prompt
-                            ? <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-ink-2">{prompt}</p>
+                        {shownPrompt
+                            ? <p className="max-h-56 overflow-y-auto custom-scrollbar whitespace-pre-wrap break-words text-xs leading-relaxed text-ink-2">{shownPrompt}</p>
                             : <p className="text-xs text-ink-3">No prompt recorded for this generation.</p>}
+                        {promptTab === 'enhanced' && enhancedPrompt && (
+                            <p className="mt-2 text-[10px] leading-relaxed text-ink-3">The exact text the model received — your prompt plus the enhancer and the attached workflow’s style rules.</p>
+                        )}
                     </section>
+
+                    {styleInfo && (
+                        <section className="border-b border-line px-4 py-3">
+                            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-3">Style applied</div>
+                            <dl className="space-y-2 text-xs">
+                                <DetailRow k="Workflow" v={styleInfo.workflow} />
+                                <DetailRow k="Look" v={styleInfo.look} />
+                                {styleInfo.version != null && <DetailRow k="Style version" v={`v${styleInfo.version}`} />}
+                            </dl>
+                        </section>
+                    )}
 
                     {job.refs?.length > 0 && (
                         <div className="border-b border-line">
