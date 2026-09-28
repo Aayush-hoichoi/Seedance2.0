@@ -15,6 +15,7 @@ import { getAsset, isAssetGone, resolveMediaRefs, cleanupOldAssets, registerAsse
 import { ASSET_TTL_MS } from '../../lib/seedance/assetTtl.mjs';
 import { useEvents } from '../hooks/useEvents.js';
 import ExrProgressCard from '../tools/exr/ExrProgressCard.jsx';
+import UserProfile from './UserProfile.jsx';
 import { enhancePrompt } from '../../lib/seedance/enhance.js';
 import { friendlyError } from '../../lib/seedance/friendlyError.js';
 import { moveItem } from '../../lib/seedance/reorder.mjs';
@@ -2444,6 +2445,10 @@ export default function SeedanceStudio() {
                 workflowLook={workflowLook}
                 onChangeWorkflowLook={(v) => setWorkflowLooks((prev) => ({ ...prev, [activeSlot]: v }))}
             />
+
+            {/* Bottom-left, workspace-independent: the signed-in user's own
+                profile — memberships, spend per project/model, budget caps. */}
+            <UserProfile />
 
             <CinematicPanel
                 open={showCinematic}
