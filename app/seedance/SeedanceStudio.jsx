@@ -259,6 +259,7 @@ export default function SeedanceStudio() {
     // does the stored attachment count — a revoked grant leaves the id
     // behind, and the gateway ignores it the same way.
     const [workflowAccess, setWorkflowAccess] = useState('none');
+    const [workflowsAdmin, setWorkflowsAdmin] = useState(false); // platform admin sees versioning on any custom
     const workflowFor = (kind) => (workflowAccess === 'approved'
         ? workflows.find((w) => w.id === workflowAttached[kind]) || null
         : null);
@@ -383,6 +384,7 @@ export default function SeedanceStudio() {
                 if (Array.isArray(d?.items)) setWorkflows(d.items);
                 setWorkflowAttached(d?.attached ?? { video: null, image: null });
                 setWorkflowAccess(d?.access ?? 'none');
+                setWorkflowsAdmin(!!d?.admin);
             })
             .catch(() => {});
         return () => { alive = false; };
@@ -2448,6 +2450,7 @@ export default function SeedanceStudio() {
                 workflows={workflows}
                 workflow={workflow}
                 workflowAccess={workflowAccess}
+                workflowsAdmin={workflowsAdmin}
                 workflowAttached={workflowAttached}
                 onAttachWorkflow={attachWorkflow}
                 onDetachWorkflow={detachWorkflow}
