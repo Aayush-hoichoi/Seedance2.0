@@ -77,7 +77,7 @@ const WorkflowIcon = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill
    Morphic-style picker: a pill that opens a card list. Attaching a workflow
    makes every generation follow its style until detached — that is the whole
    point: a short prompt plus the workflow replaces the hand-pasted brief. */
-function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, access, onAttach, onRequest, onCreate, onDelete, onSetVisibility, look, onChangeLook }) {
+function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, access, onAttach, onDetach, onRequest, onCreate, onDelete, onSetVisibility, look, onChangeLook }) {
     const open = openKey === 'workflows';
     const [creating, setCreating] = useState(false);
     if (!workflows?.length && access !== 'approved') return null;
@@ -137,25 +137,37 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, access, onAtt
                         )}
                         <div className="flex flex-col gap-1.5 px-1 pb-1">
                             {workflows.map((w) => {
-                                const attached = w.id === workflow?.id;
+                                // Which slot(s) this workflow currently occupies —
+                                // one video and one image workflow may be on at once.
+                                const isAttached = w.id === attached?.video || w.id === attached?.image;
+                                const detachMedia = w.media === 'all' || (w.id === attached?.video && w.id === attached?.image)
+                                    ? 'all' : w.id === attached?.image ? 'image' : 'video';
+                                const toggle = () => {
+                                    if (gated) return;
+                                    if (isAttached) onDetach?.(detachMedia);
+                                    else { onAttach?.(w.id); setOpenKey(null); }
+                                };
                                 return (
                                     <div
                                         key={w.id}
                                         role="button"
                                         tabIndex={gated ? -1 : 0}
-                                        onClick={() => { if (gated) return; onAttach?.(attached ? null : w.id); if (!attached) setOpenKey(null); }}
-                                        onKeyDown={(e) => { if (!gated && e.key === 'Enter') { onAttach?.(attached ? null : w.id); if (!attached) setOpenKey(null); } }}
-                                        className={`group/wf w-full rounded-lg border px-3 py-2.5 text-left transition-colors ${attached
+                                        onClick={toggle}
+                                        onKeyDown={(e) => { if (e.key === 'Enter') toggle(); }}
+                                        className={`group/wf w-full rounded-lg border px-3 py-2.5 text-left transition-colors ${isAttached
                                             ? 'border-primary/40 bg-primary/[0.12]'
                                             : 'border-white/[0.06] bg-white/[0.02]'} ${gated
                                             ? 'cursor-not-allowed opacity-40'
-                                            : `cursor-pointer ${attached ? '' : 'hover:border-white/[0.14] hover:bg-white/[0.05]'}`}`}
+                                            : `cursor-pointer ${isAttached ? '' : 'hover:border-white/[0.14] hover:bg-white/[0.05]'}`}`}
                                     >
                                         <div className="flex items-center justify-between gap-2">
-                                            <span className={`truncate text-[13px] font-semibold ${attached ? 'text-primary' : 'text-white/90'}`}>{w.name}</span>
+                                            <span className={`truncate text-[13px] font-semibold ${isAttached ? 'text-primary' : 'text-white/90'}`}>{w.name}</span>
                                             <span className="flex shrink-0 items-center gap-1.5">
+                                                {w.media && w.media !== 'all' && (
+                                                    <span className="rounded-full bg-white/[0.08] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white/45">{w.media}</span>
+                                                )}
                                                 {w.mine && <span className="rounded-full bg-white/[0.08] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white/50">Yours</span>}
-                                                {attached ? (
+                                                {isAttached ? (
                                                     <span className="rounded-full bg-primary/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary">Attached</span>
                                                 ) : gated ? (
                                                     <svg className="text-white/30" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
@@ -223,12 +235,12 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, access, onAtt
                                 </div>
                             </div>
                         )}
-                        {workflow && (
+                        {(attached?.video || attached?.image) && (
                             <button
                                 type="button"
-                                onClick={() => { onAttach?.(null); setOpenKey(null); }}
+                                onClick={() => { onDetach?.('all'); setOpenKey(null); }}
                                 className="mx-1 mt-1 w-[calc(100%-0.5rem)] rounded-md px-2 py-2 text-left text-[11px] text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white"
-                            >Detach — stop applying this workflow</button>
+                            >Detach all — stop applying workflows</button>
                         )}
                     </div>
                 </Popover>
@@ -697,7 +709,8 @@ export default function PromptBar({
     imageRefs = [], onUploadImageRefs, removeImageRef, reorderImageRefs,
     cinematic = null, onOpenCinematic,
     projectStyle = null, styleLook = null, onChangeStyleLook,
-    workflows = [], workflow = null, workflowAccess = 'none', onAttachWorkflow, onRequestWorkflow,
+    workflows = [], workflow = null, workflowAttached = null, workflowAccess = 'none',
+    onAttachWorkflow, onDetachWorkflow, onRequestWorkflow,
     onCreateWorkflow, onDeleteWorkflow, onSetWorkflowVisibility, workflowLook = null, onChangeWorkflowLook,
 }) {
     const isImage = mediaType === 'image';
@@ -1040,8 +1053,8 @@ export default function PromptBar({
                         <div className="flex items-center gap-1.5 flex-wrap">
                             <WorkflowsPill
                                 openKey={openKey} setOpenKey={setOpenKey}
-                                workflows={workflows} workflow={workflow} access={workflowAccess}
-                                onAttach={onAttachWorkflow} onRequest={onRequestWorkflow}
+                                workflows={workflows} workflow={workflow} attached={workflowAttached} access={workflowAccess}
+                                onAttach={onAttachWorkflow} onDetach={onDetachWorkflow} onRequest={onRequestWorkflow}
                                 onCreate={onCreateWorkflow} onDelete={onDeleteWorkflow}
                                 onSetVisibility={onSetWorkflowVisibility}
                                 look={workflowLook} onChangeLook={onChangeWorkflowLook}
@@ -1345,13 +1358,14 @@ function CreateWorkflowModal({ onClose, onCreate }) {
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
     const [example, setExample] = useState('');
+    const [media, setMedia] = useState('all'); // what this workflow governs
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(null);
     const field = 'mt-1 w-full rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white/90 outline-none placeholder:text-white/25 focus:border-primary/50';
     const submit = async () => {
         if (busy) return;
         setBusy(true); setError(null);
-        const result = await onCreate({ name: name.trim(), description: description.trim(), examplePrompt: example.trim() || undefined });
+        const result = await onCreate({ name: name.trim(), description: description.trim(), examplePrompt: example.trim() || undefined, media });
         setBusy(false);
         if (result?.error) setError(result.error);
         else onClose();
@@ -1365,6 +1379,16 @@ function CreateWorkflowModal({ onClose, onCreate }) {
                 </p>
                 <label className="mt-4 block text-[10px] font-bold uppercase tracking-wider text-white/50">Name</label>
                 <input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} placeholder="e.g. Noir Kolkata" className={field} />
+                <label className="mt-3 block text-[10px] font-bold uppercase tracking-wider text-white/50">Applies to</label>
+                <div className="mt-1 flex gap-1 rounded-md border border-white/10 bg-white/[0.04] p-1">
+                    {[['all', 'Video + Image'], ['video', 'Video only'], ['image', 'Image only']].map(([value, label]) => (
+                        <button
+                            key={value} type="button" onClick={() => setMedia(value)}
+                            className={`flex-1 rounded px-2 py-1.5 text-[11px] font-semibold transition-colors ${media === value ? 'bg-primary/15 text-primary' : 'text-white/50 hover:text-white/80'}`}
+                        >{label}</button>
+                    ))}
+                </div>
+                <p className="mt-1 text-[10px] leading-relaxed text-white/30">You can run one video workflow and one image workflow at the same time.</p>
                 <label className="mt-3 block text-[10px] font-bold uppercase tracking-wider text-white/50">Describe the look</label>
                 <textarea
                     value={description} onChange={(e) => setDescription(e.target.value)} rows={4} maxLength={2000}

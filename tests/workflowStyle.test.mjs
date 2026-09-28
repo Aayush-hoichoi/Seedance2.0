@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PGlite } from '@electric-sql/pglite';
-import { workflowStyle, userWorkflowId, listWorkflowsFor } from '../lib/gateway/db.js';
+import { workflowStyle, userWorkflowIds, listWorkflowsFor } from '../lib/gateway/db.js';
 
 function compile(strings, values) {
     let text = strings[0];
@@ -35,11 +35,12 @@ async function workflowDb() {
         CREATE TABLE workflows (
             id serial PRIMARY KEY, name text NOT NULL, description text,
             style jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), deleted_at timestamptz,
-            created_by text, visibility text NOT NULL DEFAULT 'private'
+            created_by text, visibility text NOT NULL DEFAULT 'private',
+            media text NOT NULL DEFAULT 'all'
         );
     `);
     await db.exec(`
-        CREATE TABLE users (id text PRIMARY KEY, email text, workflow_id integer);
+        CREATE TABLE users (id text PRIMARY KEY, email text, workflow_id integer, image_workflow_id integer);
         CREATE TABLE workflow_access (
             user_id text PRIMARY KEY, status text NOT NULL DEFAULT 'pending', note text,
             decided_by text, decided_at timestamptz,
@@ -111,10 +112,34 @@ test('a PUBLIC custom is listed and usable by everyone with access; pending is n
     assert.equal(await workflowStyle(sql, half.id, { userId: 'u_other' }), null);
 });
 
-test('userWorkflowId returns the stored attachment; null when detached or unknown', async () => {
+test('an "all" attachment governs BOTH media; the image slot overrides for images', async () => {
     const sql = await workflowDb();
-    assert.equal(await userWorkflowId(sql, 'u_attached'), 1);
-    assert.equal(await userWorkflowId(sql, 'u_detached'), null);
-    assert.equal(await userWorkflowId(sql, 'u_never_seen'), null);
-    assert.equal(await userWorkflowId(sql, null), null);
+    // Main slot holds workflow 1 (media 'all') → both channels.
+    assert.deepEqual(await userWorkflowIds(sql, 'u_attached'), { video: 1, image: 1 });
+    assert.deepEqual(await userWorkflowIds(sql, 'u_detached'), { video: null, image: null });
+    assert.deepEqual(await userWorkflowIds(sql, 'u_never_seen'), { video: null, image: null });
+    assert.deepEqual(await userWorkflowIds(sql, null), { video: null, image: null });
+
+    // An image-only workflow in the image slot wins for images; video keeps the main.
+    await sql`INSERT INTO workflows (name, style, created_by, media) VALUES ('Img Only', ${JSON.stringify(STYLE)}::jsonb, 'u_attached', 'image')`;
+    const [img] = await sql`SELECT id FROM workflows WHERE name = 'Img Only'`;
+    await sql`UPDATE users SET image_workflow_id = ${img.id} WHERE id = 'u_attached'`;
+    assert.deepEqual(await userWorkflowIds(sql, 'u_attached'), { video: 1, image: img.id });
+
+    // A video-only main covers video but NOT image.
+    await sql`INSERT INTO workflows (name, style, created_by, media) VALUES ('Vid Only', ${JSON.stringify(STYLE)}::jsonb, 'u_attached', 'video')`;
+    const [vid] = await sql`SELECT id FROM workflows WHERE name = 'Vid Only'`;
+    await sql`UPDATE users SET workflow_id = ${vid.id}, image_workflow_id = NULL WHERE id = 'u_attached'`;
+    assert.deepEqual(await userWorkflowIds(sql, 'u_attached'), { video: vid.id, image: null });
+});
+
+test('workflowStyle refuses a workflow for the wrong medium', async () => {
+    const sql = await workflowDb();
+    await sql`INSERT INTO workflows (name, style, created_by, media) VALUES ('Img Only', ${JSON.stringify(STYLE)}::jsonb, 'u_attached', 'image')`;
+    const [img] = await sql`SELECT id FROM workflows WHERE name = 'Img Only'`;
+    assert.deepEqual(await workflowStyle(sql, img.id, { userId: 'u_attached', media: 'image' }), STYLE);
+    assert.equal(await workflowStyle(sql, img.id, { userId: 'u_attached', media: 'video' }), null);
+    // 'all' workflows serve both media.
+    assert.deepEqual(await workflowStyle(sql, 1, { userId: 'u_attached', media: 'video' }), STYLE);
+    assert.deepEqual(await workflowStyle(sql, 1, { userId: 'u_attached', media: 'image' }), STYLE);
 });
