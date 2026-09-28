@@ -37,6 +37,9 @@ export async function POST(request) {
     }
 
     const style = await draftWorkflowStyle({ name, description, examplePrompt });
+    // The user's full description round-trips through the style so Edit can
+    // prefill it later (workflows.description is truncated for the card).
+    style.sourceDescription = description;
     const [row] = await sql`INSERT INTO workflows (name, description, style, created_by, media)
         VALUES (${name}, ${description.slice(0, 200)}, ${JSON.stringify(style)}::jsonb, ${user.userId}, ${media})
         RETURNING id, name, description, created_by, media`;
@@ -48,6 +51,50 @@ export async function POST(request) {
         item: {
             id: row.id, name: row.name, description: row.description, style: styleSummary(style),
             media: row.media, mine: true, visibility: 'private',
+        },
+    });
+}
+
+// Update a custom workflow: new name/media, and a new description that is
+// re-drafted into a fresh style (version bumped, so the scoreboard and the
+// nightly refresh see a new lineage point). Owner only (or platform admin);
+// visibility and ownership never change here.
+export async function PUT(request) {
+    const auth = await gatewayContext({});
+    if (!auth.ok) return auth.response;
+    const { sql, user, isPlatformAdmin } = auth.ctx;
+    const body = await request.json().catch(() => null);
+    const id = Number(body?.workflowId);
+    const name = typeof body?.name === 'string' ? body.name.trim().slice(0, 80) : '';
+    const description = typeof body?.description === 'string' ? body.description.trim() : '';
+    const examplePrompt = typeof body?.examplePrompt === 'string' ? body.examplePrompt.trim().slice(0, 5000) : null;
+    const media = ['all', 'video', 'image'].includes(body?.media) ? body.media : 'all';
+    if (!id) return NextResponse.json({ error: 'workflowId is required.' }, { status: 400 });
+    if (!name) return NextResponse.json({ error: 'Give the workflow a name.' }, { status: 400 });
+    if (description.length < 10) return NextResponse.json({ error: 'Describe the look in at least a sentence.' }, { status: 400 });
+    if (description.length > 2000) return NextResponse.json({ error: 'Keep the description under 2000 characters.' }, { status: 400 });
+
+    const [existing] = await sql`SELECT id, style FROM workflows
+        WHERE id = ${id} AND deleted_at IS NULL AND created_by IS NOT NULL
+          AND (created_by = ${user.userId} OR ${isPlatformAdmin})`;
+    if (!existing) return NextResponse.json({ error: 'Workflow not found, or it is not yours to edit.' }, { status: 404 });
+
+    const style = await draftWorkflowStyle({ name, description, examplePrompt });
+    style.sourceDescription = description;
+    style.version = (existing.style?.version ?? 0) + 1; // monotonic lineage across edits and refreshes
+    const [row] = await sql`UPDATE workflows
+        SET name = ${name}, description = ${description.slice(0, 200)},
+            style = ${JSON.stringify(style)}::jsonb, media = ${media}
+        WHERE id = ${id}
+        RETURNING id, name, description, media`;
+    await writeAudit(sql, {
+        actorId: user.userId, actorEmail: user.email, action: 'workflow.updated',
+        targetType: 'workflow', targetId: id, before: existing.style, after: style,
+    });
+    return NextResponse.json({
+        item: {
+            id: row.id, name: row.name, description: row.description, style: styleSummary(style),
+            media: row.media, mine: true,
         },
     });
 }
