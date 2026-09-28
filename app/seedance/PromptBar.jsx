@@ -77,7 +77,7 @@ const WorkflowIcon = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill
    Morphic-style picker: a pill that opens a card list. Attaching a workflow
    makes every generation follow its style until detached — that is the whole
    point: a short prompt plus the workflow replaces the hand-pasted brief. */
-function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, access, onAttach, onDetach, onRequest, onCreate, onDelete, onSetVisibility, look, onChangeLook }) {
+function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, access, onAttach, onDetach, onRequest, onCreate, onDelete, onSetVisibility, polish, onTogglePolish, look, onChangeLook }) {
     const open = openKey === 'workflows';
     const [creating, setCreating] = useState(false);
     if (!workflows?.length && access !== 'approved') return null;
@@ -134,6 +134,23 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
                                     </>
                                 )}
                             </div>
+                        )}
+                        {/* AI prompt polish — an enhancer call per generation, so
+                            it is the user's explicit choice, remembered. */}
+                        {!gated && (attached?.video || attached?.image) && (
+                            <button
+                                type="button"
+                                onClick={() => onTogglePolish?.()}
+                                className="mx-1 mb-2 flex w-[calc(100%-0.5rem)] items-center justify-between gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-left transition-colors hover:border-white/[0.14]"
+                            >
+                                <span className="min-w-0">
+                                    <span className={`block text-xs font-semibold ${polish ? 'text-primary' : 'text-white/80'}`}>✨ AI prompt polish</span>
+                                    <span className="mt-0.5 block text-[10px] leading-snug text-white/40">Rewrites each prompt in the attached style before generating — adds a few seconds.</span>
+                                </span>
+                                <span className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${polish ? 'bg-primary' : 'bg-white/15'}`}>
+                                    <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-black transition-all ${polish ? 'left-3.5' : 'left-0.5'}`} />
+                                </span>
+                            </button>
                         )}
                         <div className="flex flex-col gap-1.5 px-1 pb-1">
                             {workflows.map((w) => {
@@ -711,7 +728,8 @@ export default function PromptBar({
     projectStyle = null, styleLook = null, onChangeStyleLook,
     workflows = [], workflow = null, workflowAttached = null, workflowAccess = 'none',
     onAttachWorkflow, onDetachWorkflow, onRequestWorkflow,
-    onCreateWorkflow, onDeleteWorkflow, onSetWorkflowVisibility, workflowLook = null, onChangeWorkflowLook,
+    onCreateWorkflow, onDeleteWorkflow, onSetWorkflowVisibility,
+    workflowPolish = false, onToggleWorkflowPolish, workflowLook = null, onChangeWorkflowLook,
 }) {
     const isImage = mediaType === 'image';
     // Editing, extension and first/last-frame tasks take the output ratio from
@@ -1057,6 +1075,7 @@ export default function PromptBar({
                                 onAttach={onAttachWorkflow} onDetach={onDetachWorkflow} onRequest={onRequestWorkflow}
                                 onCreate={onCreateWorkflow} onDelete={onDeleteWorkflow}
                                 onSetVisibility={onSetWorkflowVisibility}
+                                polish={workflowPolish} onTogglePolish={onToggleWorkflowPolish}
                                 look={workflowLook} onChangeLook={onChangeWorkflowLook}
                             />
                     {!workflow && projectStyle?.looks?.length > 0 && (

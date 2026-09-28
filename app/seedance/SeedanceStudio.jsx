@@ -310,6 +310,28 @@ export default function SeedanceStudio() {
             image: prev.image === id ? null : prev.image,
         })); // the server already detached it for everyone
     };
+    // "AI prompt polish": rewrite each prompt in the attached workflow's
+    // style before generating. Off by default — it adds an enhancer call
+    // (seconds + cost) to every generation, so it is the user's choice.
+    const [workflowPolish, setWorkflowPolish] = useState(() => {
+        try { return window.localStorage.getItem('seedance:workflowPolish') === '1'; } catch { return false; }
+    });
+    const toggleWorkflowPolish = () => {
+        setWorkflowPolish((prev) => {
+            try { window.localStorage.setItem('seedance:workflowPolish', prev ? '0' : '1'); } catch { /* private mode */ }
+            return !prev;
+        });
+    };
+    // Best-effort: null on any failure, and the caller uses the raw prompt.
+    const polishWithWorkflow = async (text, media) => {
+        const r = await fetch('/api/workflows/enhance', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: text, media }),
+        }).catch(() => null);
+        const d = await r?.json().catch(() => null);
+        return d?.polished && d.prompt ? d.prompt : null;
+    };
     // The server routes the id into the right slot by the workflow's media
     // (image-only → image slot, video-only → video, 'all' → both) and answers
     // with the resulting { video, image } attachment map.
@@ -1537,6 +1559,14 @@ export default function SeedanceStudio() {
                     return;
                 }
                 setEnhancing(false);
+            } else if (workflowPolish && imageWorkflow) {
+                // AI prompt polish: rewrite the short prompt IN the attached
+                // image workflow's style before the deterministic style merge.
+                // Best-effort — a hiccup generates from the raw prompt.
+                setEnhancing(true);
+                const polished = await polishWithWorkflow(raw, 'image');
+                setEnhancing(false);
+                if (polished) { structured = polished; meta = { userPrompt: raw }; }
             }
             for (let i = 0; i < batch; i++) launchImageJob(structured, imageRefs, meta);
             return;
@@ -1621,6 +1651,13 @@ export default function SeedanceStudio() {
             } finally {
                 setEnhancing(false);
             }
+        } else if (workflowPolish && videoWorkflow) {
+            // AI prompt polish for the video slot — same contract as the image
+            // path: best-effort, raw prompt on any failure.
+            setEnhancing(true);
+            const polished = await polishWithWorkflow(apiPrompt, 'video');
+            setEnhancing(false);
+            if (polished) { promptMeta = { userPrompt: apiPrompt }; apiPrompt = polished; }
         }
 
         // A reused ref may point at an asset:// that per-batch cleanup already
@@ -2401,6 +2438,8 @@ export default function SeedanceStudio() {
                 onCreateWorkflow={createWorkflow}
                 onDeleteWorkflow={deleteWorkflow}
                 onSetWorkflowVisibility={setWorkflowVisibility}
+                workflowPolish={workflowPolish}
+                onToggleWorkflowPolish={toggleWorkflowPolish}
                 workflowLook={workflowLook}
                 onChangeWorkflowLook={(v) => setWorkflowLooks((prev) => ({ ...prev, [activeSlot]: v }))}
             />
