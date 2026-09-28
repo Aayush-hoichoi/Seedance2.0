@@ -155,31 +155,6 @@ export default function UserProfile() {
                                         ))}
                                     </ul>
 
-                                    {data.budgets.length > 0 && (
-                                        <>
-                                            <div className="mt-4 mb-2 text-[10px] font-bold uppercase tracking-wider text-ink-3">Your budget caps</div>
-                                            <ul className="space-y-1.5 pb-1">
-                                                {data.budgets.map((b) => {
-                                                    const frac = b.hard_limit > 0 ? Math.min(1, b.used_usd / b.hard_limit) : 0;
-                                                    return (
-                                                        <li key={b.id} className="rounded-lg border border-line bg-paper-2 px-3 py-2 text-[11px]">
-                                                            <div className="flex items-baseline justify-between gap-2">
-                                                                <span className="min-w-0 truncate text-ink-2">
-                                                                    {b.project_name || 'All workspaces'}{b.model_name ? ` · ${b.model_name}` : ''}
-                                                                    <span className="text-ink-3"> · {b.window}</span>
-                                                                </span>
-                                                                <span className="shrink-0 font-mono tabular-nums text-ink">{usd(b.used_usd)} / {usd(b.hard_limit)}</span>
-                                                            </div>
-                                                            <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-paper-3">
-                                                                <div className={`h-full rounded-full ${frac >= 1 ? 'bg-danger' : frac >= 0.8 ? 'bg-warn' : 'bg-accent'}`} style={{ width: `${Math.max(2, Math.round(frac * 100))}%` }} />
-                                                            </div>
-                                                        </li>
-                                                    );
-                                                })}
-                                            </ul>
-                                        </>
-                                    )}
-
                                     {data.memberships.length > 0 && (
                                         <>
                                             <div className="mt-4 mb-2 text-[10px] font-bold uppercase tracking-wider text-ink-3">Member of</div>
