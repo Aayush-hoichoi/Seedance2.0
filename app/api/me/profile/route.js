@@ -43,32 +43,6 @@ export async function GET() {
         GROUP BY b.project_id, p.name, b.model_id, mo.display_name
         ORDER BY spent_usd DESC`;
 
-    // The user's PERSONAL budget caps (quotas scoped to them), with live
-    // usage inside each cap's own window and scope — "how much of my budget
-    // have I consumed" per cap.
-    const budgets = await sql`
-        SELECT q.id, q.project_id, pr.name AS project_name, q.model_id,
-               coalesce(mo.display_name, q.model_id)  AS model_name,
-               q."window", q.policy, q.hard_limit::float8 AS hard_limit,
-               coalesce(u2.used, 0)::float8 AS used_usd
-        FROM quotas q
-        LEFT JOIN projects pr ON pr.id = q.project_id
-        LEFT JOIN models mo ON mo.id = q.model_id
-        LEFT JOIN LATERAL (
-            SELECT SUM(coalesce(b.cost_usd, b.est_cost_usd, 0)) AS used
-            FROM billing_events b
-            WHERE b.user_id = ${me} AND b.event_type IN ('settlement', 'failure')
-              AND (q.project_id IS NULL OR b.project_id = q.project_id)
-              AND (q.model_id IS NULL OR b.model_id = q.model_id)
-              AND b.created_at >= CASE q."window"
-                  WHEN 'daily' THEN date_trunc('day', now())
-                  WHEN 'monthly' THEN date_trunc('month', now())
-                  ELSE 'epoch'::timestamptz
-              END
-        ) u2 ON true
-        WHERE q.user_id = ${me} AND q.deleted_at IS NULL AND q.type = 'usd'
-        ORDER BY pr.name NULLS FIRST, q.model_id NULLS FIRST`;
-
     return NextResponse.json({
         user: {
             id: me,
@@ -79,6 +53,5 @@ export async function GET() {
         },
         memberships,
         spend,
-        budgets,
     });
 }
