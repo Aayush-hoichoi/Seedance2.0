@@ -77,10 +77,11 @@ const WorkflowIcon = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill
    Morphic-style picker: a pill that opens a card list. Attaching a workflow
    makes every generation follow its style until detached — that is the whole
    point: a short prompt plus the workflow replaces the hand-pasted brief. */
-function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, access, onAttach, onDetach, onRequest, onCreate, onUpdate, onDelete, onSetVisibility, polish, onTogglePolish, look, onChangeLook }) {
+function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, access, isAdmin, onAttach, onDetach, onRequest, onCreate, onUpdate, onDelete, onSetVisibility, polish, onTogglePolish, look, onChangeLook }) {
     const open = openKey === 'workflows';
     const [creating, setCreating] = useState(false);
     const [editing, setEditing] = useState(null); // the own workflow being edited, or null
+    const [history, setHistory] = useState(null); // the workflow whose versions are open, or null
     if (!workflows?.length && access !== 'approved') return null;
     const looks = workflow?.style?.looks || [];
     const gated = access !== 'approved'; // one approval unlocks every workflow
@@ -203,6 +204,15 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
                                                 ) : gated ? (
                                                     <svg className="text-white/30" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
                                                 ) : null}
+                                                {(w.mine || (isAdmin && w.creator)) && !gated && (
+                                                    <button
+                                                        type="button"
+                                                        title="Versions — history, restore, and upgrade from generations"
+                                                        aria-label={`Versions of ${w.name}`}
+                                                        onClick={(e) => { e.stopPropagation(); setOpenKey(null); setHistory({ id: w.id, name: w.name }); }}
+                                                        className="flex h-4 w-4 items-center justify-center rounded-full border border-white/15 text-[9px] leading-none text-white/35 transition-colors hover:border-primary/50 hover:text-primary"
+                                                    >⟳</button>
+                                                )}
                                                 {w.mine && !gated && (
                                                     <button
                                                         type="button"
@@ -281,6 +291,10 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
             {/* Portaled to <body>: the prompt bar's backdrop-blur makes it the
                 containing block for fixed descendants, which trapped this
                 modal INSIDE the bar — clipped and off-center. */}
+            {history && createPortal(
+                <WorkflowHistoryModal workflow={history} onClose={() => setHistory(null)} />,
+                document.body,
+            )}
             {(creating || editing) && createPortal(
                 <CreateWorkflowModal
                     onClose={() => { setCreating(false); setEditing(null); }}
@@ -745,7 +759,7 @@ export default function PromptBar({
     imageRefs = [], onUploadImageRefs, removeImageRef, reorderImageRefs,
     cinematic = null, onOpenCinematic,
     projectStyle = null, styleLook = null, onChangeStyleLook,
-    workflows = [], workflow = null, workflowAttached = null, workflowAccess = 'none',
+    workflows = [], workflow = null, workflowAttached = null, workflowAccess = 'none', workflowsAdmin = false,
     onAttachWorkflow, onDetachWorkflow, onRequestWorkflow,
     onCreateWorkflow, onUpdateWorkflow, onDeleteWorkflow, onSetWorkflowVisibility,
     workflowPolish = false, onToggleWorkflowPolish, workflowLook = null, onChangeWorkflowLook,
@@ -1090,7 +1104,7 @@ export default function PromptBar({
                         <div className="flex items-center gap-1.5 flex-wrap">
                             <WorkflowsPill
                                 openKey={openKey} setOpenKey={setOpenKey}
-                                workflows={workflows} workflow={workflow} attached={workflowAttached} access={workflowAccess}
+                                workflows={workflows} workflow={workflow} attached={workflowAttached} access={workflowAccess} isAdmin={workflowsAdmin}
                                 onAttach={onAttachWorkflow} onDetach={onDetachWorkflow} onRequest={onRequestWorkflow}
                                 onCreate={onCreateWorkflow} onUpdate={onUpdateWorkflow} onDelete={onDeleteWorkflow}
                                 onSetVisibility={onSetWorkflowVisibility}
@@ -1484,6 +1498,105 @@ function CreateWorkflowModal({ onClose, onCreate, onUpdate, initial = null }) {
                         disabled={busy || !name.trim() || description.trim().length < 10}
                         className="rounded-md bg-primary px-4 py-2 text-xs font-bold text-black transition-colors hover:bg-primary/90 disabled:opacity-40"
                     >{busy ? (initial ? 'Saving…' : 'Creating…') : (initial ? 'Save changes' : 'Create & attach')}</button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+/* Version history for a custom workflow — creator/admin only (the button is
+   gated upstream). Reads the audit trail every change has written since day
+   one; Upgrade analyzes ALL generations made with the workflow (liked ones
+   prioritized) and writes the generalized result as a new version; Restore
+   brings an old snapshot back AS a new version — history is never rewritten. */
+const VERSION_LABELS = {
+    'workflow.created': 'Created',
+    'workflow.updated': 'Edited',
+    'workflow.style_refreshed': 'Learned from liked generations',
+    'workflow.upgraded': 'Upgraded from generations',
+    'workflow.restored': 'Restored',
+};
+
+function WorkflowHistoryModal({ workflow, onClose }) {
+    const [data, setData] = useState(null);
+    const [busy, setBusy] = useState(null); // 'upgrade' | auditId | null
+    const [note, setNote] = useState(null); // { ok, text }
+    const load = () => {
+        fetch(`/api/workflows/custom/versions?workflowId=${workflow.id}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => setData(d ?? { error: true }))
+            .catch(() => setData({ error: true }));
+    };
+    useEffect(load, [workflow.id]);
+    const act = async (payload, busyKey, okText) => {
+        if (busy) return;
+        setBusy(busyKey); setNote(null);
+        const r = await fetch('/api/workflows/custom/versions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ workflowId: workflow.id, ...payload }),
+        }).catch(() => null);
+        const d = await r?.json().catch(() => null);
+        setBusy(null);
+        if (!r?.ok) { setNote({ ok: false, text: d?.error || 'That did not work — try again.' }); return; }
+        if (d.unchanged) { setNote({ ok: true, text: `Analyzed ${d.analyzed} generations (${d.liked} liked) — the style already matches what works. No change made.` }); return; }
+        setNote({ ok: true, text: okText(d) });
+        load();
+    };
+    return (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+            <div className="flex max-h-[80vh] w-full max-w-md flex-col overflow-hidden rounded-xl border border-white/10 bg-paper-1 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-3">
+                    <div>
+                        <h3 className="text-sm font-bold text-white/90">Versions — {workflow.name}</h3>
+                        {data?.currentVersion != null && <p className="text-[11px] text-white/40">currently v{data.currentVersion}</p>}
+                    </div>
+                    <button type="button" onClick={onClose} aria-label="Close" className="rounded-md p-1.5 text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white">✕</button>
+                </div>
+                <div className="border-b border-white/[0.06] px-5 py-3">
+                    <button
+                        type="button"
+                        disabled={busy != null}
+                        onClick={() => act({ action: 'upgrade' }, 'upgrade', (d) => `Upgraded to v${d.version} from ${d.analyzed} generations (${d.liked} liked, prioritized).`)}
+                        className="w-full rounded-md bg-primary py-2 text-xs font-bold text-black transition-colors hover:bg-primary/90 disabled:opacity-50"
+                    >{busy === 'upgrade' ? 'Analyzing generations…' : '⬆ Upgrade from generations'}</button>
+                    <p className="mt-1.5 text-[10px] leading-relaxed text-white/40">
+                        Analyzes every generation made with this workflow — liked ones weigh most — and folds what consistently worked into a new, generalized version.
+                    </p>
+                    {note && <p className={`mt-1.5 text-[11px] leading-relaxed ${note.ok ? 'text-primary' : 'text-danger'}`}>{note.text}</p>}
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar px-5 py-3">
+                    {!data ? (
+                        <p className="text-xs text-white/40">Loading history…</p>
+                    ) : data.error ? (
+                        <p className="text-xs text-danger">Could not load the history.</p>
+                    ) : data.versions.length === 0 ? (
+                        <p className="text-xs text-white/40">No recorded versions yet.</p>
+                    ) : (
+                        <ul className="space-y-1.5">
+                            {data.versions.map((v, i) => (
+                                <li key={v.id} className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+                                    <div className="min-w-0">
+                                        <div className="text-xs font-semibold text-white/85">
+                                            {v.version != null ? `v${v.version}` : '—'}
+                                            <span className="ml-1.5 font-normal text-white/50">{VERSION_LABELS[v.action] || v.action}</span>
+                                        </div>
+                                        <div className="truncate text-[10px] text-white/35">
+                                            {new Date(v.created_at).toLocaleString()}{v.reason ? ` · ${v.reason}` : ''}
+                                        </div>
+                                    </div>
+                                    {i > 0 && (
+                                        <button
+                                            type="button"
+                                            disabled={busy != null}
+                                            onClick={() => act({ action: 'restore', auditId: v.id }, v.id, (d) => `Restored as v${d.version}.`)}
+                                            className="shrink-0 rounded-md border border-white/15 px-2 py-1 text-[10px] font-semibold text-white/60 transition-colors hover:border-primary/50 hover:text-primary disabled:opacity-50"
+                                        >{busy === v.id ? 'Restoring…' : 'Restore'}</button>
+                                    )}
+                                </li>
+                            ))}
+                        </ul>
+                    )}
                 </div>
             </div>
         </div>

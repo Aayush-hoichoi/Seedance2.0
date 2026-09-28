@@ -30,6 +30,7 @@ export async function GET() {
             }))
             .filter((w) => w.style), // a workflow with no usable looks can't be attached
         access: isPlatformAdmin ? 'approved' : await workflowAccessFor(sql, user.userId),
+        admin: isPlatformAdmin, // versioning is visible to admins on any custom
         attached: await userWorkflowIds(sql, user.userId), // { video, image }
     });
 }

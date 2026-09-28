@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { acceptRefreshedStyle, buildRefreshMessages, buildDescribeMessages, fallbackStyle } from '../lib/gateway/workflowRefresh.mjs';
+import { acceptRefreshedStyle, buildRefreshMessages, buildDescribeMessages, buildUpgradeMessages, fallbackStyle } from '../lib/gateway/workflowRefresh.mjs';
 import { styleError } from '../lib/gateway/projectStyle.mjs';
 
 const CURRENT = {
@@ -60,6 +60,21 @@ test('describe-enhancer messages: look only, faithful to the idea, media-aware',
     assert.match(user.content, /ramkinkar baij sculpture style/);
     const [imgSystem] = buildDescribeMessages({ name: 'x', description: 'y', media: 'image' });
     assert.match(imgSystem.content, /still images generation/);
+});
+
+test('upgrade messages prioritize liked prompts, demand generalization, and ban brands', () => {
+    const messages = buildUpgradeMessages(
+        { id: 1, name: 'Mahi Style', style: CURRENT },
+        { liked: ['liked river shot'], regular: ['plain meadow shot'] },
+    );
+    const [system, user] = messages;
+    assert.match(system.content, /PRIORITIZE the APPROVED prompts/);
+    assert.match(system.content, /GENERALIZE/);
+    assert.match(system.content, /NEVER introduce real brand/);
+    assert.match(user.content, /approved #1[\s\S]*liked river shot/);
+    assert.match(user.content, /other #1[\s\S]*plain meadow shot/);
+    // Approved block comes before the context block — order IS the weighting.
+    assert.ok(user.content.indexOf('APPROVED') < user.content.indexOf('OTHER GENERATIONS'));
 });
 
 test('refresh messages carry the current style and every liked exemplar', () => {
