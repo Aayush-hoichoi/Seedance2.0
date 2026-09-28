@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { gatewayContext } from '../../../lib/gateway/authz.js';
-import { userWorkflowId, workflowAccessFor, listWorkflowsFor } from '../../../lib/gateway/db.js';
+import { userWorkflowIds, workflowAccessFor, listWorkflowsFor } from '../../../lib/gateway/db.js';
 import { styleSummary } from '../../../lib/gateway/projectStyle.mjs';
 import { notifyTeamsWorkflowRequested } from '../../../lib/notify/teamsWorkflow.mjs';
 
@@ -20,13 +20,14 @@ export async function GET() {
         items: rows
             .map((w) => ({
                 id: w.id, name: w.name, description: w.description, style: styleSummary(w.style),
+                media: w.media || 'all', // 'all' | 'video' | 'image'
                 mine: w.created_by === user.userId, // own customs are deletable in the picker
                 visibility: w.created_by ? w.visibility : 'public', // officials are inherently shared
                 creator: w.created_by && w.created_by !== user.userId ? (w.creator_email || null) : null,
             }))
             .filter((w) => w.style), // a workflow with no usable looks can't be attached
         access: isPlatformAdmin ? 'approved' : await workflowAccessFor(sql, user.userId),
-        attachedId: await userWorkflowId(sql, user.userId),
+        attached: await userWorkflowIds(sql, user.userId), // { video, image }
     });
 }
 
@@ -57,9 +58,11 @@ export async function POST(request) {
     return NextResponse.json({ access: row.status });
 }
 
-// Attach ({ workflowId: n }) or detach ({ workflowId: null }). Stored on the
-// user, not the browser, so it follows them across devices and every surface
-// (studio, MCP, raw API) applies it. Attaching requires approved access.
+// Attach ({ workflowId: n }) or detach ({ workflowId: null, media? }).
+// Stored on the user, not the browser, so it follows them across devices and
+// every surface (studio, MCP, raw API) applies it. Two slots: an image-only
+// workflow lands in the image slot, everything else in the main slot; an
+// 'all' workflow clears the image slot because it now governs both.
 export async function PATCH(request) {
     const auth = await gatewayContext({});
     if (!auth.ok) return auth.response;
@@ -69,13 +72,24 @@ export async function PATCH(request) {
     if (id !== null) {
         // Officials and PUBLIC customs are attachable by anyone (with access);
         // a private custom only by its creator.
-        const [found] = await sql`SELECT id FROM workflows WHERE id = ${id} AND deleted_at IS NULL
+        const [found] = await sql`SELECT id, media FROM workflows WHERE id = ${id} AND deleted_at IS NULL
             AND (created_by IS NULL OR created_by = ${user.userId} OR visibility = 'public')`;
         if (!found) return NextResponse.json({ error: 'Unknown workflow.' }, { status: 404 });
         if (!isPlatformAdmin && await workflowAccessFor(sql, user.userId) !== 'approved') {
             return NextResponse.json({ error: 'Workflows need admin approval first — request access from the picker.' }, { status: 403 });
         }
+        if (found.media === 'image') {
+            await sql`UPDATE users SET image_workflow_id = ${id} WHERE id = ${user.userId}`;
+        } else if (found.media === 'video') {
+            await sql`UPDATE users SET workflow_id = ${id} WHERE id = ${user.userId}`;
+        } else {
+            await sql`UPDATE users SET workflow_id = ${id}, image_workflow_id = NULL WHERE id = ${user.userId}`;
+        }
+    } else {
+        const media = ['video', 'image'].includes(body?.media) ? body.media : 'all';
+        if (media === 'image') await sql`UPDATE users SET image_workflow_id = NULL WHERE id = ${user.userId}`;
+        else if (media === 'video') await sql`UPDATE users SET workflow_id = NULL WHERE id = ${user.userId}`;
+        else await sql`UPDATE users SET workflow_id = NULL, image_workflow_id = NULL WHERE id = ${user.userId}`;
     }
-    await sql`UPDATE users SET workflow_id = ${id} WHERE id = ${user.userId}`;
-    return NextResponse.json({ attachedId: id });
+    return NextResponse.json({ attached: await userWorkflowIds(sql, user.userId) });
 }

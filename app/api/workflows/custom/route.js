@@ -25,6 +25,7 @@ export async function POST(request) {
     const name = typeof body?.name === 'string' ? body.name.trim().slice(0, 80) : '';
     const description = typeof body?.description === 'string' ? body.description.trim() : '';
     const examplePrompt = typeof body?.examplePrompt === 'string' ? body.examplePrompt.trim().slice(0, 5000) : null;
+    const media = ['all', 'video', 'image'].includes(body?.media) ? body.media : 'all';
     if (!name) return NextResponse.json({ error: 'Give the workflow a name.' }, { status: 400 });
     if (description.length < 10) return NextResponse.json({ error: 'Describe the look in at least a sentence.' }, { status: 400 });
     if (description.length > 2000) return NextResponse.json({ error: 'Keep the description under 2000 characters.' }, { status: 400 });
@@ -36,15 +37,18 @@ export async function POST(request) {
     }
 
     const style = await draftWorkflowStyle({ name, description, examplePrompt });
-    const [row] = await sql`INSERT INTO workflows (name, description, style, created_by)
-        VALUES (${name}, ${description.slice(0, 200)}, ${JSON.stringify(style)}::jsonb, ${user.userId})
-        RETURNING id, name, description, created_by`;
+    const [row] = await sql`INSERT INTO workflows (name, description, style, created_by, media)
+        VALUES (${name}, ${description.slice(0, 200)}, ${JSON.stringify(style)}::jsonb, ${user.userId}, ${media})
+        RETURNING id, name, description, created_by, media`;
     await writeAudit(sql, {
         actorId: user.userId, actorEmail: user.email, action: 'workflow.created',
         targetType: 'workflow', targetId: row.id, after: style,
     });
     return NextResponse.json({
-        item: { id: row.id, name: row.name, description: row.description, style: styleSummary(style), mine: true },
+        item: {
+            id: row.id, name: row.name, description: row.description, style: styleSummary(style),
+            media: row.media, mine: true, visibility: 'private',
+        },
     });
 }
 
@@ -69,9 +73,12 @@ export async function PATCH(request) {
           AND (created_by = ${user.userId} OR ${isPlatformAdmin})
         RETURNING visibility`;
     if (!row) return NextResponse.json({ error: 'Workflow not found, or it is not yours.' }, { status: 404 });
-    // Newly-private workflows must stop styling other people's generations.
+    // Newly-private workflows must stop styling other people's generations
+    // — in whichever slot they occupy.
     if (row.visibility === 'private') {
         await sql`UPDATE users SET workflow_id = NULL WHERE workflow_id = ${id} AND id <> (
+            SELECT created_by FROM workflows WHERE id = ${id})`;
+        await sql`UPDATE users SET image_workflow_id = NULL WHERE image_workflow_id = ${id} AND id <> (
             SELECT created_by FROM workflows WHERE id = ${id})`;
     }
     await writeAudit(sql, {
@@ -97,6 +104,7 @@ export async function DELETE(request) {
             WHERE id = ${id} AND deleted_at IS NULL AND created_by = ${user.userId} RETURNING id, created_by`;
     if (!row) return NextResponse.json({ error: 'Workflow not found, or it is not yours to delete.' }, { status: 404 });
     await sql`UPDATE users SET workflow_id = NULL WHERE workflow_id = ${id}`;
+    await sql`UPDATE users SET image_workflow_id = NULL WHERE image_workflow_id = ${id}`;
     await writeAudit(sql, {
         actorId: user.userId, actorEmail: user.email, action: 'workflow.deleted',
         targetType: 'workflow', targetId: id,

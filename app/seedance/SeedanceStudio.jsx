@@ -249,15 +249,25 @@ export default function SeedanceStudio() {
     // The attachment lives on the SERVER (users.workflow_id), so it follows
     // the user across browsers/devices and MCP/API calls inherit it.
     const [workflows, setWorkflows] = useState([]);
-    const [workflowId, setWorkflowId] = useState(null);
-    const [workflowLook, setWorkflowLook] = useState(null); // null = the workflow's default look
+    // Two slots: one workflow may govern video and another govern image at
+    // the same time (an 'all' workflow occupies both). Looks are per slot —
+    // the two attached workflows have different look sets.
+    const [workflowAttached, setWorkflowAttached] = useState({ video: null, image: null });
+    const [workflowLooks, setWorkflowLooks] = useState({ video: null, image: null }); // null = default look
     // One admin approval unlocks every workflow. Only with approved access
     // does the stored attachment count — a revoked grant leaves the id
     // behind, and the gateway ignores it the same way.
     const [workflowAccess, setWorkflowAccess] = useState('none');
-    const workflow = workflowAccess === 'approved'
-        ? workflows.find((w) => w.id === workflowId) || null
-        : null;
+    const workflowFor = (kind) => (workflowAccess === 'approved'
+        ? workflows.find((w) => w.id === workflowAttached[kind]) || null
+        : null);
+    const videoWorkflow = workflowFor('video');
+    const imageWorkflow = workflowFor('image');
+    // What the picker highlights and the look row edits: the workflow that
+    // governs the media type currently selected in the bar.
+    const activeSlot = mediaType === 'image' ? 'image' : 'video';
+    const workflow = activeSlot === 'image' ? imageWorkflow : videoWorkflow;
+    const workflowLook = workflowLooks[activeSlot];
     const requestWorkflow = async () => {
         const r = await fetch('/api/workflows', { method: 'POST' }).catch(() => null);
         const d = await r?.json().catch(() => null);
@@ -295,16 +305,35 @@ export default function SeedanceStudio() {
         }).catch(() => null);
         if (!r?.ok) return;
         setWorkflows((prev) => prev.filter((w) => w.id !== id));
-        if (workflowId === id) attachWorkflow(null);
+        setWorkflowAttached((prev) => ({
+            video: prev.video === id ? null : prev.video,
+            image: prev.image === id ? null : prev.image,
+        })); // the server already detached it for everyone
     };
-    const attachWorkflow = (id) => {
-        setWorkflowId(id); // optimistic — the PATCH below persists it
-        setWorkflowLook(null); // a fresh attachment starts on the workflow's default look
-        fetch('/api/workflows', {
+    // The server routes the id into the right slot by the workflow's media
+    // (image-only → image slot, video-only → video, 'all' → both) and answers
+    // with the resulting { video, image } attachment map.
+    const attachWorkflow = async (id) => {
+        const r = await fetch('/api/workflows', {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ workflowId: id }),
-        }).catch(() => {});
+        }).catch(() => null);
+        const d = await r?.json().catch(() => null);
+        if (d?.attached) {
+            setWorkflowAttached(d.attached);
+            setWorkflowLooks({ video: null, image: null }); // fresh attachments start on default looks
+        }
+    };
+    // Detach one slot ('video' | 'image') or everything ('all').
+    const detachWorkflow = async (media = 'all') => {
+        const r = await fetch('/api/workflows', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ workflowId: null, media }),
+        }).catch(() => null);
+        const d = await r?.json().catch(() => null);
+        if (d?.attached) setWorkflowAttached(d.attached);
     };
     useEffect(() => {
         let alive = true;
@@ -313,7 +342,7 @@ export default function SeedanceStudio() {
             .then((d) => {
                 if (!alive) return;
                 if (Array.isArray(d?.items)) setWorkflows(d.items);
-                setWorkflowId(d?.attachedId ?? null);
+                setWorkflowAttached(d?.attached ?? { video: null, image: null });
                 setWorkflowAccess(d?.access ?? 'none');
             })
             .catch(() => {});
@@ -1305,7 +1334,7 @@ export default function SeedanceStudio() {
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
                 const created = await createTask(payload, creation.modeId ?? modeId, projectId,
-                    workflow ? workflowLook : null, workflow?.id ?? null);
+                    videoWorkflow ? workflowLooks.video : null, videoWorkflow?.id ?? null);
                 const taskId = created.id;
                 savePrompt(taskId, promptText); // survives any history wipe
                 savePromptRecord({
@@ -1453,9 +1482,9 @@ export default function SeedanceStudio() {
                         // ChatGPT Image 2.5 only (models declaring variants/qualities).
                         variant: imgModelDef?.variants ? (options.imageVariant || null) : null,
                         quality: imgModelDef?.qualities ? (options.imageQuality || null) : null,
-                        // Attached workspace workflow: its style governs this
-                        // generation (overrides the project's own style).
-                        ...(workflow ? { styleWorkflowId: workflow.id, ...(workflowLook ? { styleLook: workflowLook } : {}) } : {}),
+                        // The IMAGE-slot workflow governs this generation
+                        // (overrides the project's own style).
+                        ...(imageWorkflow ? { styleWorkflowId: imageWorkflow.id, ...(workflowLooks.image ? { styleLook: workflowLooks.image } : {}) } : {}),
                     },
                 }),
             });
@@ -2364,13 +2393,15 @@ export default function SeedanceStudio() {
                 workflows={workflows}
                 workflow={workflow}
                 workflowAccess={workflowAccess}
+                workflowAttached={workflowAttached}
                 onAttachWorkflow={attachWorkflow}
+                onDetachWorkflow={detachWorkflow}
                 onRequestWorkflow={requestWorkflow}
                 onCreateWorkflow={createWorkflow}
                 onDeleteWorkflow={deleteWorkflow}
                 onSetWorkflowVisibility={setWorkflowVisibility}
                 workflowLook={workflowLook}
-                onChangeWorkflowLook={setWorkflowLook}
+                onChangeWorkflowLook={(v) => setWorkflowLooks((prev) => ({ ...prev, [activeSlot]: v }))}
             />
 
             <CinematicPanel
