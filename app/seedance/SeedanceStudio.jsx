@@ -311,10 +311,11 @@ export default function SeedanceStudio() {
         })); // the server already detached it for everyone
     };
     // "AI prompt polish": rewrite each prompt in the attached workflow's
-    // style before generating. Off by default — it adds an enhancer call
-    // (seconds + cost) to every generation, so it is the user's choice.
+    // style before generating. ON by default — polishing is part of what a
+    // workflow promises; the toggle remains for users who want raw speed,
+    // and an explicit off ('0') is remembered.
     const [workflowPolish, setWorkflowPolish] = useState(() => {
-        try { return window.localStorage.getItem('seedance:workflowPolish') === '1'; } catch { return false; }
+        try { return window.localStorage.getItem('seedance:workflowPolish') !== '0'; } catch { return true; }
     });
     const toggleWorkflowPolish = () => {
         setWorkflowPolish((prev) => {
