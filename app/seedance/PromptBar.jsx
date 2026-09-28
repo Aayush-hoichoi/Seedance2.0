@@ -1380,6 +1380,24 @@ function CreateWorkflowModal({ onClose, onCreate }) {
     const [media, setMedia] = useState('all'); // what this workflow governs
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(null);
+    // "Enhance with AI": rough idea → rich editable description, in place.
+    // The previous text is kept so one click undoes a result they dislike.
+    const [enhancing, setEnhancing] = useState(false);
+    const [beforeEnhance, setBeforeEnhance] = useState(null);
+    const enhanceDescription = async () => {
+        if (enhancing || description.trim().length < 3) return;
+        setEnhancing(true); setError(null);
+        const r = await fetch('/api/workflows/custom/describe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name.trim(), description: description.trim(), media }),
+        }).catch(() => null);
+        const d = await r?.json().catch(() => null);
+        setEnhancing(false);
+        if (!r?.ok || !d?.description) { setError(d?.error || 'Could not enhance the description.'); return; }
+        setBeforeEnhance(description);
+        setDescription(d.description);
+    };
     const field = 'mt-1 w-full rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white/90 outline-none placeholder:text-white/25 focus:border-primary/50';
     const submit = async () => {
         if (busy) return;
@@ -1408,10 +1426,28 @@ function CreateWorkflowModal({ onClose, onCreate }) {
                     ))}
                 </div>
                 <p className="mt-1 text-[10px] leading-relaxed text-white/30">You can run one video workflow and one image workflow at the same time.</p>
-                <label className="mt-3 block text-[10px] font-bold uppercase tracking-wider text-white/50">Describe the look</label>
+                <div className="mt-3 flex items-center justify-between">
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-white/50">Describe the look</label>
+                    <span className="flex items-center gap-2">
+                        {beforeEnhance != null && !enhancing && (
+                            <button
+                                type="button"
+                                onClick={() => { setDescription(beforeEnhance); setBeforeEnhance(null); }}
+                                className="text-[10px] text-white/40 transition-colors hover:text-white"
+                            >Undo</button>
+                        )}
+                        <button
+                            type="button"
+                            onClick={enhanceDescription}
+                            disabled={enhancing || description.trim().length < 3}
+                            title="AI expands your rough idea into a rich style description — you can still edit it"
+                            className="rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-[10px] font-bold text-primary transition-colors hover:bg-primary/20 disabled:opacity-40"
+                        >{enhancing ? 'Enhancing…' : '✨ Enhance with AI'}</button>
+                    </span>
+                </div>
                 <textarea
-                    value={description} onChange={(e) => setDescription(e.target.value)} rows={4} maxLength={2000}
-                    placeholder="Moody black-and-white 1960s Kolkata streets in heavy rain, film grain, slow dolly moves, hard rim light. Never color, never handheld shake…"
+                    value={description} onChange={(e) => setDescription(e.target.value)} rows={5} maxLength={2000}
+                    placeholder="A rough idea is enough — e.g. “ramkinkar baij sculpture style” — then hit ✨ Enhance with AI to expand it with rich detail. Or write it fully yourself."
                     className={`${field} resize-none custom-scrollbar`}
                 />
                 <label className="mt-3 block text-[10px] font-bold uppercase tracking-wider text-white/50">Example prompt that nails it <span className="font-normal normal-case text-white/30">(optional)</span></label>

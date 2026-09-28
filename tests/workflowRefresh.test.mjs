@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { acceptRefreshedStyle, buildRefreshMessages, fallbackStyle } from '../lib/gateway/workflowRefresh.mjs';
+import { acceptRefreshedStyle, buildRefreshMessages, buildDescribeMessages, fallbackStyle } from '../lib/gateway/workflowRefresh.mjs';
 import { styleError } from '../lib/gateway/projectStyle.mjs';
 
 const CURRENT = {
@@ -48,6 +48,16 @@ test('the creation fallback always yields a valid style — user text becomes th
     // Oversized inputs are clamped to the schema caps, never rejected.
     const big = fallbackStyle('N'.repeat(500), 'x'.repeat(10_000));
     assert.equal(styleError(big), null);
+});
+
+test('describe-enhancer messages: look only, faithful to the idea, media-aware', () => {
+    const [system, user] = buildDescribeMessages({ name: 'Baij', description: 'ramkinkar baij sculpture style', media: 'video' });
+    assert.match(system.content, /video generation/);
+    assert.match(system.content, /never name specific subjects/i);
+    assert.match(system.content, /Stay faithful/);
+    assert.match(user.content, /ramkinkar baij sculpture style/);
+    const [imgSystem] = buildDescribeMessages({ name: 'x', description: 'y', media: 'image' });
+    assert.match(imgSystem.content, /still images generation/);
 });
 
 test('refresh messages carry the current style and every liked exemplar', () => {
