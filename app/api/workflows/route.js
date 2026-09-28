@@ -21,9 +21,12 @@ export async function GET() {
             .map((w) => ({
                 id: w.id, name: w.name, description: w.description, style: styleSummary(w.style),
                 media: w.media || 'all', // 'all' | 'video' | 'image'
-                mine: w.created_by === user.userId, // own customs are deletable in the picker
+                mine: w.created_by === user.userId, // own customs are editable/deletable in the picker
                 visibility: w.created_by ? w.visibility : 'public', // officials are inherently shared
                 creator: w.created_by && w.created_by !== user.userId ? (w.creator_email || null) : null,
+                // The owner's full original description, for Edit's prefill
+                // (workflows.description is truncated for the card).
+                sourceDescription: w.created_by === user.userId ? (w.style?.sourceDescription ?? w.description ?? '') : undefined,
             }))
             .filter((w) => w.style), // a workflow with no usable looks can't be attached
         access: isPlatformAdmin ? 'approved' : await workflowAccessFor(sql, user.userId),

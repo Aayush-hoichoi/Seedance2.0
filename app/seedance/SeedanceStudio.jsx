@@ -298,6 +298,21 @@ export default function SeedanceStudio() {
         const d = await r?.json().catch(() => null);
         if (d?.visibility) setWorkflows((prev) => prev.map((w) => (w.id === id ? { ...w, visibility: d.visibility } : w)));
     };
+    // Edit re-drafts the style from the new description (version bumped
+    // server-side); the merge keeps visibility/attachment fields intact.
+    const updateWorkflow = async (data) => {
+        const r = await fetch('/api/workflows/custom', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        }).catch(() => null);
+        const d = await r?.json().catch(() => null);
+        if (!r?.ok || !d?.item) return { error: d?.error || 'Could not update the workflow.' };
+        setWorkflows((prev) => prev.map((w) => (w.id === d.item.id
+            ? { ...w, ...d.item, sourceDescription: data.description }
+            : w)));
+        return { item: d.item };
+    };
     const deleteWorkflow = async (id) => {
         const r = await fetch('/api/workflows/custom', {
             method: 'DELETE',
@@ -2438,6 +2453,7 @@ export default function SeedanceStudio() {
                 onDetachWorkflow={detachWorkflow}
                 onRequestWorkflow={requestWorkflow}
                 onCreateWorkflow={createWorkflow}
+                onUpdateWorkflow={updateWorkflow}
                 onDeleteWorkflow={deleteWorkflow}
                 onSetWorkflowVisibility={setWorkflowVisibility}
                 workflowPolish={workflowPolish}

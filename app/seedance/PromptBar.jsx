@@ -77,9 +77,10 @@ const WorkflowIcon = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill
    Morphic-style picker: a pill that opens a card list. Attaching a workflow
    makes every generation follow its style until detached — that is the whole
    point: a short prompt plus the workflow replaces the hand-pasted brief. */
-function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, access, onAttach, onDetach, onRequest, onCreate, onDelete, onSetVisibility, polish, onTogglePolish, look, onChangeLook }) {
+function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, access, onAttach, onDetach, onRequest, onCreate, onUpdate, onDelete, onSetVisibility, polish, onTogglePolish, look, onChangeLook }) {
     const open = openKey === 'workflows';
     const [creating, setCreating] = useState(false);
+    const [editing, setEditing] = useState(null); // the own workflow being edited, or null
     if (!workflows?.length && access !== 'approved') return null;
     const looks = workflow?.style?.looks || [];
     const gated = access !== 'approved'; // one approval unlocks every workflow
@@ -205,6 +206,15 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
                                                 {w.mine && !gated && (
                                                     <button
                                                         type="button"
+                                                        title="Edit this workflow"
+                                                        aria-label={`Edit ${w.name}`}
+                                                        onClick={(e) => { e.stopPropagation(); setOpenKey(null); setEditing({ id: w.id, name: w.name, description: w.sourceDescription || w.description || '', media: w.media || 'all' }); }}
+                                                        className="flex h-4 w-4 items-center justify-center rounded-full border border-white/15 text-[9px] leading-none text-white/35 transition-colors hover:border-primary/50 hover:text-primary"
+                                                    >✎</button>
+                                                )}
+                                                {w.mine && !gated && (
+                                                    <button
+                                                        type="button"
                                                         title="Delete this workflow"
                                                         aria-label={`Delete ${w.name}`}
                                                         onClick={(e) => { e.stopPropagation(); onDelete?.(w.id); }}
@@ -271,8 +281,11 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
             {/* Portaled to <body>: the prompt bar's backdrop-blur makes it the
                 containing block for fixed descendants, which trapped this
                 modal INSIDE the bar — clipped and off-center. */}
-            {creating && createPortal(
-                <CreateWorkflowModal onClose={() => setCreating(false)} onCreate={onCreate} />,
+            {(creating || editing) && createPortal(
+                <CreateWorkflowModal
+                    onClose={() => { setCreating(false); setEditing(null); }}
+                    onCreate={onCreate} onUpdate={onUpdate} initial={editing}
+                />,
                 document.body,
             )}
         </div>
@@ -734,7 +747,7 @@ export default function PromptBar({
     projectStyle = null, styleLook = null, onChangeStyleLook,
     workflows = [], workflow = null, workflowAttached = null, workflowAccess = 'none',
     onAttachWorkflow, onDetachWorkflow, onRequestWorkflow,
-    onCreateWorkflow, onDeleteWorkflow, onSetWorkflowVisibility,
+    onCreateWorkflow, onUpdateWorkflow, onDeleteWorkflow, onSetWorkflowVisibility,
     workflowPolish = false, onToggleWorkflowPolish, workflowLook = null, onChangeWorkflowLook,
 }) {
     const isImage = mediaType === 'image';
@@ -1079,7 +1092,7 @@ export default function PromptBar({
                                 openKey={openKey} setOpenKey={setOpenKey}
                                 workflows={workflows} workflow={workflow} attached={workflowAttached} access={workflowAccess}
                                 onAttach={onAttachWorkflow} onDetach={onDetachWorkflow} onRequest={onRequestWorkflow}
-                                onCreate={onCreateWorkflow} onDelete={onDeleteWorkflow}
+                                onCreate={onCreateWorkflow} onUpdate={onUpdateWorkflow} onDelete={onDeleteWorkflow}
                                 onSetVisibility={onSetWorkflowVisibility}
                                 polish={workflowPolish} onTogglePolish={onToggleWorkflowPolish}
                                 look={workflowLook} onChangeLook={onChangeWorkflowLook}
@@ -1379,11 +1392,13 @@ export default function PromptBar({
 // The "Build a workflow" modal: name + plain-words description in, a full
 // structured style guide out (drafted server-side by the enhancer model,
 // falling back to the raw description as the brief). Creating auto-attaches.
-function CreateWorkflowModal({ onClose, onCreate }) {
-    const [name, setName] = useState('');
-    const [description, setDescription] = useState('');
+// Create OR edit: pass `initial` ({id, name, description, media}) to open in
+// edit mode — same fields, same ✨ Enhance with AI, Save instead of Create.
+function CreateWorkflowModal({ onClose, onCreate, onUpdate, initial = null }) {
+    const [name, setName] = useState(initial?.name ?? '');
+    const [description, setDescription] = useState(initial?.description ?? '');
     const [example, setExample] = useState('');
-    const [media, setMedia] = useState('all'); // what this workflow governs
+    const [media, setMedia] = useState(initial?.media ?? 'all'); // what this workflow governs
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(null);
     // "Enhance with AI": rough idea → rich editable description, in place.
@@ -1408,7 +1423,10 @@ function CreateWorkflowModal({ onClose, onCreate }) {
     const submit = async () => {
         if (busy) return;
         setBusy(true); setError(null);
-        const result = await onCreate({ name: name.trim(), description: description.trim(), examplePrompt: example.trim() || undefined, media });
+        const payload = { name: name.trim(), description: description.trim(), examplePrompt: example.trim() || undefined, media };
+        const result = initial
+            ? await onUpdate?.({ workflowId: initial.id, ...payload })
+            : await onCreate({ name: payload.name, description: payload.description, examplePrompt: payload.examplePrompt, media });
         setBusy(false);
         if (result?.error) setError(result.error);
         else onClose();
@@ -1416,7 +1434,7 @@ function CreateWorkflowModal({ onClose, onCreate }) {
     return (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
             <div className="w-full max-w-md rounded-xl border border-white/10 bg-paper-1 p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                <h3 className="text-sm font-bold text-white/90">Create a workflow</h3>
+                <h3 className="text-sm font-bold text-white/90">{initial ? 'Edit workflow' : 'Create a workflow'}</h3>
                 <p className="mt-1 text-[11px] leading-relaxed text-white/45">
                     Describe the look in your own words — it becomes a full style guide applied to every generation while attached, and it keeps improving from the generations you like. Only you can see it.
                 </p>
@@ -1465,7 +1483,7 @@ function CreateWorkflowModal({ onClose, onCreate }) {
                         type="button" onClick={submit}
                         disabled={busy || !name.trim() || description.trim().length < 10}
                         className="rounded-md bg-primary px-4 py-2 text-xs font-bold text-black transition-colors hover:bg-primary/90 disabled:opacity-40"
-                    >{busy ? 'Creating…' : 'Create & attach'}</button>
+                    >{busy ? (initial ? 'Saving…' : 'Creating…') : (initial ? 'Save changes' : 'Create & attach')}</button>
                 </div>
             </div>
         </div>

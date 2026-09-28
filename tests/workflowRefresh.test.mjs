@@ -5,6 +5,7 @@ import { styleError } from '../lib/gateway/projectStyle.mjs';
 
 const CURRENT = {
     enabled: true, version: 3, defaultLook: 'pixar', sourceProjects: [28],
+    sourceDescription: 'cute elephant family in premium 3D animation',
     looks: { pixar: { name: 'Pixar', brief: 'high-end stylized 3D animated feature-film quality' } },
     characters: { Maahi: 'powder-blue baby elephant' },
 };
@@ -22,6 +23,7 @@ test('an accepted refresh bumps OUR version and keeps OUR provenance fields', ()
     assert.equal(out.style.version, 4);
     assert.equal(out.style.enabled, true);
     assert.deepEqual(out.style.sourceProjects, [28]);
+    assert.equal(out.style.sourceDescription, CURRENT.sourceDescription); // Edit's prefill survives refreshes
     assert.match(out.style.looks.pixar.brief, /floating pollen/);
 });
 
