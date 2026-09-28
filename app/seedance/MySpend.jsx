@@ -55,7 +55,12 @@ export default function MySpend({ project, spendRank }) {
     // under the bar — the same treatment BudgetRemaining gets.
     return (
         <div
-            className="fixed right-3 top-12 z-40 sm:static sm:relative"
+            // Mobile keeps the chip's original fixed slot under the bar; from
+            // sm it must be BOTH inline (so the header row lines up exactly as
+            // when <output> carried the classes itself) and relative with the
+            // offsets reset (right-3/top-12 would otherwise shift a relative
+            // element), so the breakdown popover anchors to the chip.
+            className="fixed right-3 top-12 z-40 inline-flex sm:relative sm:right-auto sm:top-auto"
             onMouseEnter={show}
             onMouseLeave={hide}
         >
