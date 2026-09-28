@@ -58,9 +58,9 @@ const MAAHI = {
     defaultLook: 'pixar',
     looks: {
         pixar: {
-            name: '3D Disney-Pixar animated realism',
+            name: 'Premium 3D animated feature-film realism',
             brief: [
-                '3D Disney-Pixar Animated Realism: high-end stylized 3D animated feature-film quality, premium image quality, stable anatomy, clean textures, soft natural skin shading, believable weight and secondary motion in ears, trunk and tail, strong environmental depth, cinematic depth of field.',
+                'Premium stylized 3D animated feature-film realism: soft rounded character design, high-end image quality, premium image quality, stable anatomy, clean textures, soft natural skin shading, believable weight and secondary motion in ears, trunk and tail, strong environmental depth, cinematic depth of field.',
                 'FORMAT: 16:9, 24fps, real-time natural motion, exact stated duration. Multi-shot sequences use controlled HARD CUTS only; each angle stable and compositionally clean.',
                 'IDENTITY: match the supplied character references 100% — never redesign. Follow the supplied size/proportion reference as an absolute scale lock. Maahi and Champa are exactly the same height and body size (1:1 world-space scale). In family shots Maahi is always clearly the smallest and the adults tower over the children.',
                 'LIGHT & WORLD: flowering mountain meadow with rocks and distant peaks, misty bamboo forest and cliff path, or river-waterfall-sandpit. Default light is soft and diffused dreamy sunlight with gentle golden warmth, slight atmospheric haze and subtle floating pollen. Bamboo and danger scenes go dark green, humid, mist-layered with volumetric light shafts.',
@@ -129,7 +129,7 @@ const GOOD_SAMARITAN = {
     scenes: {
         vellfire: {
             match: ['vellfire', 'car', 'mpv', 'vehicle', 'chase', 'drive', 'driving'],
-            text: 'HERO VEHICLES (locked identity): a modified black Toyota Vellfire, plate VPR 6315 — sport bodykit, chrome lower grille, LED headlights ON with blue LED accent lights glowing at the lower grille, body slightly dusty with street reflections on the glass. Companion vehicle: a white Toyota Vellfire MPV. Never change model, colour, proportions, stance or plate. Realistic rolling motion with visible suspension bounce and subtle wheel motion blur.',
+            text: 'HERO VEHICLES (locked identity): a modified black luxury MPV, plate VPR 6315 — sport bodykit, chrome lower grille, LED headlights ON with blue LED accent lights glowing at the lower grille, body slightly dusty with street reflections on the glass. Companion vehicle: a white luxury MPV of the same model line. Never change model, colour, proportions, stance or plate. Realistic rolling motion with visible suspension bounce and subtle wheel motion blur.',
         },
         street: {
             match: ['street', 'market', 'jogja', 'malioboro', 'chase', 'traffic', 'road', 'city'],
@@ -155,7 +155,7 @@ const SEEDS = [
 // (workflowRefresh.mjs) learns from liked generations stamped with the
 // workflow AND from these projects, so the loop has signal from day one.
 const WORKFLOWS = [
-    { name: 'Mahi Style', description: '3D Disney-Pixar animated realism — the Maahi elephant family look.', style: { ...MAAHI, sourceProjects: [28] } },
+    { name: 'Mahi Style', description: 'Premium 3D animated feature-film realism — the Maahi elephant family look.', style: { ...MAAHI, sourceProjects: [28] } },
     { name: 'Mahishasur Mardini Style', description: 'Stylized painterly 3D game-sim — the approved Mahishasur Mardini look.', style: { ...MAHISHASUR, sourceProjects: [33] } },
     { name: 'The Good Samaritan Style', description: 'Photoreal Indonesian street chase, window and yacht looks.', style: { ...GOOD_SAMARITAN, sourceProjects: [13, 45] } },
 ];
