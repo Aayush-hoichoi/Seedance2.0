@@ -145,7 +145,7 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
                             >
                                 <span className="min-w-0">
                                     <span className={`block text-xs font-semibold ${polish ? 'text-primary' : 'text-white/80'}`}>✨ AI prompt polish</span>
-                                    <span className="mt-0.5 block text-[10px] leading-snug text-white/40">Rewrites each prompt in the attached style before generating — adds a few seconds.</span>
+                                    <span className="mt-0.5 block text-[10px] leading-snug text-white/40">Each prompt is rewritten in the attached style before generating (on by default; adds a few seconds). See the result in the viewer's Enhanced prompt tab.</span>
                                 </span>
                                 <span className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${polish ? 'bg-primary' : 'bg-white/15'}`}>
                                     <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-black transition-all ${polish ? 'left-3.5' : 'left-0.5'}`} />
