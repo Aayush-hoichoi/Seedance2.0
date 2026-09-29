@@ -47,7 +47,8 @@ import IssueReportModal from './IssueReportModal.jsx';
 import ConfirmDialog from '../../components/ConfirmDialog.jsx';
 import { useExrAccess } from '../components/ExrAccess.jsx';
 import Link from 'next/link';
-import { ArrowLeft, Bug, ShieldCheck, WalletCards, Wrench } from 'lucide-react';
+import { ArrowLeft, Bug, ChevronDown, ShieldCheck, WalletCards, Wrench } from 'lucide-react';
+import { TOOLS } from '../tools/toolsCatalog.js';
 import AssetsPanel from './AssetsPanel.jsx';
 import CinematicPanel from './CinematicPanel.jsx';
 import { cinematicToPayload, sanitizeSetup, DEFAULT_SETUP } from '../../lib/seedance/cinematic.mjs';
@@ -2317,10 +2318,25 @@ export default function SeedanceStudio() {
                 </div>
                 <div className="flex items-center gap-2">
                     <MySpend project={projects.find((p) => p.id === projectId) ?? null} spendRank={spendRank} />
-                    <Link href="/tools" title="Tools" className="flex h-7 items-center gap-1.5 rounded-md border border-line bg-paper-2 px-2 text-xs font-semibold text-ink-2 transition-colors hover:text-ink">
-                        <Wrench size={14} />
-                        <span className="hidden sm:inline">Tools</span>
-                    </Link>
+                    {/* Hover opens the tool list; clicking "Tools" still goes
+                        to the full /tools page (also the touch fallback). */}
+                    <div className="group relative">
+                        <Link href="/tools" title="Tools" className="flex h-7 items-center gap-1.5 rounded-md border border-line bg-paper-2 px-2 text-xs font-semibold text-ink-2 transition-colors hover:text-ink">
+                            <Wrench size={14} />
+                            <span className="hidden sm:inline">Tools</span>
+                            <ChevronDown size={12} className="hidden text-ink-3 transition-transform group-hover:rotate-180 sm:inline" />
+                        </Link>
+                        <div className="invisible absolute right-0 top-full z-30 pt-1.5 opacity-0 transition-opacity duration-100 group-hover:visible group-hover:opacity-100">
+                            <div className="w-48 rounded-lg border border-line bg-paper-1 p-1 shadow-2xl">
+                                {TOOLS.map((tool) => (
+                                    <Link key={tool.id} href={tool.href} title={tool.blurb}
+                                        className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink">
+                                        <tool.icon size={14} className="text-ink-3" /> {tool.name}
+                                    </Link>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
                     {isAdmin && (
                         <Link href="/console" title="Console" className="grid h-7 w-7 place-items-center rounded-md border border-line bg-paper-2 text-warn/80 transition-colors hover:text-warn">
                             <ShieldCheck size={14} />
