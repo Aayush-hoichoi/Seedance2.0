@@ -2478,6 +2478,21 @@ export default function SeedanceStudio() {
 
             {fullscreen && <Fullscreen url={fullscreen} onClose={() => setFullscreen(null)} />}
 
+            {/* Rendered BEFORE the viewer (same z-index, later DOM wins) so a
+                tile preview opens the full AssetViewer on top of the grid. */}
+            {showAssets && (
+                <AssetsPanel
+                    jobs={visibleJobs}
+                    binned={binnedJobs}
+                    onBin={onBinJob}
+                    onRestore={onRestoreJob}
+                    onDeleteForever={onDeleteForever}
+                    onPreview={(job) => setSelectedId(job.id)}
+                    previewOpen={!!viewerJob}
+                    onClose={() => setShowAssets(false)}
+                />
+            )}
+
             {viewerJob && (() => {
                 // ← / → step through the finished, still-playable generations
                 // (the ones that would open here) in rail order.
@@ -2502,16 +2517,6 @@ export default function SeedanceStudio() {
                 );
             })()}
 
-            {showAssets && (
-                <AssetsPanel
-                    jobs={visibleJobs}
-                    binned={binnedJobs}
-                    onBin={onBinJob}
-                    onRestore={onRestoreJob}
-                    onDeleteForever={onDeleteForever}
-                    onClose={() => setShowAssets(false)}
-                />
-            )}
         </div>
     );
 }

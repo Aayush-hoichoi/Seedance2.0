@@ -49,7 +49,7 @@ function videoFileName(job, index) {
     return `${base}.mp4`;
 }
 
-export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteForever, onClose }) {
+export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteForever, onPreview, previewOpen = false, onClose }) {
     const [view, setView] = useState('assets'); // 'assets' | 'bin'
     const [selected, setSelected] = useState(() => new Set());
     const [busy, setBusy] = useState(false);
@@ -68,13 +68,15 @@ export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteFo
     useEffect(() => {
         const prev = document.body.style.overflow;
         document.body.style.overflow = 'hidden';
-        const onKey = (e) => { if (e.key === 'Escape' && !busy) onClose(); };
+        // Escape belongs to the AssetViewer while a tile preview is open
+        // above this panel — otherwise one press would close both overlays.
+        const onKey = (e) => { if (e.key === 'Escape' && !busy && !previewOpen) onClose(); };
         window.addEventListener('keydown', onKey);
         return () => {
             document.body.style.overflow = prev;
             window.removeEventListener('keydown', onKey);
         };
-    }, [busy, onClose]);
+    }, [busy, onClose, previewOpen]);
 
     // Switching tabs clears the selection + any stale message.
     useEffect(() => { setSelected(new Set()); setError(null); }, [view]);
@@ -218,6 +220,7 @@ export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteFo
                                             selected={selected.has(v.id)}
                                             disabled={busy}
                                             onToggle={() => toggle(v.id)}
+                                            onPreview={onPreview ? () => onPreview(v) : null}
                                             onDownload={() => onDownloadOne(v, i)}
                                             onBin={() => requestDelete('bin', [v.id])}
                                             onRestore={() => onRestore(v.id)}
@@ -314,18 +317,20 @@ function Tab({ active, onClick, label, count }) {
     );
 }
 
-// One video tile. Clicking toggles selection. Hover reveals view-specific
-// quick actions (Download in Assets; Restore + Delete forever in the Bin) and
-// plays the clip as a preview.
-function AssetCard({ job, isBin, selected, disabled, onToggle, onDownload, onBin, onRestore, onDelete }) {
+// One video tile. Clicking opens the full preview (prompt + settings in the
+// studio's AssetViewer); the checkbox toggles selection; in the Bin (no
+// preview) clicking still toggles. Hover reveals view-specific quick actions
+// (Download in Assets; Restore + Delete forever in the Bin) and plays the clip.
+function AssetCard({ job, isBin, selected, disabled, onToggle, onPreview, onDownload, onBin, onRestore, onDelete }) {
     const onEnter = (e) => { e.currentTarget.play?.().catch(() => {}); };
     const onLeave = (e) => { const v = e.currentTarget; v.pause?.(); try { v.currentTime = 0; } catch { /* noop */ } };
+    const onOpen = onPreview || onToggle;
     return (
         <div
             role="button"
             tabIndex={0}
-            onClick={onToggle}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
+            onClick={onOpen}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
             title={job.prompt || job.userPrompt || job.meta || ''}
             className={`group relative aspect-video rounded-xl overflow-hidden border cursor-pointer transition-all ${selected ? 'border-primary ring-2 ring-primary/50' : 'border-white/10 hover:border-white/30'}`}
         >
@@ -347,9 +352,15 @@ function AssetCard({ job, isBin, selected, disabled, onToggle, onDownload, onBin
             )}
             <div className={`absolute inset-0 pointer-events-none transition-colors ${selected ? 'bg-primary/10' : 'bg-transparent'}`} />
 
-            <span className="absolute top-2 left-2 pointer-events-none">
+            <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onToggle(); }}
+                aria-label={selected ? 'Deselect' : 'Select'}
+                title={selected ? 'Deselect' : 'Select'}
+                className="absolute top-2 left-2"
+            >
                 <CheckBox checked={selected} />
-            </span>
+            </button>
 
             <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 {isBin ? (
