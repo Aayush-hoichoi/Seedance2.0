@@ -56,8 +56,11 @@ export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteFo
     const [error, setError] = useState(null);
     const [pendingDelete, setPendingDelete] = useState(null); // { kind: 'bin' | 'permanent', ids }
 
+    // Every finished VIDEO, link or no link — so this list always mirrors the
+    // history rail's videos. A dead/expired file renders its fallback tile and
+    // its download is disabled instead of the whole entry vanishing.
     const assets = useMemo(
-        () => (jobs || []).filter((j) => j.status === 'done' && j.videoUrl),
+        () => (jobs || []).filter((j) => j.status === 'done' && !(j.mediaType === 'image' || j.imageUrl)),
         [jobs],
     );
     const binItems = useMemo(() => binned || [], [binned]);
@@ -120,7 +123,7 @@ export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteFo
     };
 
     const onDownloadSelected = () => runDownload(
-        selectedJobs.map((v, i) => ({ url: v.videoUrl, name: videoFileName(v, i), taskId: v.taskId })),
+        selectedJobs.filter((v) => v.videoUrl).map((v, i) => ({ url: v.videoUrl, name: videoFileName(v, i), taskId: v.taskId })),
     );
     const onDownloadOne = (v, i) => runDownload([{ url: v.videoUrl, name: videoFileName(v, i), taskId: v.taskId }]);
 
@@ -390,8 +393,8 @@ function AssetCard({ job, isBin, selected, disabled, onToggle, onPreview, onDown
                     <>
                         <button
                             type="button"
-                            onClick={(e) => { e.stopPropagation(); if (!disabled) onDownload(); }}
-                            disabled={disabled}
+                            onClick={(e) => { e.stopPropagation(); if (!disabled && job.videoUrl) onDownload(); }}
+                            disabled={disabled || !job.videoUrl}
                             aria-label="Download this video"
                             title="Download this video"
                             className="p-1.5 rounded-md bg-black/70 border border-white/15 text-white/80 hover:text-primary transition-colors backdrop-blur-sm disabled:opacity-40"
