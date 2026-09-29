@@ -867,7 +867,9 @@ function AddBudgetModal({ project, members, models, modelsLoading, modelsError, 
     // in-flight (spend on uncapped models counts, so spent can exceed allotted).
     const spentSoFar = Number(previewData?.used ?? 0) + Number(previewData?.reserved ?? 0);
     const overallFloor = overallCap ? Math.max(Number(allocation?.allocated ?? 0), spentSoFar) : 0;
-    const belowFloor = overallCap && previewData ? newCap < overallFloor : false;
+    // Only flag a number the admin actually typed — an empty input shows the
+    // neutral minimum hint below instead of an instant error.
+    const belowFloor = overallCap && previewData && addAmount > 0 ? newCap < overallFloor : false;
     const validAddAmount = addAmount > 0 && (!wholeNumber || Number.isInteger(addAmount))
         && !needsModel && !exceedsOverall && !belowFloor;
 
@@ -958,9 +960,12 @@ function AddBudgetModal({ project, members, models, modelsLoading, modelsError, 
                     {preview.error ? <div className="mt-2 text-xs text-danger">Could not load current spend.</div> : null}
                 </Card>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {/* The overall cap's scope is fixed (everyone, every model,
+                        USD, lifetime) — showing those pickers only invites
+                        confusion, so cap mode is just the number and policy. */}
+                    {!overallCap && <>
                     <Field label="Type">
-                        <Select className="w-full" value={form.type} disabled={overallCap}
-                            title={overallCap ? 'The overall project budget is always in dollars' : undefined}
+                        <Select className="w-full" value={form.type}
                             onChange={(e) => setForm({ ...form, type: e.target.value })}>
                             {BUDGET_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                         </Select>
@@ -970,6 +975,7 @@ function AddBudgetModal({ project, members, models, modelsLoading, modelsError, 
                             <option value="lifetime">lifetime</option>
                         </Select>
                     </Field>
+                    </>}
                     <Field label={overallCap ? 'Overall cap (USD)' : existingBudget ? 'Amount to add' : 'Initial budget amount'}>
                         <Input
                             type="number"
@@ -988,6 +994,7 @@ function AddBudgetModal({ project, members, models, modelsLoading, modelsError, 
                             <option value="soft">soft — allow small overage</option>
                         </Select>
                     </Field>
+                    {!overallCap && <>
                     <Field label="Member (blank = everyone)">
                         <Select className="w-full" value={form.userId} disabled={lockedUserId != null}
                             title={lockedUserId != null ? 'This card adds budget for a fixed scope' : undefined}
@@ -1006,6 +1013,7 @@ function AddBudgetModal({ project, members, models, modelsLoading, modelsError, 
                             {models.map((model) => <option key={model.id} value={model.id}>{model.display_name} · {model.category}</option>)}
                         </Select>
                     </Field>
+                    </>}
                 </div>
                 {needsModel ? (
                     <div className="mt-3 text-xs text-ink-3">Pick a model — member budgets can no longer cover all models at once.</div>
