@@ -862,9 +862,14 @@ function AddBudgetModal({ project, members, models, modelsLoading, modelsError, 
     const allocation = previewData?.overallBudget;
     const overallHeadroom = form.userId && form.type === 'usd' && allocation?.cap != null ? allocation : null;
     const exceedsOverall = !!overallHeadroom && addAmount > overallHeadroom.available;
-    const belowAllocations = overallCap && allocation ? newCap < allocation.allocated : false;
+    // The cap is a bar on combined SPEND, so its floor is whichever is higher:
+    // what members already hold, or what the project has already spent plus
+    // in-flight (spend on uncapped models counts, so spent can exceed allotted).
+    const spentSoFar = Number(previewData?.used ?? 0) + Number(previewData?.reserved ?? 0);
+    const overallFloor = overallCap ? Math.max(Number(allocation?.allocated ?? 0), spentSoFar) : 0;
+    const belowFloor = overallCap && previewData ? newCap < overallFloor : false;
     const validAddAmount = addAmount > 0 && (!wholeNumber || Number.isInteger(addAmount))
-        && !needsModel && !exceedsOverall && !belowAllocations;
+        && !needsModel && !exceedsOverall && !belowFloor;
 
     async function create() {
         setSaving(true);
@@ -896,10 +901,36 @@ function AddBudgetModal({ project, members, models, modelsLoading, modelsError, 
                 </>}>
                 <p className="mb-3 text-xs leading-relaxed text-ink-3">
                     {overallCap
-                        ? <>This caps <span className="font-medium text-ink-2">{project.name}</span> as a whole — every member, every model. Member budgets are carved out of it and can never sum past it. Leave it unset to keep the project uncapped.</>
+                        ? <>This sets the bar for <span className="font-medium text-ink-2">{project.name}</span> as a whole — combined spend from every member and every model (uncapped ones included) can never pass it. Member budgets are carved out of it and can never sum past it. Leave it unset to keep the project uncapped.</>
                         : <>This budget applies to <span className="font-medium text-ink-2">{project.name}</span>. Leave member and model blank to cap the whole project. If this scope already has a budget, the amount entered below is added on top of its current cap.</>}
                 </p>
                 <Card className="mb-4 bg-paper-3">
+                    {overallCap ? (
+                        // Cap-mode stats: the bar vs the two figures it must clear.
+                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                            <BudgetCardValue label="Project" value={previewData?.project?.name || project.name} />
+                            <BudgetCardValue
+                                label="Spent so far · all models"
+                                value={previewData ? previewFormat(previewData.used) : preview.isLoading ? 'Loading…' : '—'}
+                                hint={Number(previewData?.reserved) > 0 ? `+${previewFormat(previewData.reserved)} in flight` : null}
+                            />
+                            <BudgetCardValue
+                                label="Allotted to members"
+                                value={previewData ? previewFormat(allocation?.allocated ?? 0) : preview.isLoading ? 'Loading…' : '—'}
+                            />
+                            <BudgetCardValue
+                                label="Minimum cap"
+                                value={previewData ? previewFormat(overallFloor) : preview.isLoading ? 'Loading…' : '—'}
+                                hint={previewData ? (spentSoFar > Number(allocation?.allocated ?? 0) ? 'set by spend so far' : 'set by member budgets') : null}
+                            />
+                            <BudgetCardValue label="Setting cap to" value={previewFormat(newCap)} />
+                            <BudgetCardValue
+                                label="Headroom after"
+                                value={previewData ? previewFormat(Math.max(0, newCap - spentSoFar)) : preview.isLoading ? 'Loading…' : '—'}
+                                hint="left to spend under the bar"
+                            />
+                        </div>
+                    ) : (
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                         <BudgetCardValue label="Project" value={previewData?.project?.name || project.name} />
                         <BudgetCardValue
@@ -923,6 +954,7 @@ function AddBudgetModal({ project, members, models, modelsLoading, modelsError, 
                         <BudgetCardValue label="Adding now" value={previewFormat(addAmount)} />
                         <BudgetCardValue label="New total budget" value={previewData ? previewFormat(newCap) : preview.isLoading ? 'Loading…' : '—'} />
                     </div>
+                    )}
                     {preview.error ? <div className="mt-2 text-xs text-danger">Could not load current spend.</div> : null}
                 </Card>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -938,7 +970,7 @@ function AddBudgetModal({ project, members, models, modelsLoading, modelsError, 
                             <option value="lifetime">lifetime</option>
                         </Select>
                     </Field>
-                    <Field label={existingBudget ? 'Amount to add' : 'Initial budget amount'}>
+                    <Field label={overallCap ? 'Overall cap (USD)' : existingBudget ? 'Amount to add' : 'Initial budget amount'}>
                         <Input
                             type="number"
                             min="0"
@@ -978,15 +1010,15 @@ function AddBudgetModal({ project, members, models, modelsLoading, modelsError, 
                 {needsModel ? (
                     <div className="mt-3 text-xs text-ink-3">Pick a model — member budgets can no longer cover all models at once.</div>
                 ) : null}
-                {belowAllocations ? (
+                {belowFloor ? (
                     <div className="mt-3 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs leading-relaxed text-danger">
-                        Members of this project are already allotted {fmtUsd(allocation.allocated)}. The overall budget has to
-                        be at least that much — {fmtUsd(newCap)} would strand budgets that are already in use. Set{' '}
-                        {fmtUsd(allocation.allocated)} or more, or reduce the member budgets first.
+                        {spentSoFar > Number(allocation?.allocated ?? 0)
+                            ? <>The project has already spent {fmtUsd(spentSoFar)} (uncapped-model spend counts too). A {fmtUsd(newCap)} cap would sit below that and freeze every new generation. Set {fmtUsd(overallFloor)} or more.</>
+                            : <>Members of this project are already allotted {fmtUsd(allocation.allocated)}. The overall budget has to be at least that much — {fmtUsd(newCap)} would strand budgets that are already in use. Set {fmtUsd(overallFloor)} or more, or reduce the member budgets first.</>}
                     </div>
-                ) : overallCap && allocation?.allocated > 0 ? (
+                ) : overallCap && previewData && overallFloor > 0 ? (
                     <div className="mt-3 text-xs text-ink-3">
-                        Members are already allotted {fmtUsd(allocation.allocated)} — the overall budget cannot be set below that.
+                        Minimum {fmtUsd(overallFloor)} — the cap must clear both what members hold ({fmtUsd(allocation?.allocated ?? 0)}) and what the project has already spent ({fmtUsd(spentSoFar)}).
                     </div>
                 ) : null}
                 {exceedsOverall ? (
