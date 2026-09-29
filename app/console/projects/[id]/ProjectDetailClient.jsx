@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
 import dynamic from 'next/dynamic';
+import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { PageHeader, Card, Badge, Button, Modal, Field, Input, Select, DataTable, ProgressBar, EmptyState, DateRangePicker, DateTimePicker } from '../../ui.jsx';
 import { useApi, sendJson, fmtUsd, fmtInt, fmtDate, monthStartIso } from '../../lib.js';
@@ -20,6 +21,14 @@ const BUDGET_TYPES = [
 ];
 
 export default function ProjectDetailClient({ projectId }) {
+    const router = useRouter();
+    const searchParams = useSearchParams();
+    // Controlled so the active tab survives a header project switch — picking
+    // a project from the dropdown lands on the SAME tab (e.g. Usage) there.
+    const requestedTab = searchParams.get('tab');
+    const [tab, setTab] = useState(
+        ['members', 'models', 'overrides', 'budget', 'usage', 'style'].includes(requestedTab) ? requestedTab : 'members',
+    );
     const [editingBudget, setEditingBudget] = useState(null);
     const [historyQuota, setHistoryQuota] = useState(null);
     // Add-budget modal target: null = closed, lockedUserId null = free member
@@ -27,6 +36,9 @@ export default function ProjectDetailClient({ projectId }) {
     const [addingBudget, setAddingBudget] = useState(null);
     const [lifetimeRange, setLifetimeRange] = useState({ from: '', to: '' });
     const detail = useApi(`/api/projects/${projectId}`);
+    // Every project the viewer can open (members: theirs; admins: all) — feeds
+    // the header dropdown so spend/budget breakdowns are one switch away.
+    const myProjects = useApi('/api/projects');
     const models = useApi(`/api/models?projectId=${projectId}`);
     const usersApi = useApi('/api/admin/users');
     const viewerRole = detail.data?.role;
@@ -78,12 +90,24 @@ export default function ProjectDetailClient({ projectId }) {
     return (
         <div>
             <PageHeader title={project.name} subtitle={`Project #${project.id} · created ${fmtDate(project.created_at)}`}>
+                {(myProjects.data?.items ?? []).length > 1 && (
+                    <Select
+                        value={String(project.id)}
+                        onChange={(e) => router.push(`/console/projects/${e.target.value}?tab=${tab}`)}
+                        title="Switch project"
+                        aria-label="Switch project"
+                    >
+                        {(myProjects.data?.items ?? []).map((p) => (
+                            <option key={p.id} value={String(p.id)}>{p.name}</option>
+                        ))}
+                    </Select>
+                )}
                 {project.paused
                     ? <Button variant="primary" onClick={togglePause}><PlayCircle size={14} /> Resume queue</Button>
                     : <Button variant="outline" onClick={togglePause}><PauseCircle size={14} /> Pause queue</Button>}
             </PageHeader>
 
-            <Tabs.Root defaultValue="members">
+            <Tabs.Root value={tab} onValueChange={setTab}>
                 <Tabs.List className="mb-4 flex gap-1 overflow-x-auto scrollbar-none border-b border-line pb-2 [&>*]:shrink-0">
                     <Tabs.Trigger value="members" className={TAB}>Members</Tabs.Trigger>
                     {isAdmin && <Tabs.Trigger value="models" className={TAB}>Models</Tabs.Trigger>}
