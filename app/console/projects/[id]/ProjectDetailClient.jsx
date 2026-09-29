@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
 import dynamic from 'next/dynamic';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -870,6 +870,17 @@ function AddBudgetModal({ project, members, models, modelsLoading, modelsError, 
     // Only flag a number the admin actually typed — an empty input shows the
     // neutral minimum hint below instead of an instant error.
     const belowFloor = overallCap && previewData && addAmount > 0 ? newCap < overallFloor : false;
+
+    // Cap mode starts from the minimum workable number (combined spend or
+    // member budgets, whichever is higher) instead of an empty box — the
+    // admin adjusts upward from reality. Fires once per open, so typing or
+    // clearing the box afterwards is never fought.
+    const prefilledCap = useRef(false);
+    useEffect(() => {
+        if (!overallCap || !previewData || overallFloor <= 0 || prefilledCap.current) return;
+        prefilledCap.current = true;
+        setForm((prev) => (prev.addAmount === '' ? { ...prev, addAmount: String(Math.ceil(overallFloor * 100) / 100) } : prev));
+    }, [overallCap, previewData, overallFloor]); // eslint-disable-line react-hooks/exhaustive-deps
     const validAddAmount = addAmount > 0 && (!wholeNumber || Number.isInteger(addAmount))
         && !needsModel && !exceedsOverall && !belowFloor;
 
