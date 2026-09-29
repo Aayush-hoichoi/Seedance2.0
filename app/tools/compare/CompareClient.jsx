@@ -96,7 +96,7 @@ export default function CompareClient() {
         <div className="flex min-h-screen w-full flex-col bg-app-bg px-4 py-6 text-ink sm:h-screen sm:px-8">
             <div className="mx-auto flex w-full max-w-screen-2xl flex-1 flex-col sm:min-h-0">
                 <header className="mb-6 flex flex-wrap items-center gap-3">
-                    <Link href="/tools" title="Back to tools" className="grid h-7 w-7 place-items-center rounded-md border border-line bg-paper-2 text-ink-3 transition-colors hover:text-ink">
+                    <Link href="/seedance" title="Back to the studio" className="grid h-7 w-7 place-items-center rounded-md border border-line bg-paper-2 text-ink-3 transition-colors hover:text-ink">
                         <ArrowLeft size={14} />
                     </Link>
                     <h1 className="font-display text-xl font-semibold">Compare Video</h1>

@@ -42,7 +42,7 @@ export default function UpscaleClient() {
         <div className="min-h-screen w-full bg-app-bg px-4 py-6 text-ink sm:pl-8 sm:pr-52">
             <div className="mx-auto max-w-6xl">
                 <header className="mb-6 flex flex-wrap items-center gap-3">
-                    <Link href="/tools" title="Back to tools" className="grid h-7 w-7 place-items-center rounded-md border border-line bg-paper-2 text-ink-3 transition-colors hover:text-ink">
+                    <Link href="/seedance" title="Back to the studio" className="grid h-7 w-7 place-items-center rounded-md border border-line bg-paper-2 text-ink-3 transition-colors hover:text-ink">
                         <ArrowLeft size={14} />
                     </Link>
                     <h1 className="font-display text-xl font-semibold">Upscale Video</h1>
