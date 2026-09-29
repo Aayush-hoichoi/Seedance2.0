@@ -111,10 +111,20 @@ export async function POST(request) {
     if (isOverallBudget({ project_id: b.projectId ?? null, user_id: b.userId ?? null, model_id: modelId, type: b.type, window: b.window })) {
         const { overallCap, allocated } = await projectAllocation(sql, b.projectId);
         const resulting = (overallCap ?? 0) + Number(b.hardLimit);
-        if (resulting < allocated) {
+        // The cap is a bar on combined SPEND, so it must clear BOTH what
+        // members hold and what the project has already spent — uncapped-model
+        // spend counts, which is why spent can exceed allotted. A cap below
+        // spend would silently freeze every new generation.
+        const overallScope = { id: 'overall', project_id: b.projectId, user_id: null, model_id: null, type: 'usd', window: 'lifetime' };
+        const { usedByQuota, reservedByQuota } = await usageForQuotas(sql, [overallScope]);
+        const spentFloor = Number(usedByQuota.overall ?? 0) + Number(reservedByQuota.overall ?? 0);
+        const floor = Math.max(allocated, spentFloor);
+        if (resulting < floor) {
             return apiError('BUDGET_BELOW_ALLOCATIONS',
-                `Members of this project are already allotted ${usd(allocated)}. The overall budget must be at least that much — ${usd(resulting)} would strand budgets that are already in use.`,
-                { allocated, requested: resulting });
+                spentFloor > allocated
+                    ? `The project has already spent ${usd(spentFloor)} (including uncapped models). A ${usd(resulting)} cap would sit below that and freeze every new generation — set ${usd(floor)} or more.`
+                    : `Members of this project are already allotted ${usd(allocated)}. The overall budget must be at least that much — ${usd(resulting)} would strand budgets that are already in use.`,
+                { allocated, spentFloor, requested: resulting });
         }
     }
     // The active-scope unique index makes this safe under concurrent requests:
