@@ -12,7 +12,7 @@ import clsx from 'clsx';
 import {
     LayoutDashboard, FolderKanban, Boxes, ListOrdered, BarChart3,
     Wallet, ScrollText, Users, Clapperboard, PanelLeftClose, PanelLeftOpen, Radio, BellRing,
-    Table2, Bug, Menu, FileOutput, Inbox,
+    Table2, Bug, Menu, FileOutput, Inbox, Workflow,
 } from 'lucide-react';
 import { useEvents } from '../hooks/useEvents.js';
 import { useApi } from './lib.js';
@@ -23,6 +23,7 @@ const NAV = [
     { href: '/console', label: 'Dashboard', icon: LayoutDashboard, exact: true },
     { href: '/console/projects', label: 'Projects', icon: FolderKanban, managerOk: true },
     { href: '/console/models', label: 'Models', icon: Boxes },
+    { href: '/console/workflows', label: 'Workflows', icon: Workflow },
     { href: '/console/queue', label: 'Queue', icon: ListOrdered },
     { href: '/console/exr', label: 'Enhance Queue', icon: FileOutput },
     { href: '/console/ledger', label: 'Ledger', icon: Table2 },
