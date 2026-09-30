@@ -1073,19 +1073,18 @@ export default function SeedanceStudio() {
         // re-validated for ownership: the prompts API only returns records for
         // the caller's own tasks, so any srv-* card that isn't confirmed owned
         // is a teammate's generation a past session merged in — purge it.
+        // Image cards ('job:<id>') never get a prompts row and only ever come
+        // from the caller-scoped /api/gallery?mine=1, so they can't be foreign.
         const suspects = restored.filter(
-            (j) => String(j.id).startsWith('srv-') && j.taskId && !prompts[j.taskId],
+            (j) => String(j.id).startsWith('srv-') && j.taskId && !prompts[j.taskId]
+                && !String(j.taskId).startsWith('job:'),
         );
         if (suspects.length) {
-            fetch(`/api/seedance/prompts?taskIds=${encodeURIComponent(suspects.map((j) => j.taskId).join(','))}`)
-                .then((r) => (r.ok ? r.json() : null))
-                .then((d) => {
-                    if (!Array.isArray(d?.items)) return;
-                    const known = new Set(d.items.map((row) => row.task_id));
-                    const foreign = new Set(suspects.map((j) => j.taskId).filter((id) => !known.has(id)));
-                    if (foreign.size) updateJobs((prev) => prev.filter((j) => !foreign.has(j.taskId)));
-                })
-                .catch(() => {});
+            fetchPromptRecords(suspects.map((j) => j.taskId), { strict: true }).then((byTask) => {
+                if (!byTask) return;
+                const foreign = new Set(suspects.map((j) => j.taskId).filter((id) => !byTask[id]));
+                if (foreign.size) updateJobs((prev) => prev.filter((j) => !foreign.has(j.taskId)));
+            });
         }
 
         fetch('/api/byteplus/contents/generations/tasks?page_num=1&page_size=30')
