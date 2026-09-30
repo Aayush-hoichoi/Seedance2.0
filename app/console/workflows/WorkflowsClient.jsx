@@ -2,13 +2,15 @@
 
 // Console Workflows page: every workflow in the workspace — the official
 // project-style ones and every user's customs (private included) — with the
-// full style detail the studio picker hides. Read-only inspection; decisions
-// (publish approvals, access) stay in the Requests hub.
+// full style detail the studio picker hides. Customs also get visibility
+// controls here (an admin publishing IS the approval, so a pending one goes
+// public directly); access requests stay in the Requests hub.
 
 import { useMemo, useState } from 'react';
+import toast from 'react-hot-toast';
 import { Workflow as WorkflowIcon } from 'lucide-react';
-import { PageHeader, DataTable, Badge, Modal, EmptyState } from '../ui.jsx';
-import { useApi, fmtDate } from '../lib.js';
+import { PageHeader, DataTable, Badge, Modal, EmptyState, Button } from '../ui.jsx';
+import { useApi, sendJson, fmtDate } from '../lib.js';
 
 const MEDIA_TONE = { all: 'zinc', video: 'blue', image: 'violet' };
 const VISIBILITY_TONE = { public: 'green', pending: 'amber', private: 'zinc' };
@@ -16,11 +18,21 @@ const VISIBILITY_TONE = { public: 'green', pending: 'amber', private: 'zinc' };
 export default function WorkflowsClient() {
     const [tab, setTab] = useState('official');
     const [selected, setSelected] = useState(null);
-    const { data, isLoading } = useApi('/api/admin/workflows');
+    const { data, isLoading, mutate } = useApi('/api/admin/workflows');
     const items = data?.items ?? [];
     const official = items.filter((w) => w.official);
     const custom = items.filter((w) => !w.official);
     const rows = tab === 'official' ? official : custom;
+
+    // Admin-side visibility moves ride the same endpoint owners use:
+    // request_publish from an admin is both sides at once (→ public),
+    // unpublish takes it private and detaches everyone but the owner.
+    async function setVisibility(workflowId, action) {
+        const r = await sendJson('/api/workflows/custom', 'PATCH', { workflowId, action });
+        if (!r.ok) return toast.error(r.data?.error || 'Could not change visibility.');
+        toast.success(r.data.visibility === 'public' ? 'Workflow is now public to the workspace.' : 'Workflow is private again.');
+        mutate();
+    }
 
     const columns = useMemo(() => [
         {
@@ -54,7 +66,26 @@ export default function WorkflowsClient() {
             {
                 accessorKey: 'visibility',
                 header: 'Visibility',
-                cell: ({ getValue }) => <Badge tone={VISIBILITY_TONE[getValue()] || 'zinc'}>{getValue()}</Badge>,
+                cell: ({ row }) => {
+                    const { id, visibility } = row.original;
+                    return (
+                        <div className="flex items-center gap-1.5">
+                            <Badge tone={VISIBILITY_TONE[visibility] || 'zinc'}>{visibility}</Badge>
+                            {visibility === 'private' && (
+                                <Button size="xs" variant="outline" onClick={() => setVisibility(id, 'request_publish')}>Publish</Button>
+                            )}
+                            {visibility === 'pending' && (
+                                <>
+                                    <Button size="xs" variant="outline" onClick={() => setVisibility(id, 'request_publish')}>Approve</Button>
+                                    <Button size="xs" variant="ghost" onClick={() => setVisibility(id, 'unpublish')}>Reject</Button>
+                                </>
+                            )}
+                            {visibility === 'public' && (
+                                <Button size="xs" variant="ghost" onClick={() => setVisibility(id, 'unpublish')}>Unpublish</Button>
+                            )}
+                        </div>
+                    );
+                },
             },
         ] : []),
         { accessorKey: 'looks', header: 'Looks', cell: ({ getValue }) => getValue().length },
