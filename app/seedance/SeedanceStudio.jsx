@@ -1121,6 +1121,10 @@ export default function SeedanceStudio() {
                         // for Reuse to restore duration/resolution/seed/model
                         // (ratio/audio/watermark fall back to defaults).
                         options: { model: t.model, resolution: t.resolution, duration: t.duration, seed: t.seed },
+                        // Project tag from Neon — without it the project-scoped
+                        // rail can't show the card at all, and the legacy
+                        // backfill later stamps it onto the wrong (home) project.
+                        projectId: records[t.id]?.project_id ?? null,
                         status: toJobStatus(t.status),
                         videoUrl: t.content?.video_url || null,
                         error: t.error?.message || null,
@@ -1160,11 +1164,26 @@ export default function SeedanceStudio() {
         const mergeMine = (items) => {
                 const toStatus = (s) => (s === 'succeeded' ? 'done' : ['queued', 'running'].includes(s) ? s : 'error');
                 updateJobs((prev) => {
-                    const known = new Set(prev.map((j) => j.taskId).filter(Boolean));
+                    // The DB is the authority on which project a generation
+                    // billed to. Re-tag server-built (srv-*) cards whose tag is
+                    // missing (ModelArk merge won the race) or wrong (a past
+                    // reload's legacy backfill stamped them onto the home
+                    // project) — untagged cards show in NO project's rail.
+                    const byTask = new Map(items.map((it) => [it.taskId, it]));
+                    let retagCount = 0;
+                    const retagged = prev.map((j) => {
+                        const it = j.taskId && byTask.get(j.taskId);
+                        if (!it || it.projectId == null || j.projectId === it.projectId) return j;
+                        if (j.projectId != null && !String(j.id).startsWith('srv-')) return j;
+                        retagCount += 1;
+                        return { ...j, projectId: it.projectId };
+                    });
+                    const base = retagCount ? retagged : prev;
+                    const known = new Set(base.map((j) => j.taskId).filter(Boolean));
                     // Image jobs have no provider task id: the server keys them
                     // 'job:<genId>'. Skip any we already track locally by genId,
                     // else the same image shows twice (local card + server merge).
-                    const knownGen = new Set(prev.map((j) => (j.genId != null ? String(j.genId) : null)).filter(Boolean));
+                    const knownGen = new Set(base.map((j) => (j.genId != null ? String(j.genId) : null)).filter(Boolean));
                     const isDupImage = (it) => it.mediaType === 'image'
                         && typeof it.taskId === 'string' && it.taskId.startsWith('job:')
                         && knownGen.has(it.taskId.slice(4));
@@ -1203,7 +1222,7 @@ export default function SeedanceStudio() {
                                 createdAt: it.createdAt ? new Date(it.createdAt).getTime() : Date.now(),
                             };
                         });
-                    return added.length ? [...prev, ...added].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)) : prev;
+                    return added.length ? [...base, ...added].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)) : base;
                 });
         };
         (async () => {
@@ -1334,6 +1353,10 @@ export default function SeedanceStudio() {
                     userPrompt: j.userPrompt || r.user_prompt || null,
                     style: j.style || r.style || null,
                     refs: j.refs || (Array.isArray(r.refs) && r.refs.length ? r.refs : null),
+                    // Untagged cards are invisible in the project-scoped rail —
+                    // adopt the DB's project tag before the legacy backfill
+                    // mis-stamps them onto the home project.
+                    projectId: j.projectId ?? r.project_id ?? null,
                     // Likes live in the DB — let server truth win so the mark
                     // follows the account across cleared storage and browsers.
                     liked: typeof r.liked === 'boolean' ? r.liked : !!j.liked,

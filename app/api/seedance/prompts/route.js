@@ -156,7 +156,9 @@ export async function GET(request) {
         // Driven from gallery_generations (ownership), not seedance_prompts: an
         // owned task whose prompt row never got written must still come back,
         // or the studio's history purge treats it as a teammate's and drops it.
-        const rows = await sql`SELECT e.task_id, p.style, p.user_prompt, p.generated_prompt, p.refs, p.liked, p.deleted
+        // project_id rides along so server-merged history cards can carry the
+        // project tag they're filtered by (the rail is project-scoped).
+        const rows = await sql`SELECT e.task_id, e.project_id, p.style, p.user_prompt, p.generated_prompt, p.refs, p.liked, p.deleted
             FROM gallery_generations e
             LEFT JOIN seedance_prompts p ON p.task_id = e.task_id
             WHERE e.task_id = ANY(${ids}) AND e.user_id = ${user.userId}`;
