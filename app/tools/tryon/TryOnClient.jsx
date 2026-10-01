@@ -1,30 +1,37 @@
 'use client';
 
 // Try-On — Lucy-style (lucy.decart.ai) virtual try-on as a studio tool.
-// 1. Get a character on the canvas (generate from a prompt, or upload).
+// 1. Pick Image or Video, pick the model (same catalogs as the studio), then
+//    get a character on the canvas: generate from a prompt, or upload.
 // 2. Upload asset images (clothing, props, artwork) into the shelf.
-// 3. Drag an asset onto the character → Nano Banana merges them (the
-//    character "wears" the asset). Each merge becomes the new canvas image,
-//    with one-step undo back through earlier versions.
-// 4. Animate → Seedance (first-frame) brings the dressed character to life.
+// 3. Drag an asset onto the character → the item is merged on (image
+//    characters via the image model, video characters via a Seedance
+//    reference edit). Each merge becomes the new canvas state, with undo.
+// 4. Image characters: Animate → Seedance (first-frame) brings them to life.
 // Billing/access rides the existing generation pipelines untouched: images go
 // through POST /api/generations (gateway quota + budgets), video through the
-// ModelArk proxy — both on the open-by-default models.
+// ModelArk proxy — gated models fail at submit with the server's own message.
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Clapperboard, ImagePlus, Loader2, Shirt, Sparkles, Undo2, Upload, X } from 'lucide-react';
 import ProjectSelect from '../../seedance/ProjectSelect.jsx';
-import { MODELS } from '../../../lib/seedance/constants.js';
+import { IMAGE_MODELS, MODELS } from '../../../lib/seedance/constants.js';
 import { buildPayload, createTask, pollTask } from '../../../lib/seedance/client.js';
+import { registerAssetFromUrl } from '../../../lib/seedance/assetsClient.js';
+import { uploadToCdn } from '../../../lib/seedance/upload.js';
 import { resolveProjectId, rememberProjectId } from '../../../lib/seedance/projectChoice.mjs';
 
-const IMAGE_MODEL_ID = 'nano-banana-2'; // open image model, no access request needed
-const VIDEO_MODEL_ID = MODELS.find((m) => m.kind === 'mini').id; // open video tier
+const DEFAULT_IMAGE_MODEL_ID = 'nano-banana-2'; // open image model
+const MINI_VIDEO_MODEL_ID = MODELS.find((m) => m.kind === 'mini').id; // open video tier
 
 const MERGE_PROMPT = `Virtual try-on. Image 1 is the character, Image 2 is the item.
 Put the item from Image 2 onto the character in Image 1: if it is clothing, the character now wears it, fitted naturally with realistic fabric folds, lighting and shadows; if it is an object, prop or artwork, place it naturally with the character (held, worn, or set into the scene).
 Keep the character's face, identity, hair, pose, body and the background from Image 1 exactly unchanged — change ONLY what the item adds. Output a single photorealistic image.`;
+
+const VIDEO_MERGE_PROMPT = `Virtual try-on video edit. Video 1 is the character performance, Image 1 is the item.
+Recreate Video 1 exactly — same person, same motion, same timing, same camera, same background — with ONE change: the item from Image 1 is now on the character. If it is clothing, they wear it throughout, moving naturally with the body; if it is an object, prop or artwork, it is placed naturally with them in the scene.
+Nothing else may change: no added motion, no altered identity, no new background.`;
 
 const ANIMATE_PROMPT = 'The character comes to life: stands up (if seated) and moves naturally and confidently — subtle realistic body motion, the clothing moves with them. Keep the identity, outfit, lighting and background exactly as the image. Smooth, stable camera.';
 
@@ -108,16 +115,19 @@ async function urlToInline(url) {
 
 // Submit one image generation and poll it to a displayable image.
 // Returns { mimeType, b64, dataUrl } (inline whenever the provider allows).
-async function runImageJob({ projectId, prompt, refs = [] }) {
+async function runImageJob({ projectId, modelId, prompt, refs = [] }) {
     const request = refs.length
         ? { prompt, parts: [{ text: prompt }, ...refs.map((r) => ({ inlineData: { mimeType: r.mimeType, data: r.b64 } }))] }
         : { prompt };
+    // Lowest tier the model offers (Seedream's floor is 2K, Banana's is 1K) —
+    // the try-on canvas doesn't need more, and the animation is 720p anyway.
+    const imageSize = IMAGE_MODELS.find((m) => m.id === modelId)?.resolutions?.[0] ?? null;
     const res = await fetch('/api/generations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            projectId, modelId: IMAGE_MODEL_ID, request,
-            options: { imageCount: 1, aspectRatio: '3:4', imageSize: '1K' },
+            projectId, modelId, request,
+            options: { imageCount: 1, aspectRatio: '3:4', imageSize },
         }),
     });
     const data = await res.json().catch(() => null);
@@ -158,15 +168,20 @@ async function runImageJob({ projectId, prompt, refs = [] }) {
 // Workspace
 
 function TryOnWorkspace({ projectId }) {
-    const [character, setCharacter] = useState(null); // { mimeType, b64, dataUrl }
+    // character: { kind:'image', mimeType, b64, dataUrl } or
+    //            { kind:'video', url, assetUrl? } (assetUrl = cached asset:// ref)
+    const [character, setCharacter] = useState(null);
     const [versions, setVersions] = useState([]); // older character states, newest first
     const [assets, setAssets] = useState([]); // { name, mimeType, b64, dataUrl }
     const [charPrompt, setCharPrompt] = useState('');
+    const [charKind, setCharKind] = useState('image'); // what Generate creates
+    const [imageModel, setImageModel] = useState(DEFAULT_IMAGE_MODEL_ID);
+    const [videoModel, setVideoModel] = useState(MINI_VIDEO_MODEL_ID);
     const [note, setNote] = useState('');
     const [busy, setBusy] = useState(null); // 'character' | 'merge' | 'animate'
     const [error, setError] = useState(null);
     const [dragOver, setDragOver] = useState(false);
-    const [video, setVideo] = useState(null); // { url }
+    const [video, setVideo] = useState(null); // { url } — animation of an image character
     const [showVideo, setShowVideo] = useState(false);
     const charInputRef = useRef(null);
     const assetInputRef = useRef(null);
@@ -178,24 +193,49 @@ function TryOnWorkspace({ projectId }) {
         try { await fn(); } catch (e) { setError(e.message); } finally { setBusy(null); }
     };
 
-    const generateCharacter = () => run('character', async () => {
-        const p = charPrompt.trim();
-        if (!p) throw new Error('Describe the character you want to create.');
-        const prompt = `Full-body photorealistic character portrait, standing, facing the camera, clean simple background, soft studio lighting. ${p}`;
-        const img = await runImageJob({ projectId, prompt });
+    const replaceCharacter = (next) => {
         setVersions((v) => (character ? [character, ...v].slice(0, 8) : v));
-        setCharacter(img);
+        setCharacter(next);
         setVideo(null);
         setShowVideo(false);
+    };
+
+    const videoOptions = (overrides = {}) => ({
+        model: videoModel, ratio: 'adaptive', resolution: '720p', duration: 5,
+        generate_audio: false, watermark: false, seed: -1, ...overrides,
+    });
+
+    const generateCharacter = () => run('character', async () => {
+        const p = charPrompt.trim();
+        if (!p) throw new Error(`Describe the character ${charKind} you want to create.`);
+        const prompt = `Full-body photorealistic shot of a character, standing, facing the camera, clean simple background, soft studio lighting. ${p}`;
+        if (charKind === 'image') {
+            const img = await runImageJob({ projectId, modelId: imageModel, prompt });
+            replaceCharacter({ kind: 'image', ...img });
+        } else {
+            const payload = buildPayload({
+                options: videoOptions({ ratio: '3:4' }),
+                prompt: `${prompt} The character moves subtly and naturally; stable camera.`,
+                mediaItems: [],
+            });
+            const { id } = await createTask(payload, 't2v', projectId);
+            const { url } = await pollTask(id);
+            replaceCharacter({ kind: 'video', url });
+        }
     });
 
     const uploadCharacter = (file) => run('character', async () => {
-        if (!file?.type?.startsWith('image/')) throw new Error('Pick an image file.');
-        const img = await fileToInline(file);
-        setVersions((v) => (character ? [character, ...v].slice(0, 8) : v));
-        setCharacter(img);
-        setVideo(null);
-        setShowVideo(false);
+        if (file?.type?.startsWith('image/')) {
+            const img = await fileToInline(file);
+            replaceCharacter({ kind: 'image', ...img });
+        } else if (file?.type?.startsWith('video/')) {
+            // Video needs a real URL (ModelArk takes no data: videos) — reuse the
+            // CDN upload the Upscale tool uses.
+            const { url } = await uploadToCdn(file);
+            replaceCharacter({ kind: 'video', url });
+        } else {
+            throw new Error('Pick an image or video file.');
+        }
     });
 
     const addAssets = async (files) => {
@@ -211,9 +251,9 @@ function TryOnWorkspace({ projectId }) {
     const merge = (asset) => run('merge', () => mergeNow(asset));
 
     const animate = () => run('animate', async () => {
-        if (!character) throw new Error('Add a character first.');
+        if (character?.kind !== 'image') throw new Error('Add an image character first.');
         const payload = buildPayload({
-            options: { model: VIDEO_MODEL_ID, ratio: 'adaptive', resolution: '720p', duration: 5, generate_audio: false, watermark: false, seed: -1 },
+            options: videoOptions(),
             prompt: ANIMATE_PROMPT,
             mediaItems: [{ kind: 'image', url: character.dataUrl, role: 'first_frame' }],
         });
@@ -255,16 +295,42 @@ function TryOnWorkspace({ projectId }) {
     // merge() wraps run(); this is the bare body for callers already inside run().
     const mergeNow = async (asset) => {
         if (!character) throw new Error('Add a character first.');
+        const extra = note.trim();
+        if (character.kind === 'video') {
+            // A video character: the try-on is a Seedance reference edit. The
+            // character video must enter as a verified library asset — ModelArk's
+            // input scan rejects person footage referenced by raw URL. The
+            // asset:// ref is cached on the character for repeat merges.
+            let assetUrl = character.assetUrl;
+            if (!assetUrl) {
+                const reg = await registerAssetFromUrl({ url: character.url, kind: 'video' });
+                assetUrl = reg.url;
+                setCharacter((c) => (c?.url === character.url ? { ...c, assetUrl } : c));
+            }
+            // Reference edits need a model that runs r2v (the 2.0 family) — fall
+            // back to the open Mini tier when the picked model can't.
+            const model = MODELS.find((m) => m.id === videoModel)?.supportsReference !== false ? videoModel : MINI_VIDEO_MODEL_ID;
+            const prompt = extra ? `${VIDEO_MERGE_PROMPT}\nAdditional instruction: ${extra}` : VIDEO_MERGE_PROMPT;
+            const payload = buildPayload({
+                // duration -1: a video edit inherits the source clip's length.
+                options: videoOptions({ model, generate_audio: true, duration: -1 }),
+                prompt,
+                mediaItems: [
+                    { kind: 'video', url: assetUrl, role: 'reference_video' },
+                    { kind: 'image', url: asset.dataUrl, role: 'reference_image' },
+                ],
+            });
+            const { id } = await createTask(payload, 'reference', projectId);
+            const { url } = await pollTask(id);
+            replaceCharacter({ kind: 'video', url });
+            return;
+        }
         // Re-inline a URL-only character (e.g. a merge that came back as a link).
         const base = character.b64 ? character : await urlToInline(character.dataUrl)
             .catch(() => { throw new Error('This image can’t be reused directly — download it and upload it as the character.'); });
-        const extra = note.trim();
         const prompt = extra ? `${MERGE_PROMPT}\nAdditional instruction: ${extra}` : MERGE_PROMPT;
-        const img = await runImageJob({ projectId, prompt, refs: [base, asset] });
-        setVersions((v) => [character, ...v].slice(0, 8));
-        setCharacter(img);
-        setVideo(null);
-        setShowVideo(false);
+        const img = await runImageJob({ projectId, modelId: imageModel, prompt, refs: [base, asset] });
+        replaceCharacter({ kind: 'image', ...img });
     };
 
     return (
@@ -279,6 +345,8 @@ function TryOnWorkspace({ projectId }) {
                 >
                     {showVideo && video ? (
                         <video src={video.url} controls autoPlay loop playsInline className="h-full w-full object-contain bg-black" />
+                    ) : character?.kind === 'video' ? (
+                        <video src={character.url} controls autoPlay loop playsInline className="h-full w-full object-contain bg-black" />
                     ) : character ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={character.dataUrl} alt="Character" className="h-full w-full object-cover" />
@@ -286,14 +354,16 @@ function TryOnWorkspace({ projectId }) {
                         <div className="flex flex-col items-center gap-2 p-6 text-center text-ink-3">
                             <Shirt size={26} />
                             <span className="text-sm font-medium text-ink-2">No character yet</span>
-                            <span className="max-w-xs text-xs leading-relaxed">Generate one below, upload a photo, or drop an image here. Then drag assets from the shelf onto it.</span>
+                            <span className="max-w-xs text-xs leading-relaxed">Pick Image or Video below, generate a character or upload one, then drag assets from the shelf onto it.</span>
                         </div>
                     )}
                     {busy && (
                         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/50 text-white backdrop-blur-[2px]">
                             <Loader2 size={22} className="animate-spin" />
                             <span className="text-xs font-medium">
-                                {busy === 'character' ? 'Creating the character…' : busy === 'merge' ? 'Trying it on…' : 'Bringing the character to life… (~1–2 min)'}
+                                {busy === 'character' ? (charKind === 'video' ? 'Creating the character video… (~1–3 min)' : 'Creating the character…')
+                                    : busy === 'merge' ? (character?.kind === 'video' ? 'Trying it on across the video… (~2–5 min)' : 'Trying it on…')
+                                        : 'Bringing the character to life… (~1–2 min)'}
                             </span>
                         </div>
                     )}
@@ -317,11 +387,14 @@ function TryOnWorkspace({ projectId }) {
                             <Undo2 size={13} /> Undo try-on
                         </button>
                     )}
-                    {character && (
-                        <button type="button" onClick={animate} disabled={!!busy}
-                            className="ml-auto inline-flex items-center gap-2 rounded-md bg-accent px-4 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-40">
-                            <Clapperboard size={14} /> Animate (5s video)
-                        </button>
+                    {character?.kind === 'image' && (
+                        <span className="ml-auto inline-flex items-center gap-2">
+                            <ModelSelect kind="video" value={videoModel} onChange={setVideoModel} disabled={!!busy} title="Model used for the animation" />
+                            <button type="button" onClick={animate} disabled={!!busy}
+                                className="inline-flex items-center gap-2 rounded-md bg-accent px-4 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-40">
+                                <Clapperboard size={14} /> Animate (5s video)
+                            </button>
+                        </span>
                     )}
                 </div>
 
@@ -329,22 +402,40 @@ function TryOnWorkspace({ projectId }) {
 
                 {/* Character sources */}
                 <div className="mx-auto flex w-full max-w-md flex-col gap-2 rounded-xl border border-line bg-paper-2 p-3">
-                    <span className="text-xs font-semibold text-ink-2">Character</span>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-semibold text-ink-2">Character</span>
+                        <div className="flex overflow-hidden rounded-md border border-line" role="radiogroup" aria-label="Character media type">
+                            {['image', 'video'].map((k) => (
+                                <button key={k} type="button" onClick={() => setCharKind(k)} disabled={!!busy}
+                                    aria-pressed={charKind === k}
+                                    className={`px-3 py-1 text-[11px] font-semibold capitalize transition-colors ${charKind === k ? 'bg-accent text-accent-ink' : 'bg-paper-3 text-ink-3 hover:text-ink'}`}>
+                                    {k}
+                                </button>
+                            ))}
+                        </div>
+                        <span className="ml-auto">
+                            {charKind === 'image'
+                                ? <ModelSelect kind="image" value={imageModel} onChange={setImageModel} disabled={!!busy} title="Image model" />
+                                : <ModelSelect kind="video" value={videoModel} onChange={setVideoModel} disabled={!!busy} title="Video model" />}
+                        </span>
+                    </div>
                     <div className="flex gap-2">
                         <input value={charPrompt} onChange={(e) => setCharPrompt(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter') generateCharacter(); }}
-                            placeholder="e.g. a young woman with short black hair, jeans and a white t-shirt"
+                            placeholder={charKind === 'image'
+                                ? 'e.g. a young woman with short black hair, jeans and a white t-shirt'
+                                : 'e.g. a young man in a plain t-shirt, standing and talking to the camera'}
                             className="min-w-0 flex-1 rounded-md border border-line bg-paper-3 px-3 py-2 text-xs text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent" />
                         <button type="button" onClick={generateCharacter} disabled={!!busy || !charPrompt.trim()}
                             className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-40">
-                            <Sparkles size={13} /> Generate
+                            <Sparkles size={13} /> Generate {charKind}
                         </button>
                     </div>
-                    <input ref={charInputRef} type="file" accept="image/*" className="hidden"
+                    <input ref={charInputRef} type="file" accept="image/*,video/*" className="hidden"
                         onChange={(e) => { uploadCharacter(e.target.files?.[0]); e.target.value = ''; }} />
                     <button type="button" onClick={() => charInputRef.current?.click()} disabled={!!busy}
                         className="inline-flex items-center justify-center gap-1.5 rounded-md border border-line px-3 py-2 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink disabled:opacity-40">
-                        <Upload size={13} /> Or upload a character photo
+                        <Upload size={13} /> Or upload a character photo / video
                     </button>
                 </div>
             </section>
@@ -394,9 +485,22 @@ function TryOnWorkspace({ projectId }) {
                         className="rounded-md border border-line bg-paper-3 px-3 py-2 text-xs text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent" />
                 </label>
                 <p className="text-[11px] leading-relaxed text-ink-3">
-                    Images run on Nano Banana 2 and the 5s animation on Seedance Mini — billed to this project like any studio generation.
+                    Generations run on the models you picked and are billed to this project like any studio generation. Models marked “needs access” require an approved request (made in the studio).
                 </p>
             </aside>
         </div>
+    );
+}
+
+// Model picker, fed by the same catalogs as the studio (image or video).
+function ModelSelect({ kind, value, onChange, disabled, title }) {
+    const models = kind === 'image' ? IMAGE_MODELS : MODELS;
+    return (
+        <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} title={title}
+            className="max-w-[11rem] rounded-md border border-line bg-paper-3 px-2 py-1.5 text-[11px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-40">
+            {models.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}{m.gated ? ' — needs access' : ''}</option>
+            ))}
+        </select>
     );
 }
