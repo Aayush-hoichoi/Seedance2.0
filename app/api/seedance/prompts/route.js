@@ -137,8 +137,11 @@ export async function GET(request) {
     // caller owns (gallery_generations.user_id, backed by jobs). The shared ModelArk key lists every
     // team member's tasks; without this filter the rail merges all of them.
     // Browsing everyone's work is what the community Gallery is for.
+    // 401, not an empty 200: the history purge treats "no items" as proof the
+    // tasks belong to someone else — an unresolved session must read as an
+    // outage (purge nothing), never as a verdict.
     const user = await getUser();
-    if (!user) return NextResponse.json({ items: [] });
+    if (!user) return bad('Unauthorized', 401);
 
     let sql;
     try {
