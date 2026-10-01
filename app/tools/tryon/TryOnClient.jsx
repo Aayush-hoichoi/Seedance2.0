@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Clapperboard, ImagePlus, Loader2, Shirt, Sparkles, Undo2, Upload, X } from 'lucide-react';
 import ProjectSelect from '../../seedance/ProjectSelect.jsx';
+import ToolAccessGate, { BudgetChip, useToolStatus } from '../ToolAccessGate.jsx';
 import { IMAGE_MODELS, MODELS } from '../../../lib/seedance/constants.js';
 import { buildPayload, createTask, pollTask } from '../../../lib/seedance/client.js';
 import { registerAssetFromUrl } from '../../../lib/seedance/assetsClient.js';
@@ -39,6 +40,7 @@ export default function TryOnClient() {
     const [projects, setProjects] = useState([]);
     const [projectId, setProjectId] = useState(null);
     const [projectsError, setProjectsError] = useState(null);
+    const { status, error: statusError, refresh } = useToolStatus('tryon', projectId);
 
     useEffect(() => {
         fetch('/api/projects')
@@ -63,12 +65,17 @@ export default function TryOnClient() {
                     <h1 className="font-display text-xl font-semibold">Try-On</h1>
                     <span className="rounded-full border border-line px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-3">drag &amp; drop</span>
                     <div className="ml-auto flex items-center gap-2">
+                        {status?.allowed && <BudgetChip budget={status.budget} />}
                         {projects.length > 0 && <ProjectSelect projects={projects} value={projectId} onChange={pickProject} />}
                     </div>
                 </header>
                 {projectsError
                     ? <div className="text-xs text-danger">{projectsError}</div>
-                    : <TryOnWorkspace projectId={projectId} />}
+                    : (
+                        <ToolAccessGate toolName="Try-On" status={status} error={statusError} projectId={projectId} onChanged={refresh}>
+                            <TryOnWorkspace projectId={projectId} />
+                        </ToolAccessGate>
+                    )}
             </div>
         </div>
     );
