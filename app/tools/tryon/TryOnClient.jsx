@@ -4,13 +4,14 @@
 // 1. Pick Image or Video, pick the model (same catalogs as the studio), then
 //    get a character on the canvas: generate from a prompt, or upload.
 // 2. Upload asset images (clothing, props, artwork) into the shelf.
-// 3. Drag an asset onto the character — this is COMPLETELY IN-HOUSE: the item
-//    becomes a movable, resizable overlay on the canvas. Place it, resize it,
-//    swap it, remove it — nothing is generated and nothing is billed.
-// 4. Submit final → the one paid step: the AI turns the rough placement into
-//    the real result (image model for image characters, a Seedance reference
-//    edit for video characters). Only a COMPLETED submission lands in the
-//    History section below — in-flight or failed ones never do.
+// 3. Drag an asset onto the character and the AI places it RIGHT THERE,
+//    immediately: the drop point is baked into a flattened composite the
+//    model is told to respect, so a cap dropped on the head sits on the head
+//    at that exact spot, blended realistically. (Video characters run a
+//    Seedance reference edit instead — no spatial pin there.) Each drop is
+//    one generation, billed like any studio generation.
+// 4. Submit final records the finished look on the canvas into the History
+//    section below — only completed, explicitly submitted results appear.
 // Billing/access rides the existing generation pipelines untouched: images go
 // through POST /api/generations (gateway quota + budgets), video through the
 // ModelArk proxy.
@@ -28,19 +29,22 @@ import { resolveProjectId, rememberProjectId } from '../../../lib/seedance/proje
 
 const DEFAULT_IMAGE_MODEL_ID = 'nano-banana-2'; // open image model
 const MINI_VIDEO_MODEL_ID = MODELS.find((m) => m.kind === 'mini').id; // open video tier
-const MAX_OVERLAYS = 2; // character + 2 refs stays inside Nano Banana 2's 3-image cap
 
-// Submit-final prompt. The model decides WHERE each item goes from what the
-// item IS — a cap lands on the head, shoes on the feet — not from where the
-// preview sticker happened to be dropped; the overlay is a selection aid, not
-// a placement constraint. (An earlier composite-based prompt pinned items to
-// the sticker position and a cap dropped on the chest stayed on the chest.)
-const MERGE_PROMPT = `Virtual try-on. Image 1 is the character, the following image(s) are the item(s) to put on them.
-Place every item in its correct, natural position for what it is: a cap/hat/helmet ON THE HEAD, shoes/sneakers/boots ON THE FEET, glasses/sunglasses on the face, earrings/necklaces/watches on their body part, a shirt/jacket/dress worn on the torso, trousers/skirts on the legs, a bag held in the hand or over the shoulder, artwork hung on the wall behind. Resize, rotate and fit each item to the character's pose, body and perspective, with realistic fabric folds, contact shadows and matching lighting.
-Keep the character's face, identity, hair, pose, body and the background from Image 1 exactly unchanged — change ONLY what the items add. Output a single photorealistic image with no pasted-on or sticker look.`;
+// Drop-merge prompt: Image 1 is the flattened canvas — the character with the
+// item pasted as a flat sticker at the exact spot the user dropped it — and
+// Image 2 the clean product shot. The user's position is the instruction.
+const POSITION_PROMPT = `Virtual try-on. Image 1 shows a character with an item image pasted on top as a flat sticker — the sticker's position and size mark EXACTLY where the user wants that item. Image 2 is the clean product shot of the same item.
+Redraw Image 1 as one photorealistic image: the pasted item becomes real at that exact position and scale — clothing/headwear/footwear is worn there, fitted to the body part under the sticker (fabric folds, correct wrap and perspective); an object, prop or artwork sits naturally there in the scene. Blend it with matching lighting and contact shadows, and remove every sticker edge and pasted-on look.
+Keep the character's face, identity, hair, pose, body and the background exactly as in Image 1. Change nothing else.`;
 
-const VIDEO_MERGE_PROMPT = `Virtual try-on video edit. Video 1 is the character performance, the following image(s) are the item(s).
-Recreate Video 1 exactly — same person, same motion, same timing, same camera, same background — with ONE change: the item(s) are now on the character, each in its correct natural position for what it is (a cap on the head, shoes on the feet, a jacket worn on the torso, glasses on the face), fitted to the body and moving with it throughout; an object, prop or artwork is placed naturally with them in the scene.
+// Fallback when the canvas can't be flattened (URL-only character): refs go
+// over separately and the model places the item where it naturally belongs.
+const MERGE_PROMPT = `Virtual try-on. Image 1 is the character, Image 2 is the item to put on them.
+Place the item in its correct, natural position for what it is: a cap/hat on the head, shoes on the feet, glasses on the face, a shirt/jacket/dress on the torso, trousers on the legs, a bag held or over the shoulder, artwork hung on the wall. Resize and fit it to the character's pose and perspective, with realistic fabric folds, contact shadows and matching lighting.
+Keep the character's face, identity, hair, pose, body and the background from Image 1 exactly unchanged — change ONLY what the item adds. Output a single photorealistic image with no pasted-on look.`;
+
+const VIDEO_MERGE_PROMPT = `Virtual try-on video edit. Video 1 is the character performance, Image 1 is the item.
+Recreate Video 1 exactly — same person, same motion, same timing, same camera, same background — with ONE change: the item is now on the character, in its correct natural position for what it is (a cap on the head, shoes on the feet, a jacket worn on the torso, glasses on the face), fitted to the body and moving with it throughout; an object, prop or artwork is placed naturally with them in the scene.
 Nothing else may change: no added motion, no altered identity, no new background.`;
 
 const ANIMATE_PROMPT = 'The character comes to life: stands up (if seated) and moves naturally and confidently — subtle realistic body motion, the clothing moves with them. Keep the identity, outfit, lighting and background exactly as the image. Smooth, stable camera.';
@@ -164,6 +168,27 @@ function loadImageEl(src) {
     });
 }
 
+// Flatten the character with the dropped item drawn at its fractional drop
+// position/size — this composite is what tells the model EXACTLY where the
+// user wants the item. Throws on a tainted canvas (URL-only character), which
+// the caller turns into the position-less fallback.
+async function flattenComposite(character, overlay, maxDim = 1024) {
+    const base = await loadImageEl(character.dataUrl);
+    const scale = Math.min(1, maxDim / Math.max(base.naturalWidth, base.naturalHeight));
+    const W = Math.max(1, Math.round(base.naturalWidth * scale));
+    const H = Math.max(1, Math.round(base.naturalHeight * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(base, 0, 0, W, H);
+    const el = await loadImageEl(overlay.asset.dataUrl);
+    const w = overlay.w * W;
+    const h = w / (overlay.asset.aspect || (el.naturalWidth / el.naturalHeight) || 1);
+    ctx.drawImage(el, overlay.x * W, overlay.y * H, w, h);
+    return parseDataUrl(canvas.toDataURL('image/jpeg', 0.85));
+}
+
 // Re-encode a result small enough for localStorage history.
 async function shrinkDataUrl(dataUrl, maxDim = 1024, quality = 0.8) {
     const img = await loadImageEl(dataUrl);
@@ -270,9 +295,12 @@ function TryOnWorkspace({ projectId, modelAccess }) {
     const [character, setCharacter] = useState(null);
     const [versions, setVersions] = useState([]); // older character states, newest first
     const [assets, setAssets] = useState([]); // { name, mimeType, b64, dataUrl, aspect }
-    // In-house placement layer: items dropped on the canvas. Free — no AI, no
-    // budget — until Submit final sends them for generation.
-    const [overlays, setOverlays] = useState([]); // { id, asset, x, y, w } (fractions of the canvas)
+    // The sticker shown on the canvas while a drop-merge renders — purely
+    // visual feedback of where the user dropped; cleared when the result lands.
+    const [overlays, setOverlays] = useState([]); // [{ id, asset, x, y, w }] (fractions of the canvas)
+    // Item names merged onto the current character since it was created —
+    // what a Submit final lists in History.
+    const [itemsWorn, setItemsWorn] = useState([]);
     const [charPrompt, setCharPrompt] = useState('');
     const [charKind, setCharKind] = useState('image'); // what Generate creates
     const [imageModel, setImageModel] = useState(DEFAULT_IMAGE_MODEL_ID);
@@ -287,7 +315,6 @@ function TryOnWorkspace({ projectId, modelAccess }) {
     const charInputRef = useRef(null);
     const assetInputRef = useRef(null);
     const canvasRef = useRef(null);
-    const gestureRef = useRef(null); // { id, mode:'move'|'resize', startX, startY, origX, origY, origW }
 
     useEffect(() => { setHistory(loadHistory()); }, []);
 
@@ -341,6 +368,7 @@ function TryOnWorkspace({ projectId, modelAccess }) {
     const generateCharacter = () => run('character', async () => {
         const p = charPrompt.trim();
         if (!p) throw new Error(`Describe the character ${charKind} you want to create.`);
+        setItemsWorn([]); // a fresh character wears nothing yet
         const prompt = `Full-body photorealistic shot of a character, standing, facing the camera, clean simple background, soft studio lighting. ${p}`;
         if (charKind === 'image') {
             const img = await runImageJob({ projectId, modelId: imageModel, prompt });
@@ -358,6 +386,7 @@ function TryOnWorkspace({ projectId, modelAccess }) {
     });
 
     const uploadCharacter = (file) => run('character', async () => {
+        setItemsWorn([]); // a fresh character wears nothing yet
         if (file?.type?.startsWith('image/')) {
             const img = await fileToInline(file);
             replaceCharacter({ kind: 'image', ...img });
@@ -386,27 +415,73 @@ function TryOnWorkspace({ projectId, modelAccess }) {
     };
 
     // ------------------------------------------------------------------
-    // In-house placement (free): drop/click an asset → overlay on the canvas.
-
-    const addOverlay = (asset, x = 0.3, y = 0.3) => {
-        setError(null);
-        if (!character) { setError('Add a character first, then drop items on it.'); return; }
-        setOverlays((prev) => {
-            if (prev.length >= MAX_OVERLAYS) {
-                setError(`Up to ${MAX_OVERLAYS} items per submission — remove one first.`);
-                return prev;
-            }
-            const w = 0.35;
-            return [...prev, { id: `ov-${Date.now().toString(36)}-${prev.length}`, asset, x: clamp(x - w / 2, 0, 0.9), y: clamp(y - 0.1, 0, 0.9), w }];
-        });
-        setShowVideo(false);
-    };
+    // Drop = generate. The item is merged AT THE DROP POINT, immediately —
+    // the drop position is flattened into the composite the model receives.
 
     const canvasPoint = (e) => {
         const rect = canvasRef.current?.getBoundingClientRect();
-        if (!rect) return { x: 0.3, y: 0.3, rect: null };
-        return { x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height, rect };
+        if (!rect) return { x: 0.5, y: 0.35 };
+        return { x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height };
     };
+
+    const dropMerge = (asset, x = 0.5, y = 0.35) => run('merge', async () => {
+        if (!character) throw new Error('Add a character first, then drop items on it.');
+        const w = 0.35; // sticker width as a fraction of the canvas
+        const overlay = { id: `ov-${Date.now().toString(36)}`, asset, x: clamp(x - w / 2, 0, 1 - w), y: clamp(y - 0.08, 0, 0.9), w };
+        setOverlays([overlay]); // visible under the busy veil while it renders
+        setShowVideo(false);
+        const extra = note.trim();
+        try {
+            if (character.kind === 'video') {
+                // The character video must enter as a verified library asset —
+                // ModelArk's input scan rejects person footage referenced by raw
+                // URL. The asset:// ref is cached for repeat merges.
+                let assetUrl = character.assetUrl;
+                if (!assetUrl) {
+                    const reg = await registerAssetFromUrl({ url: character.url, kind: 'video' });
+                    assetUrl = reg.url;
+                    setCharacter((c) => (c?.url === character.url ? { ...c, assetUrl } : c));
+                }
+                // Reference edits need a model that runs r2v (the 2.0 family) —
+                // fall back to the open Mini tier when the picked model can't.
+                const model = MODELS.find((m) => m.id === videoModel)?.supportsReference !== false ? videoModel : MINI_VIDEO_MODEL_ID;
+                const prompt = extra ? `${VIDEO_MERGE_PROMPT}\nAdditional instruction: ${extra}` : VIDEO_MERGE_PROMPT;
+                const payload = buildPayload({
+                    // duration -1: a video edit inherits the source clip's length.
+                    options: videoOptions({ model, generate_audio: true, duration: -1 }),
+                    prompt,
+                    mediaItems: [
+                        { kind: 'video', url: assetUrl, role: 'reference_video' },
+                        { kind: 'image', url: asset.dataUrl, role: 'reference_image' },
+                    ],
+                });
+                const { id } = await createTask(payload, 'tryon', projectId);
+                const { url } = await pollTask(id);
+                replaceCharacter({ kind: 'video', url });
+            } else {
+                // Image character: composite with the sticker at the drop point
+                // (the position instruction), plus the clean product shot. Falls
+                // back to position-less refs on a tainted canvas.
+                let refs;
+                let prompt;
+                try {
+                    const composite = await flattenComposite(character, overlay);
+                    refs = [composite, asset];
+                    prompt = extra ? `${POSITION_PROMPT}\nAdditional instruction: ${extra}` : POSITION_PROMPT;
+                } catch {
+                    const base = character.b64 ? character : await urlToInline(character.dataUrl)
+                        .catch(() => { throw new Error('This image can’t be reused directly — download it and upload it as the character.'); });
+                    refs = [base, asset];
+                    prompt = extra ? `${MERGE_PROMPT}\nAdditional instruction: ${extra}` : MERGE_PROMPT;
+                }
+                const img = await runImageJob({ projectId, modelId: imageModel, prompt, refs });
+                replaceCharacter({ kind: 'image', ...img });
+            }
+            setItemsWorn((prev) => [...prev, asset.name]);
+        } finally {
+            setOverlays([]);
+        }
+    });
 
     const onDrop = (e) => {
         e.preventDefault();
@@ -415,92 +490,35 @@ function TryOnWorkspace({ projectId, modelAccess }) {
         const { x, y } = canvasPoint(e);
         if (e.dataTransfer.files?.length) {
             // A file dragged straight from the OS: if there's no character yet it
-            // becomes the character, otherwise it joins the shelf and is placed.
+            // becomes the character, otherwise it joins the shelf and is merged
+            // right where it was dropped.
             const file = e.dataTransfer.files[0];
             if (!character) { uploadCharacter(file); return; }
-            addAssets([file]).then(([a]) => { if (a) addOverlay(a, x, y); });
+            addAssets([file]).then(([a]) => { if (a) dropMerge(a, x, y); });
             return;
         }
         const idx = Number(e.dataTransfer.getData('text/x-tryon-asset'));
-        if (Number.isInteger(idx) && assets[idx]) addOverlay(assets[idx], x, y);
+        if (Number.isInteger(idx) && assets[idx]) dropMerge(assets[idx], x, y);
     };
-
-    const startGesture = (e, id, mode) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const o = overlays.find((ov) => ov.id === id);
-        const rect = canvasRef.current?.getBoundingClientRect();
-        if (!o || !rect) return;
-        gestureRef.current = { id, mode, rect, startX: e.clientX, startY: e.clientY, origX: o.x, origY: o.y, origW: o.w };
-        e.currentTarget.setPointerCapture?.(e.pointerId);
-    };
-
-    const moveGesture = (e) => {
-        const g = gestureRef.current;
-        if (!g) return;
-        const dx = (e.clientX - g.startX) / g.rect.width;
-        const dy = (e.clientY - g.startY) / g.rect.height;
-        setOverlays((prev) => prev.map((o) => {
-            if (o.id !== g.id) return o;
-            if (g.mode === 'resize') return { ...o, w: clamp(g.origW + dx, 0.08, 1) };
-            return { ...o, x: clamp(g.origX + dx, -0.2, 0.95), y: clamp(g.origY + dy, -0.1, 0.95) };
-        }));
-    };
-
-    const endGesture = () => { gestureRef.current = null; };
 
     // ------------------------------------------------------------------
-    // Submit final — the only step that generates (and spends budget). A
-    // completed result replaces the canvas AND is recorded in History;
-    // in-flight or failed submissions never touch History.
+    // Submit final — records the finished look on the canvas into History.
+    // The generations already happened per drop; this is the explicit "this
+    // one is final" step, so only submitted results are listed.
 
-    const submitFinal = () => run('final', async () => {
-        if (!character) throw new Error('Add a character first.');
-        if (!overlays.length) throw new Error('Drop at least one item on the character first.');
-        const extra = note.trim();
-        const itemNames = overlays.map((o) => o.asset.name).join(', ');
-
-        if (character.kind === 'video') {
-            // The character video must enter as a verified library asset —
-            // ModelArk's input scan rejects person footage referenced by raw URL.
-            // The asset:// ref is cached on the character for repeat submissions.
-            let assetUrl = character.assetUrl;
-            if (!assetUrl) {
-                const reg = await registerAssetFromUrl({ url: character.url, kind: 'video' });
-                assetUrl = reg.url;
-                setCharacter((c) => (c?.url === character.url ? { ...c, assetUrl } : c));
-            }
-            // Reference edits need a model that runs r2v (the 2.0 family) — fall
-            // back to the open Mini tier when the picked model can't.
-            const model = MODELS.find((m) => m.id === videoModel)?.supportsReference !== false ? videoModel : MINI_VIDEO_MODEL_ID;
-            const prompt = extra ? `${VIDEO_MERGE_PROMPT}\nAdditional instruction: ${extra}` : VIDEO_MERGE_PROMPT;
-            const payload = buildPayload({
-                // duration -1: a video edit inherits the source clip's length.
-                options: videoOptions({ model, generate_audio: true, duration: -1 }),
-                prompt,
-                mediaItems: [
-                    { kind: 'video', url: assetUrl, role: 'reference_video' },
-                    ...overlays.map((o) => ({ kind: 'image', url: o.asset.dataUrl, role: 'reference_image' })),
-                ],
-            });
-            const { id } = await createTask(payload, 'tryon', projectId);
-            const { url } = await pollTask(id);
-            replaceCharacter({ kind: 'video', url });
-            await recordFinal({ kind: 'video', url, model: MODELS.find((m) => m.id === model)?.name || model, items: itemNames });
-            return;
+    const submitFinal = async () => {
+        if (!character || busy) return;
+        setError(null);
+        const items = itemsWorn.join(', ') || 'Final look';
+        if (showVideo && video) {
+            await recordFinal({ kind: 'video', url: video.url, model: MODELS.find((m) => m.id === videoModel)?.name || videoModel, items: `${items} — animation` });
+        } else if (character.kind === 'video') {
+            await recordFinal({ kind: 'video', url: character.url, model: MODELS.find((m) => m.id === videoModel)?.name || videoModel, items });
+        } else {
+            const thumb = await shrinkDataUrl(character.dataUrl).catch(() => null);
+            await recordFinal({ kind: 'image', thumb: thumb || character.dataUrl, model: IMAGE_MODELS.find((m) => m.id === imageModel)?.name || imageModel, items });
         }
-
-        // Image character: clean character + item refs, with the model placing
-        // each item where it anatomically belongs (cap → head, shoes → feet).
-        const base = character.b64 ? character : await urlToInline(character.dataUrl)
-            .catch(() => { throw new Error('This image can’t be reused directly — download it and upload it as the character.'); });
-        const refs = [base, ...overlays.map((o) => o.asset)];
-        const prompt = extra ? `${MERGE_PROMPT}\nAdditional instruction: ${extra}` : MERGE_PROMPT;
-        const img = await runImageJob({ projectId, modelId: imageModel, prompt, refs });
-        replaceCharacter({ kind: 'image', ...img });
-        const thumb = await shrinkDataUrl(img.dataUrl).catch(() => null);
-        await recordFinal({ kind: 'image', thumb: thumb || img.dataUrl, model: IMAGE_MODELS.find((m) => m.id === imageModel)?.name || imageModel, items: itemNames });
-    });
+    };
 
     const animate = () => run('animate', async () => {
         if (character?.kind !== 'image') throw new Error('Add an image character first.');
@@ -513,7 +531,6 @@ function TryOnWorkspace({ projectId, modelAccess }) {
         const { url } = await pollTask(id);
         setVideo({ url });
         setShowVideo(true);
-        await recordFinal({ kind: 'video', url, model: MODELS.find((m) => m.id === videoModel)?.name || videoModel, items: 'Animation' });
     });
 
     const undo = () => {
@@ -528,6 +545,7 @@ function TryOnWorkspace({ projectId, modelAccess }) {
     const reuseFromHistory = (h) => {
         if (busy) return;
         setError(null);
+        setItemsWorn([]);
         if (h.kind === 'image') {
             try { replaceCharacter({ kind: 'image', ...parseDataUrl(h.thumb) }); } catch { setError('Could not load that result.'); }
         } else {
@@ -548,9 +566,6 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                     onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                     onDragLeave={() => setDragOver(false)}
                     onDrop={onDrop}
-                    onPointerMove={moveGesture}
-                    onPointerUp={endGesture}
-                    onPointerLeave={endGesture}
                     className={`relative mx-auto flex aspect-[3/4] w-full max-w-md items-center justify-center overflow-hidden rounded-xl border bg-paper-2 transition-colors ${dragOver ? 'border-accent ring-2 ring-accent/40' : 'border-line'}`}
                 >
                     {showVideo && video ? (
@@ -568,25 +583,12 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                         </div>
                     )}
 
-                    {/* In-house placement overlays — free to move/resize/remove */}
+                    {/* Where the item was dropped — shown while the merge renders */}
                     {!showVideo && overlays.map((o) => (
-                        <div key={o.id}
-                            onPointerDown={(e) => startGesture(e, o.id, 'move')}
-                            style={{ left: `${o.x * 100}%`, top: `${o.y * 100}%`, width: `${o.w * 100}%`, touchAction: 'none' }}
-                            className="group absolute cursor-grab active:cursor-grabbing">
+                        <div key={o.id} style={{ left: `${o.x * 100}%`, top: `${o.y * 100}%`, width: `${o.w * 100}%` }} className="pointer-events-none absolute">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src={o.asset.dataUrl} alt={o.asset.name} draggable={false}
                                 className="w-full rounded-md border border-dashed border-accent/70 opacity-95 shadow-lg" />
-                            <button type="button" aria-label="Remove item"
-                                onPointerDown={(e) => e.stopPropagation()}
-                                onClick={() => setOverlays((prev) => prev.filter((p) => p.id !== o.id))}
-                                className="absolute -right-2 -top-2 rounded-full border border-line bg-paper-1 p-0.5 text-ink-3 hover:text-danger">
-                                <X size={12} />
-                            </button>
-                            <span aria-hidden
-                                onPointerDown={(e) => startGesture(e, o.id, 'resize')}
-                                style={{ touchAction: 'none' }}
-                                className="absolute -bottom-1.5 -right-1.5 h-4 w-4 cursor-nwse-resize rounded-sm border border-accent bg-paper-1" />
                         </div>
                     ))}
 
@@ -595,14 +597,14 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                             <Loader2 size={22} className="animate-spin" />
                             <span className="text-xs font-medium">
                                 {busy === 'character' ? (charKind === 'video' ? 'Creating the character video… (~1–3 min)' : 'Creating the character…')
-                                    : busy === 'final' ? (character?.kind === 'video' ? 'Preparing the final model across the video… (~2–5 min)' : 'Preparing the final model…')
+                                    : busy === 'merge' ? (character?.kind === 'video' ? 'Placing it across the video… (~2–5 min)' : 'Placing it right there…')
                                         : 'Bringing the character to life… (~1–2 min)'}
                             </span>
                         </div>
                     )}
                     {dragOver && !busy && (
                         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-accent/20">
-                            <span className="rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-accent-ink">Drop to place it — free until you submit</span>
+                            <span className="rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-accent-ink">Drop it — the AI places it right here</span>
                         </div>
                     )}
                 </div>
@@ -620,26 +622,26 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                             <Undo2 size={13} /> Undo
                         </button>
                     )}
-                    {character?.kind === 'image' && !overlays.length && (
-                        <span className="ml-auto inline-flex items-center gap-2">
+                    {character?.kind === 'image' && (
+                        <span className="inline-flex items-center gap-2">
                             <ModelSelect kind="video" value={videoModel} onChange={setVideoModel} disabled={!!busy} modelAccess={modelAccess} title="Model used for the animation" />
                             <button type="button" onClick={animate} disabled={!!busy}
                                 className="inline-flex items-center gap-2 rounded-md border border-line px-3 py-2 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink disabled:opacity-40">
-                                <Clapperboard size={14} /> Animate (5s video)
+                                <Clapperboard size={14} /> Animate
                             </button>
                         </span>
                     )}
-                    {character && overlays.length > 0 && (
+                    {character && (
                         <button type="button" onClick={submitFinal} disabled={!!busy}
                             className="ml-auto inline-flex items-center gap-2 rounded-md bg-accent px-4 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-40">
-                            <Wand2 size={14} /> Submit final ({overlays.length} item{overlays.length > 1 ? 's' : ''})
+                            <Wand2 size={14} /> Submit final
                         </button>
                     )}
                 </div>
 
-                {character && overlays.length > 0 && !busy && (
+                {character && !busy && (
                     <p className="mx-auto w-full max-w-md text-[11px] leading-relaxed text-ink-3">
-                        Dropping items is free — the preview is just your selection. On <strong className="font-semibold text-ink-2">Submit final</strong> the AI fits each item where it belongs (a cap on the head, shoes on the feet), sized and lit correctly; only that finished result lands in History below.
+                        Drop an item anywhere on the character — the AI merges it <strong className="font-semibold text-ink-2">at that exact spot</strong>, properly worn and blended (each drop is one generation). Happy with the look? <strong className="font-semibold text-ink-2">Submit final</strong> saves it to History below.
                     </p>
                 )}
 
@@ -705,10 +707,10 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                     <ul className="grid grid-cols-3 gap-2">
                         {assets.map((a, i) => (
                             <li key={`${a.name}-${i}`} className="group relative">
-                                <button type="button" title={`${a.name} — drag onto the character, or click to place it`}
+                                <button type="button" title={`${a.name} — drag onto the character where you want it, or click to try it on`}
                                     draggable
                                     onDragStart={(e) => { e.dataTransfer.setData('text/x-tryon-asset', String(i)); e.dataTransfer.effectAllowed = 'copy'; }}
-                                    onClick={() => addOverlay(a)}
+                                    onClick={() => dropMerge(a)}
                                     disabled={!!busy || !character}
                                     className="block w-full cursor-grab overflow-hidden rounded-lg border border-line transition-colors hover:border-accent/60 active:cursor-grabbing disabled:cursor-default disabled:opacity-60">
                                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -730,7 +732,7 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                         className="rounded-md border border-line bg-paper-3 px-3 py-2 text-xs text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent" />
                 </label>
                 <p className="text-[11px] leading-relaxed text-ink-3">
-                    Dragging, placing and resizing are completely in-house and free — no budget is used. Only <strong className="font-semibold text-ink-2">Submit final</strong> (and Generate/Animate) runs a model, billed to this project like any studio generation.
+                    Each drop runs the selected model right away and merges the item at the exact spot you dropped it — billed to this project like any studio generation. <strong className="font-semibold text-ink-2">Submit final</strong> costs nothing; it saves the finished look to History.
                 </p>
             </aside>
         </div>
