@@ -72,7 +72,7 @@ export default function TryOnClient() {
                 {projectsError
                     ? <div className="text-xs text-danger">{projectsError}</div>
                     : (
-                        <ToolAccessGate toolName="Try-On" status={status} error={statusError} projectId={projectId} onChanged={refresh}>
+                        <ToolAccessGate toolName="Try-On" status={status} error={statusError} projectId={projectId} onChanged={refresh} needsToolBudget={false}>
                             <TryOnWorkspace projectId={projectId} />
                         </ToolAccessGate>
                     )}

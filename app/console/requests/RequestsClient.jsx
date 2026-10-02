@@ -29,7 +29,11 @@ export default function RequestsClient() {
     const exr = useApi('/api/admin/exr-queue', { refreshInterval: 30_000, revalidateOnFocus: true });
     const workflows = useApi('/api/admin/workflow-requests', { refreshInterval: 30_000, revalidateOnFocus: true });
 
-    const accessPending = (access.data?.requests ?? []).filter((r) => r.status === 'pending' || (r.status === 'approved' && r.pending_max_resolution));
+    const allAccessPending = (access.data?.requests ?? []).filter((r) => r.status === 'pending' || (r.status === 'approved' && r.pending_max_resolution));
+    // Try-On asks ride the same model_access_requests flow but get their own
+    // tab — they're page unlocks, not model grants, and would bury the rest.
+    const tryonPending = allAccessPending.filter((r) => r.model_id === 'tool:tryon');
+    const accessPending = allAccessPending.filter((r) => r.model_id !== 'tool:tryon');
     const budgetPending = (budgets.data?.requests ?? []).filter((r) => r.status === 'pending').length;
     const projectPending = (projects.data?.requests ?? []).length;
     const exrPending = (exr.data?.accessRequests ?? []).filter((r) => r.status === 'pending');
@@ -41,6 +45,7 @@ export default function RequestsClient() {
         { id: 'budgets', label: 'Budgets', count: budgetPending },
         { id: 'projects', label: 'Projects', count: projectPending },
         { id: 'exr', label: 'EXR access', count: exrPending.length },
+        { id: 'tryon', label: 'Try-On', count: tryonPending.length },
         { id: 'workflows', label: 'Workflows', count: workflowPending.length + publishPending.length },
     ];
 
@@ -62,6 +67,8 @@ export default function RequestsClient() {
             {tab === 'budgets' && <BudgetRequestsClient embedded />}
             {tab === 'projects' && <ProjectsTab requests={projects.data?.requests ?? []} mutate={projects.mutate} />}
             {tab === 'exr' && <ExrAccessTab requests={exrPending} mutate={exr.mutate} />}
+            {tab === 'tryon' && <ModelAccessTab pending={tryonPending} mutate={access.mutate}
+                emptyTitle="No pending Try-On requests" emptyHint="Users request Try-On access from the /tools/tryon page; approving unlocks the tool for that project — it spends their normal model budgets." />}
             {tab === 'workflows' && <WorkflowAccessTab requests={workflowPending} publishRequests={publishPending} mutate={workflows.mutate} />}
         </div>
     );
@@ -136,7 +143,8 @@ function WorkflowAccessTab({ requests, publishRequests = [], mutate }) {
 }
 
 // Same decide contract as the Users page — approve carries expiry + tier.
-function ModelAccessTab({ pending, mutate }) {
+// Also serves the Try-On tab (same rows, filtered to tool:tryon).
+function ModelAccessTab({ pending, mutate, emptyTitle, emptyHint }) {
     async function decide(id, actionName, validUntil, maxResolution = null) {
         const body = actionName === 'approve' ? { validUntil, maxResolution } : undefined;
         const r = await sendJson(`/api/admin/requests/${id}/${actionName}`, 'POST', body);
@@ -144,7 +152,8 @@ function ModelAccessTab({ pending, mutate }) {
         r.ok ? (toast.success(done), mutate()) : toast.error(r.data?.error || r.data?.message || 'Failed');
     }
     if (!pending.length) {
-        return <EmptyState icon={Inbox} title="No pending access requests" hint="Model and tool access requests appear here; granted access is managed on the Users page." />;
+        return <EmptyState icon={Inbox} title={emptyTitle || 'No pending access requests'}
+            hint={emptyHint || 'Model and tool access requests appear here; granted access is managed on the Users page.'} />;
     }
     return (
         <Card>

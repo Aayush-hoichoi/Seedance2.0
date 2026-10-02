@@ -27,13 +27,13 @@ export function useToolStatus(slug, projectId) {
 
 // Renders children only when the user has access AND a tool budget; otherwise
 // the request-access form, the pending notice, or the no-budget notice.
-export default function ToolAccessGate({ toolName, status, error, projectId, onChanged, children }) {
+export default function ToolAccessGate({ toolName, status, error, projectId, onChanged, needsToolBudget = true, children }) {
     if (error) return <Notice icon={Lock} tone="danger" title="Couldn’t check access">{error}</Notice>;
     if (!status) return <div className="py-16 text-center text-xs text-ink-3">Checking access…</div>;
     if (!status.allowed) {
         return status.requestStatus === 'pending'
             ? <Notice icon={Clock} tone="warn" title="Request sent">An admin is reviewing your {toolName} access request for this project.</Notice>
-            : <RequestAccess toolId={status.toolId} toolName={toolName} projectId={projectId} onSent={onChanged} denied={status.requestStatus === 'revoked'} />;
+            : <RequestAccess toolId={status.toolId} toolName={toolName} projectId={projectId} onSent={onChanged} denied={status.requestStatus === 'revoked'} needsToolBudget={needsToolBudget} />;
     }
     if (!status.budget) {
         return <Notice icon={WalletCards} tone="warn" title="No budget yet">You have {toolName} access, but no {toolName} budget in this project. Ask an admin to set one in Console → Budgets.</Notice>;
@@ -51,7 +51,7 @@ export function BudgetChip({ budget }) {
     );
 }
 
-function RequestAccess({ toolId, toolName, projectId, onSent, denied }) {
+function RequestAccess({ toolId, toolName, projectId, onSent, denied, needsToolBudget = true }) {
     const [note, setNote] = useState('');
     const [sending, setSending] = useState(false);
     const [err, setErr] = useState(null);
@@ -80,7 +80,7 @@ function RequestAccess({ toolId, toolName, projectId, onSent, denied }) {
         <form onSubmit={send} className="mx-auto flex max-w-md flex-col gap-3 rounded-xl border border-line bg-paper-2 p-5">
             <div className="flex items-center gap-2 text-sm font-semibold"><Lock size={15} className="text-accent-hi" /> Request {toolName} access</div>
             <p className="text-xs leading-relaxed text-ink-3">
-                {denied ? 'Your last request was declined. ' : ''}Access is per project and reviewed by an admin, who also sets your {toolName} budget.
+                {denied ? 'Your last request was declined. ' : ''}Access is per project and reviewed by an admin{needsToolBudget ? `, who also sets your ${toolName} budget` : ' — once approved, it spends your normal model budgets'}.
             </p>
             <label className="flex flex-col gap-1.5">
                 <span className="text-xs font-semibold text-ink-2">What will you use it for?</span>
