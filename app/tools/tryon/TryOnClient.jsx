@@ -30,22 +30,17 @@ const DEFAULT_IMAGE_MODEL_ID = 'nano-banana-2'; // open image model
 const MINI_VIDEO_MODEL_ID = MODELS.find((m) => m.kind === 'mini').id; // open video tier
 const MAX_OVERLAYS = 2; // character + 2 refs stays inside Nano Banana 2's 3-image cap
 
-// Submit-final prompt for IMAGE characters: Image 1 is the flattened canvas —
-// the character with the item(s) roughly pasted where the user placed them —
-// so the model keeps the user's placement; the remaining images are the clean
-// product shots of the same items.
-const COMPOSITE_PROMPT = `Virtual try-on finalisation. Image 1 shows a character with item image(s) roughly pasted on top as flat stickers — the position and size of each sticker is where the user wants that item. The following image(s) are the clean product shots of those same items.
-Redraw Image 1 as one photorealistic image: every pasted item becomes real — clothing is worn naturally (fitted fabric, folds, correct lighting and shadows), objects/props/artwork sit naturally in the scene — at the position and scale of its sticker.
-Keep the character's face, identity, hair, pose, body and the background exactly as in Image 1, and remove every sticker edge and pasted-on look. Change nothing else.`;
-
-// Fallback when the canvas can't be flattened (URL-only character): the refs
-// go over separately and placement is left to the model.
-const MERGE_PROMPT = `Virtual try-on. Image 1 is the character, the following image(s) are the item(s).
-Put each item onto the character: clothing is worn naturally with realistic fabric folds, lighting and shadows; an object, prop or artwork is placed naturally with the character (held, worn, or set into the scene).
-Keep the character's face, identity, hair, pose, body and the background from Image 1 exactly unchanged — change ONLY what the items add. Output a single photorealistic image.`;
+// Submit-final prompt. The model decides WHERE each item goes from what the
+// item IS — a cap lands on the head, shoes on the feet — not from where the
+// preview sticker happened to be dropped; the overlay is a selection aid, not
+// a placement constraint. (An earlier composite-based prompt pinned items to
+// the sticker position and a cap dropped on the chest stayed on the chest.)
+const MERGE_PROMPT = `Virtual try-on. Image 1 is the character, the following image(s) are the item(s) to put on them.
+Place every item in its correct, natural position for what it is: a cap/hat/helmet ON THE HEAD, shoes/sneakers/boots ON THE FEET, glasses/sunglasses on the face, earrings/necklaces/watches on their body part, a shirt/jacket/dress worn on the torso, trousers/skirts on the legs, a bag held in the hand or over the shoulder, artwork hung on the wall behind. Resize, rotate and fit each item to the character's pose, body and perspective, with realistic fabric folds, contact shadows and matching lighting.
+Keep the character's face, identity, hair, pose, body and the background from Image 1 exactly unchanged — change ONLY what the items add. Output a single photorealistic image with no pasted-on or sticker look.`;
 
 const VIDEO_MERGE_PROMPT = `Virtual try-on video edit. Video 1 is the character performance, the following image(s) are the item(s).
-Recreate Video 1 exactly — same person, same motion, same timing, same camera, same background — with ONE change: the item(s) are now on the character. Clothing is worn throughout, moving naturally with the body; an object, prop or artwork is placed naturally with them in the scene.
+Recreate Video 1 exactly — same person, same motion, same timing, same camera, same background — with ONE change: the item(s) are now on the character, each in its correct natural position for what it is (a cap on the head, shoes on the feet, a jacket worn on the torso, glasses on the face), fitted to the body and moving with it throughout; an object, prop or artwork is placed naturally with them in the scene.
 Nothing else may change: no added motion, no altered identity, no new background.`;
 
 const ANIMATE_PROMPT = 'The character comes to life: stands up (if seated) and moves naturally and confidently — subtle realistic body motion, the clothing moves with them. Keep the identity, outfit, lighting and background exactly as the image. Smooth, stable camera.';
@@ -167,29 +162,6 @@ function loadImageEl(src) {
         img.onerror = () => reject(new Error('Could not load the image.'));
         img.src = src;
     });
-}
-
-// Flatten the canvas: character image with every overlay drawn at its placed
-// fractional position/size — the composite the final submission sends so the
-// model respects the user's placement. Throws on a tainted canvas (URL-only
-// character), which the caller turns into the no-composite fallback.
-async function flattenComposite(character, overlays, maxDim = 1024) {
-    const base = await loadImageEl(character.dataUrl);
-    const scale = Math.min(1, maxDim / Math.max(base.naturalWidth, base.naturalHeight));
-    const W = Math.max(1, Math.round(base.naturalWidth * scale));
-    const H = Math.max(1, Math.round(base.naturalHeight * scale));
-    const canvas = document.createElement('canvas');
-    canvas.width = W;
-    canvas.height = H;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(base, 0, 0, W, H);
-    for (const o of overlays) {
-        const el = await loadImageEl(o.asset.dataUrl);
-        const w = o.w * W;
-        const h = w / (o.asset.aspect || (el.naturalWidth / el.naturalHeight) || 1);
-        ctx.drawImage(el, o.x * W, o.y * H, w, h);
-    }
-    return parseDataUrl(canvas.toDataURL('image/jpeg', 0.85));
 }
 
 // Re-encode a result small enough for localStorage history.
@@ -518,21 +490,12 @@ function TryOnWorkspace({ projectId, modelAccess }) {
             return;
         }
 
-        // Image character: flatten the placement into a composite so the model
-        // keeps the user's position/size; fall back to separate refs when the
-        // canvas is tainted (URL-only character).
-        let refs;
-        let prompt;
-        try {
-            const composite = await flattenComposite(character, overlays);
-            refs = [composite, ...overlays.map((o) => o.asset)];
-            prompt = extra ? `${COMPOSITE_PROMPT}\nAdditional instruction: ${extra}` : COMPOSITE_PROMPT;
-        } catch {
-            const base = character.b64 ? character : await urlToInline(character.dataUrl)
-                .catch(() => { throw new Error('This image can’t be reused directly — download it and upload it as the character.'); });
-            refs = [base, ...overlays.map((o) => o.asset)];
-            prompt = extra ? `${MERGE_PROMPT}\nAdditional instruction: ${extra}` : MERGE_PROMPT;
-        }
+        // Image character: clean character + item refs, with the model placing
+        // each item where it anatomically belongs (cap → head, shoes → feet).
+        const base = character.b64 ? character : await urlToInline(character.dataUrl)
+            .catch(() => { throw new Error('This image can’t be reused directly — download it and upload it as the character.'); });
+        const refs = [base, ...overlays.map((o) => o.asset)];
+        const prompt = extra ? `${MERGE_PROMPT}\nAdditional instruction: ${extra}` : MERGE_PROMPT;
         const img = await runImageJob({ projectId, modelId: imageModel, prompt, refs });
         replaceCharacter({ kind: 'image', ...img });
         const thumb = await shrinkDataUrl(img.dataUrl).catch(() => null);
@@ -676,7 +639,7 @@ function TryOnWorkspace({ projectId, modelAccess }) {
 
                 {character && overlays.length > 0 && !busy && (
                     <p className="mx-auto w-full max-w-md text-[11px] leading-relaxed text-ink-3">
-                        Placement is free — move and resize the item(s) as you like. <strong className="font-semibold text-ink-2">Submit final</strong> is the only step that generates (and bills); the finished result is what lands in History below.
+                        Dropping items is free — the preview is just your selection. On <strong className="font-semibold text-ink-2">Submit final</strong> the AI fits each item where it belongs (a cap on the head, shoes on the feet), sized and lit correctly; only that finished result lands in History below.
                     </p>
                 )}
 
