@@ -21,7 +21,11 @@ export async function GET(request) {
         if (!sql) return NextResponse.json({ error: 'Database is not configured.' }, { status: 503 });
         const projectId = await exrProjectForUser(sql, user, params.get('projectId'));
         if (!projectId) return NextResponse.json({ error: 'A valid project is required.' }, { status: 400 });
-        return NextResponse.json({ toolId: tool.id, projectId, ...(await toolStatus(sql, { projectId, userId: user.userId, toolId: tool.id })) });
+        const status = await toolStatus(sql, { projectId, userId: user.userId, toolId: tool.id });
+        // Tools whose spend bills under the per-model budgets need no tool-scoped
+        // budget: access alone unlocks them (the null-USD budget renders no chip).
+        if (tool.usesModelBudgets) status.budget = { limitUsd: null, remainingUsd: null };
+        return NextResponse.json({ toolId: tool.id, projectId, ...status });
     } catch (error) {
         console.error('[tools/status] failed:', error);
         return NextResponse.json({ error: 'Could not load tool access.' }, { status: 502 });
