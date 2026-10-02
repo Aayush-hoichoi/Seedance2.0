@@ -40,6 +40,12 @@ export default function TryOnClient() {
     const [projects, setProjects] = useState([]);
     const [projectId, setProjectId] = useState(null);
     const [projectsError, setProjectsError] = useState(null);
+    // The user's studio model access in this project (grants + overrides from
+    // /api/models) — it carries over here 1:1: anything already unlocked in the
+    // studio is usable in Try-On with NO extra request; the rest shows locked.
+    // null = unknown (loading / pre-migration) → everything stays selectable
+    // and the server remains the enforcer, the behaviour before this filter.
+    const [modelAccess, setModelAccess] = useState(null);
     const { status, error: statusError, refresh } = useToolStatus('tryon', projectId);
 
     useEffect(() => {
@@ -52,6 +58,26 @@ export default function TryOnClient() {
             })
             .catch((e) => setProjectsError(e.message));
     }, []);
+
+    useEffect(() => {
+        if (!projectId) return undefined;
+        let alive = true;
+        setModelAccess(null);
+        fetch(`/api/models?projectId=${projectId}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => {
+                if (!alive || !Array.isArray(d?.items)) return;
+                const allowed = d.items.filter((i) => i.allowed);
+                setModelAccess({
+                    // Image models match by their alias id; video grants are keyed
+                    // by stable alias, so those match through the model's `kind`.
+                    ids: new Set(allowed.map((i) => i.id)),
+                    kinds: new Set(allowed.map((i) => i.kind).filter(Boolean)),
+                });
+            })
+            .catch(() => { /* unknown access — leave everything selectable */ });
+        return () => { alive = false; };
+    }, [projectId]);
 
     const pickProject = (id) => { setProjectId(id); rememberProjectId(id, window.localStorage); };
 
@@ -73,7 +99,7 @@ export default function TryOnClient() {
                     ? <div className="text-xs text-danger">{projectsError}</div>
                     : (
                         <ToolAccessGate toolName="Try-On" status={status} error={statusError} projectId={projectId} onChanged={refresh} needsToolBudget={false}>
-                            <TryOnWorkspace projectId={projectId} />
+                            <TryOnWorkspace projectId={projectId} modelAccess={modelAccess} />
                         </ToolAccessGate>
                     )}
             </div>
@@ -174,7 +200,14 @@ async function runImageJob({ projectId, modelId, prompt, refs = [] }) {
 // ---------------------------------------------------------------------------
 // Workspace
 
-function TryOnWorkspace({ projectId }) {
+// A model the user may submit: open tiers always; gated tiers when the
+// project's access answer unlocks them (by alias id or stable kind).
+function modelAllowed(m, modelAccess) {
+    if (!m.gated || !modelAccess) return true;
+    return modelAccess.ids.has(m.id) || (m.kind && modelAccess.kinds.has(m.kind));
+}
+
+function TryOnWorkspace({ projectId, modelAccess }) {
     // character: { kind:'image', mimeType, b64, dataUrl } or
     //            { kind:'video', url, assetUrl? } (assetUrl = cached asset:// ref)
     const [character, setCharacter] = useState(null);
@@ -199,6 +232,16 @@ function TryOnWorkspace({ projectId }) {
         setError(null);
         try { await fn(); } catch (e) { setError(e.message); } finally { setBusy(null); }
     };
+
+    // If a remembered/selected model turns out locked in this project, snap to
+    // the open defaults rather than letting the submit fail after the wait.
+    useEffect(() => {
+        if (!modelAccess) return;
+        const img = IMAGE_MODELS.find((m) => m.id === imageModel);
+        if (img && !modelAllowed(img, modelAccess)) setImageModel(DEFAULT_IMAGE_MODEL_ID);
+        const vid = MODELS.find((m) => m.id === videoModel);
+        if (vid && !modelAllowed(vid, modelAccess)) setVideoModel(MINI_VIDEO_MODEL_ID);
+    }, [modelAccess, imageModel, videoModel]);
 
     const replaceCharacter = (next) => {
         setVersions((v) => (character ? [character, ...v].slice(0, 8) : v));
@@ -396,7 +439,7 @@ function TryOnWorkspace({ projectId }) {
                     )}
                     {character?.kind === 'image' && (
                         <span className="ml-auto inline-flex items-center gap-2">
-                            <ModelSelect kind="video" value={videoModel} onChange={setVideoModel} disabled={!!busy} title="Model used for the animation" />
+                            <ModelSelect kind="video" value={videoModel} onChange={setVideoModel} disabled={!!busy} modelAccess={modelAccess} title="Model used for the animation" />
                             <button type="button" onClick={animate} disabled={!!busy}
                                 className="inline-flex items-center gap-2 rounded-md bg-accent px-4 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-40">
                                 <Clapperboard size={14} /> Animate (5s video)
@@ -422,8 +465,8 @@ function TryOnWorkspace({ projectId }) {
                         </div>
                         <span className="ml-auto">
                             {charKind === 'image'
-                                ? <ModelSelect kind="image" value={imageModel} onChange={setImageModel} disabled={!!busy} title="Image model" />
-                                : <ModelSelect kind="video" value={videoModel} onChange={setVideoModel} disabled={!!busy} title="Video model" />}
+                                ? <ModelSelect kind="image" value={imageModel} onChange={setImageModel} disabled={!!busy} modelAccess={modelAccess} title="Image model" />
+                                : <ModelSelect kind="video" value={videoModel} onChange={setVideoModel} disabled={!!busy} modelAccess={modelAccess} title="Video model" />}
                         </span>
                     </div>
                     <div className="flex gap-2">
@@ -500,14 +543,22 @@ function TryOnWorkspace({ projectId }) {
 }
 
 // Model picker, fed by the same catalogs as the studio (image or video).
-function ModelSelect({ kind, value, onChange, disabled, title }) {
+// Studio access carries over: a gated model the user already has is plainly
+// selectable here; one they lack is disabled (request it in the studio once,
+// and it unlocks everywhere — never "exclusively for Try-On").
+function ModelSelect({ kind, value, onChange, disabled, title, modelAccess }) {
     const models = kind === 'image' ? IMAGE_MODELS : MODELS;
     return (
         <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} title={title}
             className="max-w-[11rem] rounded-md border border-line bg-paper-3 px-2 py-1.5 text-[11px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-40">
-            {models.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}{m.gated ? ' — needs access' : ''}</option>
-            ))}
+            {models.map((m) => {
+                const allowed = modelAllowed(m, modelAccess);
+                return (
+                    <option key={m.id} value={m.id} disabled={!allowed}>
+                        {m.name}{allowed ? '' : ' — locked (request in studio)'}
+                    </option>
+                );
+            })}
         </select>
     );
 }
