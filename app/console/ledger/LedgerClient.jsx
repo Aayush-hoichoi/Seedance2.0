@@ -135,6 +135,10 @@ function Cell({ column, value }) {
 // or the EXR / Upscale job ledgers that used to live on the Enhance Queue page.
 const SOURCES = [
     { id: 'generations', label: 'Generations' },
+    // The generations workbook pinned to mode='tryon' — every generation the
+    // Try-On tool fires (character, final submission, animation) carries that
+    // tag, so this tab is the tool's own ledger.
+    { id: 'tryon', label: 'Try-On' },
     { id: 'exr', label: 'EXR' },
     { id: 'upscale', label: 'Upscale' },
 ];
@@ -155,6 +159,9 @@ export default function LedgerClient() {
 
     const spec = WORKBOOKS[workbook];
     const scoped = spec.media && media !== 'all' ? media : null;
+    // The Try-On tab is the generations view with the mode filter pinned.
+    const isGenerations = source === 'generations' || source === 'tryon';
+    const pinnedMode = source === 'tryon' ? 'tryon' : null;
 
     const params = new URLSearchParams({
         workbook,
@@ -162,6 +169,7 @@ export default function LedgerClient() {
         offset: String(page * PAGE_SIZE),
     });
     if (scoped) params.set('media', scoped);
+    if (pinnedMode) params.set('mode', pinnedMode);
     if (search) params.set('q', search);
     for (const { key } of FILTERS) if (picked[key]) params.set(key, picked[key]);
     if (range.from) params.set('from', range.from);
@@ -226,11 +234,12 @@ export default function LedgerClient() {
     // file is the whole view, not the page you happen to be looking at.
     const viewParams = new URLSearchParams({ workbook });
     if (scoped) viewParams.set('media', scoped);
+    if (pinnedMode) viewParams.set('mode', pinnedMode);
     if (search) viewParams.set('q', search);
     for (const { key } of FILTERS) if (picked[key]) viewParams.set(key, picked[key]);
     if (range.from) viewParams.set('from', range.from);
     if (range.to) viewParams.set('to', range.to);
-    const narrowed = active > 0 || Boolean(scoped);
+    const narrowed = active > 0 || Boolean(scoped) || Boolean(pinnedMode);
 
     return (
         <div className="space-y-5">
@@ -241,7 +250,7 @@ export default function LedgerClient() {
                 {/* Plain navigation, not fetch(): the browser's own download
                     handling streams the file to disk and shows native progress,
                     which a blob round-trip through memory would not. */}
-                {source === 'generations' && <div className="flex flex-wrap gap-2">
+                {isGenerations && <div className="flex flex-wrap gap-2">
                     {/* Only when the view is actually narrowed, and labelled
                         with what it holds — an unqualified "export" next to two
                         workbook buttons is how a filtered file gets passed on
@@ -255,12 +264,14 @@ export default function LedgerClient() {
                             <Download size={14} /> This view ({fmtInt(total)})
                         </Button>
                     ) : null}
-                    <Button variant="outline" onClick={() => { window.location.href = '/api/admin/ledger/export?workbook=master'; }}>
-                        <Download size={14} /> master.xlsx
-                    </Button>
-                    <Button variant={narrowed ? 'outline' : 'primary'} onClick={() => { window.location.href = '/api/admin/ledger/export?workbook=video'; }}>
-                        <Download size={14} /> video.xlsx
-                    </Button>
+                    {source === 'generations' && <>
+                        <Button variant="outline" onClick={() => { window.location.href = '/api/admin/ledger/export?workbook=master'; }}>
+                            <Download size={14} /> master.xlsx
+                        </Button>
+                        <Button variant={narrowed ? 'outline' : 'primary'} onClick={() => { window.location.href = '/api/admin/ledger/export?workbook=video'; }}>
+                            <Download size={14} /> video.xlsx
+                        </Button>
+                    </>}
                 </div>}
             </PageHeader>
 
@@ -268,7 +279,7 @@ export default function LedgerClient() {
                 {SOURCES.map((s) => (
                     <button
                         key={s.id} type="button" role="tab" aria-selected={source === s.id}
-                        onClick={() => setSource(s.id)}
+                        onClick={() => { setSource(s.id); setPage(0); }}
                         className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
                             source === s.id ? 'bg-paper-3 font-medium text-ink' : 'text-ink-3 hover:text-ink-2'
                         }`}
@@ -278,7 +289,7 @@ export default function LedgerClient() {
                 ))}
             </div>
 
-            {source !== 'generations' ? <EnhanceLedger kind={source} /> : <>
+            {!isGenerations ? <EnhanceLedger kind={source} /> : <>
 
             <div className="flex flex-wrap items-center gap-2">
                 {Object.values(WORKBOOKS).map((w) => (

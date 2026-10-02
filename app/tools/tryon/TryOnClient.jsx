@@ -219,7 +219,9 @@ async function runImageJob({ projectId, modelId, prompt, refs = [] }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             projectId, modelId, request,
-            options: { imageCount: 1, aspectRatio: '3:4', imageSize },
+            // mode: the generation_ledger surfaces it as 'Mode / Style', which
+            // is what the console's Try-On ledger tab filters on.
+            options: { imageCount: 1, aspectRatio: '3:4', imageSize, mode: 'tryon' },
         }),
     });
     const data = await res.json().catch(() => null);
@@ -377,7 +379,7 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                 prompt: `${prompt} The character moves subtly and naturally; stable camera.`,
                 mediaItems: [],
             });
-            const { id } = await createTask(payload, 't2v', projectId);
+            const { id } = await createTask(payload, 'tryon', projectId);
             const { url } = await pollTask(id);
             replaceCharacter({ kind: 'video', url });
         }
@@ -509,7 +511,7 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                     ...overlays.map((o) => ({ kind: 'image', url: o.asset.dataUrl, role: 'reference_image' })),
                 ],
             });
-            const { id } = await createTask(payload, 'reference', projectId);
+            const { id } = await createTask(payload, 'tryon', projectId);
             const { url } = await pollTask(id);
             replaceCharacter({ kind: 'video', url });
             await recordFinal({ kind: 'video', url, model: MODELS.find((m) => m.id === model)?.name || model, items: itemNames });
@@ -544,7 +546,7 @@ function TryOnWorkspace({ projectId, modelAccess }) {
             prompt: ANIMATE_PROMPT,
             mediaItems: [{ kind: 'image', url: character.dataUrl, role: 'first_frame' }],
         });
-        const { id } = await createTask(payload, 'i2v_first', projectId);
+        const { id } = await createTask(payload, 'tryon', projectId);
         const { url } = await pollTask(id);
         setVideo({ url });
         setShowVideo(true);
