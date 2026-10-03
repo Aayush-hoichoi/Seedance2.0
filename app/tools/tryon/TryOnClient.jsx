@@ -21,7 +21,7 @@ import Link from 'next/link';
 import { ArrowLeft, Clapperboard, History, ImagePlus, Loader2, Shirt, Sparkles, Undo2, Upload, Wand2, X } from 'lucide-react';
 import ProjectSelect from '../../seedance/ProjectSelect.jsx';
 import ToolAccessGate, { BudgetChip, useToolStatus } from '../ToolAccessGate.jsx';
-import { IMAGE_MODELS, MODELS } from '../../../lib/seedance/constants.js';
+import { IMAGE_MODELS, MODELS, imageRefMax } from '../../../lib/seedance/constants.js';
 import { buildPayload, createTask, pollTask } from '../../../lib/seedance/client.js';
 import { registerAssetFromUrl } from '../../../lib/seedance/assetsClient.js';
 import { uploadToCdn } from '../../../lib/seedance/upload.js';
@@ -302,6 +302,10 @@ function TryOnWorkspace({ projectId, modelAccess }) {
     // what a Submit final lists in History.
     const [itemsWorn, setItemsWorn] = useState([]);
     const [charPrompt, setCharPrompt] = useState('');
+    // Reference photos attached in the prompt bar — the casting / look-test
+    // path: an actor's photo (or several) drives the generated character's
+    // identity, and the prompt describes the look to test on them.
+    const [charRefs, setCharRefs] = useState([]); // { name, mimeType, b64, dataUrl, aspect }
     const [charKind, setCharKind] = useState('image'); // what Generate creates
     const [imageModel, setImageModel] = useState(DEFAULT_IMAGE_MODEL_ID);
     const [videoModel, setVideoModel] = useState(MINI_VIDEO_MODEL_ID);
@@ -313,6 +317,7 @@ function TryOnWorkspace({ projectId, modelAccess }) {
     const [showVideo, setShowVideo] = useState(false);
     const [history, setHistory] = useState([]);
     const charInputRef = useRef(null);
+    const charRefInputRef = useRef(null);
     const assetInputRef = useRef(null);
     const canvasRef = useRef(null);
 
@@ -367,23 +372,43 @@ function TryOnWorkspace({ projectId, modelAccess }) {
 
     const generateCharacter = () => run('character', async () => {
         const p = charPrompt.trim();
-        if (!p) throw new Error(`Describe the character ${charKind} you want to create.`);
+        if (!p && !charRefs.length) throw new Error(`Describe the character ${charKind} you want to create — or attach a photo.`);
         setItemsWorn([]); // a fresh character wears nothing yet
-        const prompt = `Full-body photorealistic shot of a character, standing, facing the camera, clean simple background, soft studio lighting. ${p}`;
+        // With reference photos attached (casting / look test), the person in
+        // them IS the character — identity locked, the prompt styles the look.
+        const prompt = charRefs.length
+            ? `Full-body photorealistic shot of the person from the reference photo(s) — keep their face, identity, skin tone, hair and build EXACTLY as in the references. Standing, facing the camera, clean simple background, soft studio lighting. ${p || 'Natural, neutral styling.'}`
+            : `Full-body photorealistic shot of a character, standing, facing the camera, clean simple background, soft studio lighting. ${p}`;
         if (charKind === 'image') {
-            const img = await runImageJob({ projectId, modelId: imageModel, prompt });
+            const img = await runImageJob({ projectId, modelId: imageModel, prompt, refs: charRefs });
             replaceCharacter({ kind: 'image', ...img });
         } else {
+            // Reference photos make this an r2v task — needs the 2.0 family;
+            // fall back to the open Mini tier when the picked model can't.
+            const model = !charRefs.length || MODELS.find((m) => m.id === videoModel)?.supportsReference !== false ? videoModel : MINI_VIDEO_MODEL_ID;
             const payload = buildPayload({
-                options: videoOptions({ ratio: '3:4' }),
+                options: videoOptions({ model, ratio: '3:4' }),
                 prompt: `${prompt} The character moves subtly and naturally; stable camera.`,
-                mediaItems: [],
+                mediaItems: charRefs.map((r) => ({ kind: 'image', url: r.dataUrl, role: 'reference_image' })),
             });
             const { id } = await createTask(payload, 'tryon', projectId);
             const { url } = await pollTask(id);
             replaceCharacter({ kind: 'video', url });
         }
     });
+
+    // Prompt-bar photo attachments (capped at the selected image model's
+    // reference limit — the tightest consumer).
+    const addCharRefs = async (files) => {
+        setError(null);
+        const cap = imageRefMax(imageModel);
+        for (const file of Array.from(files || []).filter((f) => f.type?.startsWith('image/'))) {
+            try {
+                const img = await fileToInline(file);
+                setCharRefs((prev) => (prev.length >= cap ? prev : [...prev, { name: file.name, ...img }]));
+            } catch { /* unreadable image — skip */ }
+        }
+    };
 
     const uploadCharacter = (file) => run('character', async () => {
         setItemsWorn([]); // a fresh character wears nothing yet
@@ -666,18 +691,45 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                                 : <ModelSelect kind="video" value={videoModel} onChange={setVideoModel} disabled={!!busy} modelAccess={modelAccess} title="Video model" />}
                         </span>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2"
+                        onDragOver={(e) => { if (e.dataTransfer?.types?.includes('Files')) e.preventDefault(); }}
+                        onDrop={(e) => { if (e.dataTransfer.files?.length) { e.preventDefault(); addCharRefs(e.dataTransfer.files); } }}>
+                        <input ref={charRefInputRef} type="file" accept="image/*" multiple className="hidden"
+                            onChange={(e) => { addCharRefs(e.target.files); e.target.value = ''; }} />
+                        <button type="button" onClick={() => charRefInputRef.current?.click()} disabled={!!busy}
+                            title="Attach photo(s) — e.g. an actor for a casting or look test; the prompt then styles THAT person"
+                            className={`grid h-8 w-9 shrink-0 place-items-center self-center rounded-md border transition-colors ${charRefs.length ? 'border-accent/60 bg-accent/10 text-accent-hi' : 'border-line bg-paper-3 text-ink-3 hover:text-ink'} disabled:opacity-40`}>
+                            <ImagePlus size={14} />
+                        </button>
                         <input value={charPrompt} onChange={(e) => setCharPrompt(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter') generateCharacter(); }}
-                            placeholder={charKind === 'image'
-                                ? 'e.g. a young woman with short black hair, jeans and a white t-shirt'
-                                : 'e.g. a young man in a plain t-shirt, standing and talking to the camera'}
+                            placeholder={charRefs.length
+                                ? 'Describe the look to test on this person — e.g. 1920s police uniform'
+                                : charKind === 'image'
+                                    ? 'Describe a character — or attach an actor’s photo for a look test'
+                                    : 'e.g. a young man in a plain t-shirt, standing and talking to the camera'}
                             className="min-w-0 flex-1 rounded-md border border-line bg-paper-3 px-3 py-2 text-xs text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent" />
-                        <button type="button" onClick={generateCharacter} disabled={!!busy || !charPrompt.trim()}
+                        <button type="button" onClick={generateCharacter} disabled={!!busy || (!charPrompt.trim() && !charRefs.length)}
                             className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-40">
                             <Sparkles size={13} /> Generate {charKind}
                         </button>
                     </div>
+                    {charRefs.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-2">
+                            {charRefs.map((r, i) => (
+                                <span key={`${r.name}-${i}`} className="group relative">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img src={r.dataUrl} alt={r.name} title={r.name} className="h-10 w-10 rounded-md border border-line object-cover" />
+                                    <button type="button" aria-label={`Remove ${r.name}`}
+                                        onClick={() => setCharRefs((prev) => prev.filter((_, idx) => idx !== i))}
+                                        className="absolute -right-1.5 -top-1.5 hidden rounded-full border border-line bg-paper-1 p-0.5 text-ink-3 hover:text-danger group-hover:block">
+                                        <X size={10} />
+                                    </button>
+                                </span>
+                            ))}
+                            <span className="text-[10px] text-ink-3">This person becomes the character — the prompt styles the look (casting / look test).</span>
+                        </div>
+                    )}
                     <input ref={charInputRef} type="file" accept="image/*,video/*" className="hidden"
                         onChange={(e) => { uploadCharacter(e.target.files?.[0]); e.target.value = ''; }} />
                     <button type="button" onClick={() => charInputRef.current?.click()} disabled={!!busy}
