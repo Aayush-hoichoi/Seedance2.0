@@ -97,7 +97,7 @@ export default function TryOnClient() {
 
     return (
         <div className="min-h-screen w-full bg-app-bg px-4 py-6 text-ink sm:px-8">
-            <div className="mx-auto max-w-6xl">
+            <div className="mx-auto max-w-7xl">
                 <header className="mb-6 flex flex-wrap items-center gap-3">
                     <Link href="/seedance" title="Back to the studio" className="grid h-7 w-7 place-items-center rounded-md border border-line bg-paper-2 text-ink-3 transition-colors hover:text-ink">
                         <ArrowLeft size={14} />
@@ -582,17 +582,95 @@ function TryOnWorkspace({ projectId, modelAccess }) {
 
     const projectHistory = history.filter((h) => !h.projectId || !projectId || h.projectId === projectId);
 
+    // One width rules the canvas, its action row and its hints: capped by the
+    // column AND the viewport height (aspect 3/4 → width = height × 0.75), so
+    // canvas + actions stay on screen together instead of scrolling.
+    const canvasW = 'w-full max-w-[min(26rem,calc((100vh-15rem)*0.75))]';
+
     return (
         <>
-        <div className="grid gap-6 lg:grid-cols-[1fr_20rem] lg:items-start">
-            {/* Character canvas */}
-            <section className="flex flex-col gap-3">
+        {/* Steps left→right: 1 create the character · 2 drop assets on the
+            canvas between them · 3 assets + final instruction. Single column
+            on mobile in the same order, character first. */}
+        <div className="grid gap-5 lg:grid-cols-[minmax(17rem,21rem)_minmax(0,1fr)_minmax(16rem,19rem)] lg:items-start">
+            {/* Step 1 — Character */}
+            <section className="flex flex-col gap-2.5 rounded-xl border border-line bg-paper-2 p-4 lg:sticky lg:top-6">
+                <div className="flex items-center gap-2">
+                    <StepDot n={1} />
+                    <span className="text-sm font-semibold">Character</span>
+                    <div className="ml-auto flex overflow-hidden rounded-md border border-line" role="radiogroup" aria-label="Character media type">
+                        {['image', 'video'].map((k) => (
+                            <button key={k} type="button" onClick={() => setCharKind(k)} disabled={!!busy}
+                                aria-pressed={charKind === k}
+                                className={`px-3 py-1 text-[11px] font-semibold capitalize transition-colors ${charKind === k ? 'bg-accent text-accent-ink' : 'bg-paper-3 text-ink-3 hover:text-ink'}`}>
+                                {k}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+                {charKind === 'image'
+                    ? <ModelSelect kind="image" value={imageModel} onChange={setImageModel} disabled={!!busy} modelAccess={modelAccess} title="Image model" full />
+                    : <ModelSelect kind="video" value={videoModel} onChange={setVideoModel} disabled={!!busy} modelAccess={modelAccess} title="Video model" full />}
+                <div className="flex flex-col gap-2"
+                    onDragOver={(e) => { if (e.dataTransfer?.types?.includes('Files')) e.preventDefault(); }}
+                    onDrop={(e) => { if (e.dataTransfer.files?.length) { e.preventDefault(); addCharRefs(e.dataTransfer.files); } }}>
+                    <textarea value={charPrompt} onChange={(e) => setCharPrompt(e.target.value)} rows={3}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); generateCharacter(); } }}
+                        placeholder={charRefs.length
+                            ? 'Describe the look to test on this person — e.g. 1920s police uniform'
+                            : charKind === 'image'
+                                ? 'Describe a character — or attach an actor’s photo for a look test / casting'
+                                : 'e.g. a young man in a plain t-shirt, standing and talking to the camera'}
+                        className="w-full resize-none rounded-md border border-line bg-paper-3 px-3 py-2 text-xs leading-relaxed text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent" />
+                    <div className="flex gap-2">
+                        <input ref={charRefInputRef} type="file" accept="image/*" multiple className="hidden"
+                            onChange={(e) => { addCharRefs(e.target.files); e.target.value = ''; }} />
+                        <button type="button" onClick={() => charRefInputRef.current?.click()} disabled={!!busy}
+                            title="Attach photo(s) — e.g. an actor for a casting or look test; the prompt then styles THAT person"
+                            className={`grid h-8 w-9 shrink-0 place-items-center rounded-md border transition-colors ${charRefs.length ? 'border-accent/60 bg-accent/10 text-accent-hi' : 'border-line bg-paper-3 text-ink-3 hover:text-ink'} disabled:opacity-40`}>
+                            <ImagePlus size={14} />
+                        </button>
+                        <MicButton disabled={!!busy}
+                            onText={(t) => setCharPrompt((p) => (p ? `${p.replace(/\s+$/, '')} ${t}` : t))}
+                            className="grid h-8 w-9 shrink-0 place-items-center rounded-md border border-line bg-paper-3 text-ink-3 transition-colors hover:text-ink disabled:opacity-40" />
+                        <button type="button" onClick={generateCharacter} disabled={!!busy || (!charPrompt.trim() && !charRefs.length)}
+                            className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-40">
+                            <Sparkles size={13} /> Generate {charKind}
+                        </button>
+                    </div>
+                </div>
+                {charRefs.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-2">
+                        {charRefs.map((r, i) => (
+                            <span key={`${r.name}-${i}`} className="group relative">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={r.dataUrl} alt={r.name} title={r.name} className="h-10 w-10 rounded-md border border-line object-cover" />
+                                <button type="button" aria-label={`Remove ${r.name}`}
+                                    onClick={() => setCharRefs((prev) => prev.filter((_, idx) => idx !== i))}
+                                    className="absolute -right-1.5 -top-1.5 hidden rounded-full border border-line bg-paper-1 p-0.5 text-ink-3 hover:text-danger group-hover:block">
+                                    <X size={10} />
+                                </button>
+                            </span>
+                        ))}
+                        <span className="text-[10px] text-ink-3">This person becomes the character — the prompt styles the look (casting / look test).</span>
+                    </div>
+                )}
+                <input ref={charInputRef} type="file" accept="image/*,video/*" className="hidden"
+                    onChange={(e) => { uploadCharacter(e.target.files?.[0]); e.target.value = ''; }} />
+                <button type="button" onClick={() => charInputRef.current?.click()} disabled={!!busy}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-md border border-line px-3 py-2 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink disabled:opacity-40">
+                    <Upload size={13} /> Or upload a character photo / video
+                </button>
+            </section>
+
+            {/* Step 2 — the canvas */}
+            <section className="flex flex-col items-center gap-3">
                 <div
                     ref={canvasRef}
                     onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                     onDragLeave={() => setDragOver(false)}
                     onDrop={onDrop}
-                    className={`relative mx-auto flex aspect-[3/4] w-full max-w-md items-center justify-center overflow-hidden rounded-xl border bg-paper-2 transition-colors ${dragOver ? 'border-accent ring-2 ring-accent/40' : 'border-line'}`}
+                    className={`relative flex aspect-[3/4] ${canvasW} items-center justify-center overflow-hidden rounded-xl border bg-paper-2 transition-colors ${dragOver ? 'border-accent ring-2 ring-accent/40' : 'border-line'}`}
                 >
                     {showVideo && video ? (
                         <video src={video.url} controls autoPlay loop playsInline className="h-full w-full object-contain bg-black" />
@@ -605,7 +683,7 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                         <div className="flex flex-col items-center gap-2 p-6 text-center text-ink-3">
                             <Shirt size={26} />
                             <span className="text-sm font-medium text-ink-2">No character yet</span>
-                            <span className="max-w-xs text-xs leading-relaxed">Pick Image or Video below, generate a character or upload one, then drag assets from the shelf onto it.</span>
+                            <span className="max-w-xs text-xs leading-relaxed">Create or upload a character on the left, then drag assets from the right onto it — the AI places each one right where you drop it.</span>
                         </div>
                     )}
 
@@ -635,7 +713,7 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                     )}
                 </div>
 
-                <div className="mx-auto flex w-full max-w-md flex-wrap items-center gap-2">
+                <div className={`flex ${canvasW} flex-wrap items-center gap-2`}>
                     {video && (
                         <button type="button" onClick={() => setShowVideo((s) => !s)}
                             className="rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink">
@@ -666,88 +744,20 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                 </div>
 
                 {character && !busy && (
-                    <p className="mx-auto w-full max-w-md text-[11px] leading-relaxed text-ink-3">
+                    <p className={`${canvasW} text-[11px] leading-relaxed text-ink-3`}>
                         Drop an item anywhere on the character — the AI merges it <strong className="font-semibold text-ink-2">at that exact spot</strong>, properly worn and blended (each drop is one generation). Happy with the look? <strong className="font-semibold text-ink-2">Submit final</strong> saves it to History below.
                     </p>
                 )}
 
-                {error && <p className="mx-auto w-full max-w-md text-xs text-danger">{error}</p>}
-
-                {/* Character sources */}
-                <div className="mx-auto flex w-full max-w-md flex-col gap-2 rounded-xl border border-line bg-paper-2 p-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs font-semibold text-ink-2">Character</span>
-                        <div className="flex overflow-hidden rounded-md border border-line" role="radiogroup" aria-label="Character media type">
-                            {['image', 'video'].map((k) => (
-                                <button key={k} type="button" onClick={() => setCharKind(k)} disabled={!!busy}
-                                    aria-pressed={charKind === k}
-                                    className={`px-3 py-1 text-[11px] font-semibold capitalize transition-colors ${charKind === k ? 'bg-accent text-accent-ink' : 'bg-paper-3 text-ink-3 hover:text-ink'}`}>
-                                    {k}
-                                </button>
-                            ))}
-                        </div>
-                        <span className="ml-auto">
-                            {charKind === 'image'
-                                ? <ModelSelect kind="image" value={imageModel} onChange={setImageModel} disabled={!!busy} modelAccess={modelAccess} title="Image model" />
-                                : <ModelSelect kind="video" value={videoModel} onChange={setVideoModel} disabled={!!busy} modelAccess={modelAccess} title="Video model" />}
-                        </span>
-                    </div>
-                    <div className="flex gap-2"
-                        onDragOver={(e) => { if (e.dataTransfer?.types?.includes('Files')) e.preventDefault(); }}
-                        onDrop={(e) => { if (e.dataTransfer.files?.length) { e.preventDefault(); addCharRefs(e.dataTransfer.files); } }}>
-                        <input ref={charRefInputRef} type="file" accept="image/*" multiple className="hidden"
-                            onChange={(e) => { addCharRefs(e.target.files); e.target.value = ''; }} />
-                        <button type="button" onClick={() => charRefInputRef.current?.click()} disabled={!!busy}
-                            title="Attach photo(s) — e.g. an actor for a casting or look test; the prompt then styles THAT person"
-                            className={`grid h-8 w-9 shrink-0 place-items-center self-center rounded-md border transition-colors ${charRefs.length ? 'border-accent/60 bg-accent/10 text-accent-hi' : 'border-line bg-paper-3 text-ink-3 hover:text-ink'} disabled:opacity-40`}>
-                            <ImagePlus size={14} />
-                        </button>
-                        <input value={charPrompt} onChange={(e) => setCharPrompt(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') generateCharacter(); }}
-                            placeholder={charRefs.length
-                                ? 'Describe the look to test on this person — e.g. 1920s police uniform'
-                                : charKind === 'image'
-                                    ? 'Describe a character — or attach an actor’s photo for a look test'
-                                    : 'e.g. a young man in a plain t-shirt, standing and talking to the camera'}
-                            className="min-w-0 flex-1 rounded-md border border-line bg-paper-3 px-3 py-2 text-xs text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent" />
-                        <MicButton disabled={!!busy}
-                            onText={(t) => setCharPrompt((p) => (p ? `${p.replace(/\s+$/, '')} ${t}` : t))}
-                            className="grid h-8 w-9 shrink-0 place-items-center self-center rounded-md border border-line bg-paper-3 text-ink-3 transition-colors hover:text-ink disabled:opacity-40" />
-                        <button type="button" onClick={generateCharacter} disabled={!!busy || (!charPrompt.trim() && !charRefs.length)}
-                            className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-40">
-                            <Sparkles size={13} /> Generate {charKind}
-                        </button>
-                    </div>
-                    {charRefs.length > 0 && (
-                        <div className="flex flex-wrap items-center gap-2">
-                            {charRefs.map((r, i) => (
-                                <span key={`${r.name}-${i}`} className="group relative">
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img src={r.dataUrl} alt={r.name} title={r.name} className="h-10 w-10 rounded-md border border-line object-cover" />
-                                    <button type="button" aria-label={`Remove ${r.name}`}
-                                        onClick={() => setCharRefs((prev) => prev.filter((_, idx) => idx !== i))}
-                                        className="absolute -right-1.5 -top-1.5 hidden rounded-full border border-line bg-paper-1 p-0.5 text-ink-3 hover:text-danger group-hover:block">
-                                        <X size={10} />
-                                    </button>
-                                </span>
-                            ))}
-                            <span className="text-[10px] text-ink-3">This person becomes the character — the prompt styles the look (casting / look test).</span>
-                        </div>
-                    )}
-                    <input ref={charInputRef} type="file" accept="image/*,video/*" className="hidden"
-                        onChange={(e) => { uploadCharacter(e.target.files?.[0]); e.target.value = ''; }} />
-                    <button type="button" onClick={() => charInputRef.current?.click()} disabled={!!busy}
-                        className="inline-flex items-center justify-center gap-1.5 rounded-md border border-line px-3 py-2 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink disabled:opacity-40">
-                        <Upload size={13} /> Or upload a character photo / video
-                    </button>
-                </div>
+                {error && <p className={`${canvasW} text-xs text-danger`}>{error}</p>}
             </section>
 
-            {/* Asset shelf */}
+            {/* Step 3 — Assets */}
             <aside className="flex flex-col gap-3 rounded-xl border border-line bg-paper-2 p-4 lg:sticky lg:top-6">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                    <StepDot n={2} />
                     <span className="text-sm font-semibold">Assets</span>
-                    <span className="text-[11px] text-ink-3">drag onto the character</span>
+                    <span className="ml-auto text-[11px] text-ink-3">drag onto the character</span>
                 </div>
                 <input ref={assetInputRef} type="file" accept="image/*" multiple className="hidden"
                     onChange={(e) => { addAssets(e.target.files); e.target.value = ''; }} />
@@ -805,7 +815,7 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                     Nothing here yet. Place an item on a character and press <strong className="font-semibold text-ink-2">Submit final</strong> — the finished result shows up here once it completes.
                 </p>
             ) : (
-                <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <ul className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                     {projectHistory.map((h) => (
                         <li key={h.id} className="flex flex-col overflow-hidden rounded-xl border border-line bg-paper-2">
                             {h.kind === 'image'
@@ -838,15 +848,20 @@ function TryOnWorkspace({ projectId, modelAccess }) {
     );
 }
 
+// Small numbered badge that walks the user left→right through the steps.
+function StepDot({ n }) {
+    return <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-accent/15 text-[10px] font-bold text-accent-hi">{n}</span>;
+}
+
 // Model picker, fed by the same catalogs as the studio (image or video).
 // Studio access carries over: a gated model the user already has is plainly
 // selectable here; one they lack is disabled (request it in the studio once,
 // and it unlocks everywhere — never "exclusively for Try-On").
-function ModelSelect({ kind, value, onChange, disabled, title, modelAccess }) {
+function ModelSelect({ kind, value, onChange, disabled, title, modelAccess, full = false }) {
     const models = kind === 'image' ? IMAGE_MODELS : MODELS;
     return (
         <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} title={title}
-            className="max-w-[11rem] rounded-md border border-line bg-paper-3 px-2 py-1.5 text-[11px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-40">
+            className={`${full ? 'w-full' : 'max-w-[11rem]'} rounded-md border border-line bg-paper-3 px-2 py-1.5 text-[11px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-40`}>
             {models.map((m) => {
                 const allowed = modelAllowed(m, modelAccess);
                 return (
