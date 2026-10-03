@@ -15,6 +15,7 @@ import { friendlyError } from '../../lib/seedance/friendlyError.js';
 import { moveItem } from '../../lib/seedance/reorder.mjs';
 import MediaHoverPreview from './MediaHoverPreview.jsx';
 import AccessRequestModal from './AccessRequestModal.jsx';
+import MicButton from './MicButton.jsx';
 
 // Render the prompt with @Image1 / @Video2 / @Audio3 tokens as cyan chips.
 // Rendered in a backdrop behind a transparent-text textarea, so the chip
@@ -1070,6 +1071,10 @@ export default function PromptBar({
                             className="relative block w-full bg-transparent border-none text-transparent [&::selection]:text-transparent caret-white text-sm placeholder:text-white/40 focus:outline-none resize-y pt-2 leading-relaxed min-h-[40px] max-h-[60vh] overflow-y-auto custom-scrollbar [scrollbar-gutter:stable]"
                         />
                     </div>
+                    <MicButton
+                        onText={(t) => onPromptChange(prompt ? `${prompt.replace(/\s+$/, '')} ${t}` : t)}
+                        className="shrink-0 self-start mt-1.5 p-1.5 rounded-lg text-white/40 hover:text-white transition-colors"
+                    />
                 </div>
 
                 {/* error (red) / notice (amber) — descriptive hint line was removed to declutter the bar */}

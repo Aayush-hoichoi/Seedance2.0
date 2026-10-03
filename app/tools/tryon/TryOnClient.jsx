@@ -20,6 +20,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Clapperboard, History, ImagePlus, Loader2, Shirt, Sparkles, Undo2, Upload, Wand2, X } from 'lucide-react';
 import ProjectSelect from '../../seedance/ProjectSelect.jsx';
+import MicButton from '../../seedance/MicButton.jsx';
 import ToolAccessGate, { BudgetChip, useToolStatus } from '../ToolAccessGate.jsx';
 import { IMAGE_MODELS, MODELS, imageRefMax } from '../../../lib/seedance/constants.js';
 import { buildPayload, createTask, pollTask } from '../../../lib/seedance/client.js';
@@ -709,6 +710,9 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                                     ? 'Describe a character — or attach an actor’s photo for a look test'
                                     : 'e.g. a young man in a plain t-shirt, standing and talking to the camera'}
                             className="min-w-0 flex-1 rounded-md border border-line bg-paper-3 px-3 py-2 text-xs text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent" />
+                        <MicButton disabled={!!busy}
+                            onText={(t) => setCharPrompt((p) => (p ? `${p.replace(/\s+$/, '')} ${t}` : t))}
+                            className="grid h-8 w-9 shrink-0 place-items-center self-center rounded-md border border-line bg-paper-3 text-ink-3 transition-colors hover:text-ink disabled:opacity-40" />
                         <button type="button" onClick={generateCharacter} disabled={!!busy || (!charPrompt.trim() && !charRefs.length)}
                             className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-40">
                             <Sparkles size={13} /> Generate {charKind}
