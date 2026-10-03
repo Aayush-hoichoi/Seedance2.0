@@ -1,6 +1,8 @@
+import { after } from 'next/server';
 import { NextResponse } from 'next/server';
 import { getUser } from '../../../../lib/auth/user.js';
 import { createVideoTask } from '../../../../lib/gateway/videoCreate.mjs';
+import { sweep } from '../../../../lib/gateway/sweep.mjs';
 
 // Server-side proxy to BytePlus ModelArk. The browser calls /api/byteplus/*,
 // this route re-issues the request to ModelArk with the Bearer key injected
@@ -11,6 +13,7 @@ import { createVideoTask } from '../../../../lib/gateway/videoCreate.mjs';
 // models need an approved grant) and logs a usage_events row on success.
 
 export const runtime = 'nodejs';
+export const maxDuration = 300; // after(sweep) may poll providers past the default timeout
 
 const ARK_BASE = 'https://ark.ap-southeast.bytepluses.com/api/v3';
 const CREATE_TASK_PATH = 'contents/generations/tasks';
@@ -57,6 +60,17 @@ export async function GET(request, { params }) {
     const headers = arkHeaders();
     if (!headers) return missingKeyResponse();
     const { path } = await params;
+    // Task-status polls drive the maintenance sweep (no cron on Hobby) — the
+    // same pattern as GET /api/generations/:id. Without this, a video-only
+    // session (e.g. the Try-On tool, which polls tasks here rather than
+    // holding the studio's SSE open) could finish its generation with the
+    // gateway job never settled: no final token cost in billing_events, so
+    // the ledger row showed an estimate but no settled cost until unrelated
+    // traffic happened to sweep. The sweep self-limits to ~once/min globally,
+    // so 3s polling costs nothing extra.
+    if ((path || []).join('/').startsWith(`${CREATE_TASK_PATH}/`)) {
+        after(() => sweep().catch(() => {}));
+    }
     const targetUrl = buildTargetUrl(path, request.url);
     try {
         return await forward(targetUrl, { method: 'GET', headers });
