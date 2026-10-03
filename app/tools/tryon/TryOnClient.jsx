@@ -18,7 +18,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Clapperboard, History, ImagePlus, Loader2, Shirt, Sparkles, Undo2, Upload, Wand2, X } from 'lucide-react';
+import { ArrowLeft, Check, Clapperboard, History, ImagePlus, Loader2, Shirt, Sparkles, Undo2, Upload, Wand2, X } from 'lucide-react';
 import ProjectSelect from '../../seedance/ProjectSelect.jsx';
 import MicButton from '../../seedance/MicButton.jsx';
 import ToolAccessGate, { BudgetChip, useToolStatus } from '../ToolAccessGate.jsx';
@@ -38,14 +38,15 @@ const POSITION_PROMPT = `Virtual try-on. Image 1 shows a character with an item 
 Redraw Image 1 as one photorealistic image: the pasted item becomes real at that exact position and scale — clothing/headwear/footwear is worn there, fitted to the body part under the sticker (fabric folds, correct wrap and perspective); an object, prop or artwork sits naturally there in the scene. Blend it with matching lighting and contact shadows, and remove every sticker edge and pasted-on look.
 Keep the character's face, identity, hair, pose, body and the background exactly as in Image 1. Change nothing else.`;
 
-// Fallback when the canvas can't be flattened (URL-only character): refs go
-// over separately and the model places the item where it naturally belongs.
-const MERGE_PROMPT = `Virtual try-on. Image 1 is the character, Image 2 is the item to put on them.
-Place the item in its correct, natural position for what it is: a cap/hat on the head, shoes on the feet, glasses on the face, a shirt/jacket/dress on the torso, trousers on the legs, a bag held or over the shoulder, artwork hung on the wall. Resize and fit it to the character's pose and perspective, with realistic fabric folds, contact shadows and matching lighting.
-Keep the character's face, identity, hair, pose, body and the background from Image 1 exactly unchanged — change ONLY what the item adds. Output a single photorealistic image with no pasted-on look.`;
+// Position-less merge (one item OR several at once): the model places every
+// item where it naturally belongs. Used by "Try on selected" and as the
+// fallback when the canvas can't be flattened (URL-only character).
+const MERGE_PROMPT = `Virtual try-on. Image 1 is the character; every following image is one item to put on them.
+Place EVERY item in its correct, natural position for what it is: a cap/hat on the head, shoes on the feet, glasses on the face, a shirt/jacket/dress on the torso, trousers on the legs, a bag held or over the shoulder, artwork hung on the wall. Resize and fit each one to the character's pose and perspective, with realistic fabric folds, contact shadows and matching lighting — all items worn together in one coherent outfit.
+Keep the character's face, identity, hair, pose, body and the background from Image 1 exactly unchanged — change ONLY what the items add. Output a single photorealistic image with no pasted-on look.`;
 
-const VIDEO_MERGE_PROMPT = `Virtual try-on video edit. Video 1 is the character performance, Image 1 is the item.
-Recreate Video 1 exactly — same person, same motion, same timing, same camera, same background — with ONE change: the item is now on the character, in its correct natural position for what it is (a cap on the head, shoes on the feet, a jacket worn on the torso, glasses on the face), fitted to the body and moving with it throughout; an object, prop or artwork is placed naturally with them in the scene.
+const VIDEO_MERGE_PROMPT = `Virtual try-on video edit. Video 1 is the character performance; every following image is one item.
+Recreate Video 1 exactly — same person, same motion, same timing, same camera, same background — with ONE change: every item is now on the character, each in its correct natural position for what it is (a cap on the head, shoes on the feet, a jacket worn on the torso, glasses on the face), fitted to the body and moving with it throughout; an object, prop or artwork is placed naturally with them in the scene.
 Nothing else may change: no added motion, no altered identity, no new background.`;
 
 const ANIMATE_PROMPT = 'The character comes to life: stands up (if seated) and moves naturally and confidently — subtle realistic body motion, the clothing moves with them. Keep the identity, outfit, lighting and background exactly as the image. Smooth, stable camera.';
@@ -295,7 +296,10 @@ function TryOnWorkspace({ projectId, modelAccess }) {
     //            { kind:'video', url, assetUrl? } (assetUrl = cached asset:// ref)
     const [character, setCharacter] = useState(null);
     const [versions, setVersions] = useState([]); // older character states, newest first
-    const [assets, setAssets] = useState([]); // { name, mimeType, b64, dataUrl, aspect }
+    const [assets, setAssets] = useState([]); // { id, name, mimeType, b64, dataUrl, aspect }
+    // Shelf multi-select: tick several assets and try them all on in ONE
+    // generation ("Try on selected") — each placed where it belongs.
+    const [selectedIds, setSelectedIds] = useState(() => new Set());
     // The sticker shown on the canvas while a drop-merge renders — purely
     // visual feedback of where the user dropped; cleared when the result lands.
     const [overlays, setOverlays] = useState([]); // [{ id, asset, x, y, w }] (fractions of the canvas)
@@ -432,12 +436,26 @@ function TryOnWorkspace({ projectId, modelAccess }) {
         for (const file of Array.from(files || []).filter((f) => f.type?.startsWith('image/'))) {
             try {
                 const img = await fileToInline(file);
-                const a = { name: file.name, ...img };
+                const a = { id: `a-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, name: file.name, ...img };
                 added.push(a);
                 setAssets((prev) => [...prev, a]);
             } catch { /* unreadable image — skip */ }
         }
         return added;
+    };
+
+    const removeAsset = (id) => {
+        setAssets((prev) => prev.filter((a) => a.id !== id));
+        setSelectedIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    };
+
+    const toggleSelect = (id) => {
+        setError(null);
+        setSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
     };
 
     // ------------------------------------------------------------------
@@ -507,6 +525,50 @@ function TryOnWorkspace({ projectId, modelAccess }) {
         } finally {
             setOverlays([]);
         }
+    });
+
+    // Try on every selected asset in ONE generation — the model dresses the
+    // character with the whole set, each item in its natural place.
+    const mergeSelected = () => run('merge', async () => {
+        if (!character) throw new Error('Add a character first.');
+        const picked = assets.filter((a) => selectedIds.has(a.id));
+        if (!picked.length) throw new Error('Select at least one asset first.');
+        setShowVideo(false);
+        const extra = note.trim();
+        if (character.kind === 'video') {
+            let assetUrl = character.assetUrl;
+            if (!assetUrl) {
+                const reg = await registerAssetFromUrl({ url: character.url, kind: 'video' });
+                assetUrl = reg.url;
+                setCharacter((c) => (c?.url === character.url ? { ...c, assetUrl } : c));
+            }
+            const model = MODELS.find((m) => m.id === videoModel)?.supportsReference !== false ? videoModel : MINI_VIDEO_MODEL_ID;
+            const prompt = extra ? `${VIDEO_MERGE_PROMPT}\nAdditional instruction: ${extra}` : VIDEO_MERGE_PROMPT;
+            const payload = buildPayload({
+                options: videoOptions({ model, generate_audio: true, duration: -1 }),
+                prompt,
+                mediaItems: [
+                    { kind: 'video', url: assetUrl, role: 'reference_video' },
+                    ...picked.map((a) => ({ kind: 'image', url: a.dataUrl, role: 'reference_image' })),
+                ],
+            });
+            const { id } = await createTask(payload, 'tryon', projectId);
+            const { url } = await pollTask(id);
+            replaceCharacter({ kind: 'video', url });
+        } else {
+            // The character ref takes one slot of the model's reference cap.
+            const cap = imageRefMax(imageModel) - 1;
+            if (picked.length > cap) {
+                throw new Error(`${IMAGE_MODELS.find((m) => m.id === imageModel)?.name || 'This model'} takes up to ${cap} items at once — unselect some, or switch to a model with a higher reference limit.`);
+            }
+            const base = character.b64 ? character : await urlToInline(character.dataUrl)
+                .catch(() => { throw new Error('This image can’t be reused directly — download it and upload it as the character.'); });
+            const prompt = extra ? `${MERGE_PROMPT}\nAdditional instruction: ${extra}` : MERGE_PROMPT;
+            const img = await runImageJob({ projectId, modelId: imageModel, prompt, refs: [base, ...picked] });
+            replaceCharacter({ kind: 'image', ...img });
+        }
+        setItemsWorn((prev) => [...prev, ...picked.map((a) => a.name)]);
+        setSelectedIds(new Set());
     });
 
     const onDrop = (e) => {
@@ -770,26 +832,49 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                     <span className="text-[10px]">clothing · props · artwork</span>
                 </button>
                 {assets.length > 0 && (
+                    <>
                     <ul className="grid grid-cols-3 gap-2">
-                        {assets.map((a, i) => (
-                            <li key={`${a.name}-${i}`} className="group relative">
-                                <button type="button" title={`${a.name} — drag onto the character where you want it, or click to try it on`}
-                                    draggable
-                                    onDragStart={(e) => { e.dataTransfer.setData('text/x-tryon-asset', String(i)); e.dataTransfer.effectAllowed = 'copy'; }}
-                                    onClick={() => dropMerge(a)}
-                                    disabled={!!busy || !character}
-                                    className="block w-full cursor-grab overflow-hidden rounded-lg border border-line transition-colors hover:border-accent/60 active:cursor-grabbing disabled:cursor-default disabled:opacity-60">
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img src={a.dataUrl} alt={a.name} className="aspect-square w-full object-cover" />
-                                </button>
-                                <button type="button" aria-label={`Remove ${a.name}`}
-                                    onClick={() => setAssets((prev) => prev.filter((_, idx) => idx !== i))}
-                                    className="absolute -right-1.5 -top-1.5 hidden rounded-full border border-line bg-paper-1 p-0.5 text-ink-3 hover:text-danger group-hover:block">
-                                    <X size={11} />
-                                </button>
-                            </li>
-                        ))}
+                        {assets.map((a, i) => {
+                            const picked = selectedIds.has(a.id);
+                            return (
+                                <li key={a.id} className="group relative">
+                                    <button type="button" title={`${a.name} — click to select, or drag onto the character where you want it`}
+                                        draggable
+                                        aria-pressed={picked}
+                                        onDragStart={(e) => { e.dataTransfer.setData('text/x-tryon-asset', String(i)); e.dataTransfer.effectAllowed = 'copy'; }}
+                                        onClick={() => toggleSelect(a.id)}
+                                        disabled={!!busy}
+                                        className={`block w-full cursor-grab overflow-hidden rounded-lg border transition-colors active:cursor-grabbing disabled:cursor-default disabled:opacity-60 ${picked ? 'border-accent ring-2 ring-accent/50' : 'border-line hover:border-accent/60'}`}>
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img src={a.dataUrl} alt={a.name} className="aspect-square w-full object-cover" />
+                                    </button>
+                                    {picked && (
+                                        <span className="pointer-events-none absolute left-1 top-1 grid h-4 w-4 place-items-center rounded-full bg-accent p-0.5 text-accent-ink">
+                                            <Check size={11} strokeWidth={3} />
+                                        </span>
+                                    )}
+                                    <button type="button" aria-label={`Remove ${a.name}`}
+                                        onClick={() => removeAsset(a.id)}
+                                        className="absolute -right-1.5 -top-1.5 hidden rounded-full border border-line bg-paper-1 p-0.5 text-ink-3 hover:text-danger group-hover:block">
+                                        <X size={11} />
+                                    </button>
+                                </li>
+                            );
+                        })}
                     </ul>
+                    {selectedIds.size > 0 && (
+                        <div className="flex items-center gap-2">
+                            <button type="button" onClick={mergeSelected} disabled={!!busy || !character}
+                                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-40">
+                                <Sparkles size={13} /> Try on {selectedIds.size} selected
+                            </button>
+                            <button type="button" onClick={() => setSelectedIds(new Set())} disabled={!!busy}
+                                className="rounded-md border border-line px-3 py-2 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink disabled:opacity-40">
+                                Clear
+                            </button>
+                        </div>
+                    )}
+                    </>
                 )}
                 <label className="flex flex-col gap-1.5">
                     <span className="text-xs font-semibold text-ink-2">Final instruction <span className="font-normal text-ink-3">(optional)</span></span>
@@ -798,7 +883,7 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                         className="rounded-md border border-line bg-paper-3 px-3 py-2 text-xs text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent" />
                 </label>
                 <p className="text-[11px] leading-relaxed text-ink-3">
-                    Each drop runs the selected model right away and merges the item at the exact spot you dropped it — billed to this project like any studio generation. <strong className="font-semibold text-ink-2">Submit final</strong> costs nothing; it saves the finished look to History.
+                    Drag one item for exact placement, or click to select several and <strong className="font-semibold text-ink-2">Try on selected</strong> — the whole set goes on in one generation, each piece where it belongs. Every generation bills this project like any studio one. <strong className="font-semibold text-ink-2">Submit final</strong> costs nothing; it saves the finished look to History.
                 </p>
             </aside>
         </div>
