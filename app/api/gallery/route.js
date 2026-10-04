@@ -22,6 +22,11 @@ import { toItem } from '../../../lib/seedance/galleryItem.mjs';
 export const runtime = 'nodejs';
 export const maxDuration = 15;
 
+// Gallery page size. Each item carries prompts + several presigned URLs, so
+// 200-row pages were ~hundreds of KB of JSON — brutal on slow connections.
+// The client's "Load older" cursor makes small pages free.
+const PAGE = 60;
+
 function positiveInteger(value) {
     if (value == null || value === '') return null;
     if (!/^[1-9]\d*$/.test(value)) return undefined;
@@ -69,7 +74,7 @@ export async function GET(request) {
         if (projectId === undefined) return NextResponse.json({ error: 'Invalid project id.' }, { status: 400 });
 
         const [rows, projectRows] = await Promise.all([
-            listUserGenerations(target, 200, before, projectId),
+            listUserGenerations(target, PAGE, before, projectId),
             listUserGenerationProjects(target),
         ]);
         const projects = projectRows
@@ -84,7 +89,7 @@ export async function GET(request) {
         const total = projectId == null
             ? projectRows.reduce((sum, row) => sum + Number(row.generations), 0)
             : projects.find((project) => project.id === projectId)?.generations ?? 0;
-        const nextBefore = rows.length === 200 ? rows[rows.length - 1].created_at : null;
+        const nextBefore = rows.length === PAGE ? rows[rows.length - 1].created_at : null;
         return NextResponse.json({ items: rows.map(toItem), projects, total, nextBefore });
     } catch (e) {
         console.error('[gallery] failed:', e.message);

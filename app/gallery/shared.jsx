@@ -38,7 +38,9 @@ export function timeAgo(iso) {
 // N cards fires N task-fetches + N video metadata loads on mount at once —
 // which is why /gallery and /liked stalled with hundreds of black tiles.
 // Latches on first intersection and stays true (no re-fetch thrash on scroll).
-function useInView(rootMargin = '600px') {
+// 200px lookahead: enough to feel instant on scroll without prefetching rows
+// of media the user may never reach (which crushed slow connections).
+function useInView(rootMargin = '200px') {
     const ref = useRef(null);
     const [inView, setInView] = useState(false);
     useEffect(() => {
@@ -103,7 +105,17 @@ export function VideoCard({ item, creator, onOpen, exrAccess }) {
             title={prompt}
         >
             {inView
-                ? <SmartVideo item={item} videoRef={videoRef} className="w-full h-full object-cover bg-black" muted playsInline preload="metadata" loop />
+                ? <>
+                    {/* preload="none": a grid of N cards costs zero video bytes
+                        until hover (desktop) or open (mobile) — preload="metadata"
+                        pulled part of every MP4 and drowned slow networks. The
+                        film glyph sits under the transparent video and is covered
+                        the moment a frame paints. */}
+                    <div className="absolute inset-0 flex items-center justify-center text-white/15 pointer-events-none">
+                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" /></svg>
+                    </div>
+                    <SmartVideo item={item} videoRef={videoRef} className="relative w-full h-full object-cover" muted playsInline preload="none" loop />
+                </>
                 : <div className="w-full h-full bg-white/[0.03] animate-pulse" />}
             {/* Bottom info gradient */}
             <div className="absolute inset-x-0 bottom-0 p-2.5 pt-8 bg-gradient-to-t from-black/85 to-transparent pointer-events-none">
