@@ -115,7 +115,7 @@ test('the console link is still there alongside the decision actions', () => {
     process.env.APP_URL = 'https://app.example';
     const card = buildBudgetRequestCard(REQUEST, 'req-1');
     const console_ = card.actions.find((a) => a.type === 'Action.OpenUrl');
-    assert.equal(console_.url, 'https://app.example/console/budget-requests');
+    assert.equal(console_.url, 'https://app.example/console/requests?tab=budgets');
 });
 
 // --- the decided card is terminal --------------------------------------------
