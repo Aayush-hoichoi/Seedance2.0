@@ -18,7 +18,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Check, Clapperboard, History, ImagePlus, Loader2, Shirt, Sparkles, Undo2, Upload, Wand2, X } from 'lucide-react';
+import { ArrowLeft, Check, Clapperboard, Film, History, ImagePlus, Loader2, Lock, Shirt, Sparkles, Undo2, Upload, Wand2, X } from 'lucide-react';
 import ProjectSelect from '../../seedance/ProjectSelect.jsx';
 import MicButton from '../../seedance/MicButton.jsx';
 import ToolAccessGate, { BudgetChip, useToolStatus } from '../ToolAccessGate.jsx';
@@ -50,6 +50,11 @@ Recreate Video 1 exactly — same person, same motion, same timing, same camera,
 Nothing else may change: no added motion, no altered identity, no new background.`;
 
 const ANIMATE_PROMPT = 'The character comes to life: stands up (if seated) and moves naturally and confidently — subtle realistic body motion, the clothing moves with them. Keep the identity, outfit, lighting and background exactly as the image. Smooth, stable camera.';
+
+// Appended when the canvas character came from the project's LOCKED cast: the
+// original is sent as the last reference so the approved face survives any
+// number of merges by any team member.
+const ANCHOR_NOTE = 'IDENTITY LOCK: the LAST reference image is this character\'s approved, locked identity — the output\'s face, skin tone, hair and build must match it EXACTLY.';
 
 export default function TryOnClient() {
     const [projects, setProjects] = useState([]);
@@ -191,19 +196,6 @@ async function flattenComposite(character, overlay, maxDim = 1024) {
     return parseDataUrl(canvas.toDataURL('image/jpeg', 0.85));
 }
 
-// Re-encode a result small enough for localStorage history.
-async function shrinkDataUrl(dataUrl, maxDim = 1024, quality = 0.8) {
-    const img = await loadImageEl(dataUrl);
-    const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
-    const w = Math.max(1, Math.round(img.naturalWidth * scale));
-    const h = Math.max(1, Math.round(img.naturalHeight * scale));
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-    return canvas.toDataURL('image/jpeg', quality);
-}
-
 // Submit one image generation and poll it to a displayable image.
 // Returns { mimeType, b64, dataUrl } (inline whenever the provider allows).
 async function runImageJob({ projectId, modelId, prompt, refs = [] }) {
@@ -258,25 +250,46 @@ async function runImageJob({ projectId, modelId, prompt, refs = [] }) {
 }
 
 // ---------------------------------------------------------------------------
-// History — completed final submissions only, persisted locally (the same
-// localStorage pattern the studio history uses; quota failures lose
-// persistence, never the session).
-// ponytail: image entries store a re-encoded ~1024px JPEG, capped at 12
-// entries, to stay inside the localStorage quota; a server-backed table is the
-// upgrade path if history must follow the user across devices.
+// Project stores — wardrobe, locked cast and finals live on the server, scoped
+// and shared per project (/api/tryon/*). Media objects sit in the studio's own
+// bucket; rows carry only the key.
 
-const HISTORY_KEY = 'tryon.history.v1';
-const HISTORY_MAX = 12;
-
-function loadHistory() {
-    try {
-        const arr = JSON.parse(window.localStorage.getItem(HISTORY_KEY) || '[]');
-        return Array.isArray(arr) ? arr : [];
-    } catch { return []; }
+async function storeFetch(path, init) {
+    const r = await fetch(path, init);
+    const d = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(d?.error || `Request failed (${r.status}).`);
+    return d;
 }
 
-function persistHistory(entries) {
-    try { window.localStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(0, HISTORY_MAX))); } catch { /* best-effort */ }
+// Same-origin byte proxy for a stored object — usable as an <img>/<video> src
+// AND fetchable for inline bytes without depending on the bucket's CORS.
+const fileSrc = (key) => `/api/tryon/file?key=${encodeURIComponent(key)}`;
+
+// Stored object → { mimeType, b64, dataUrl } for inline delivery to models.
+async function inlineFromKey(key) {
+    const blob = await (await fetch(fileSrc(key))).blob();
+    const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Could not read the stored image.'));
+        reader.readAsDataURL(blob);
+    });
+    return parseDataUrl(dataUrl);
+}
+
+// data: URL → File, for uploading canvas results to the bucket.
+function dataUrlToFile(dataUrl, name) {
+    const { mimeType, b64 } = parseDataUrl(dataUrl);
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    return new File([bytes], name, { type: mimeType });
+}
+
+// Fresh presigned URL for a stored VIDEO — merges need a URL the provider
+// itself can fetch, which the auth-gated proxy above is not.
+async function presignKey(key) {
+    const d = await storeFetch(`/api/byteplus/archive?key=${encodeURIComponent(key)}`);
+    if (!d?.url) throw new Error('Could not load the stored video.');
+    return d.url;
 }
 
 // ---------------------------------------------------------------------------
@@ -320,13 +333,48 @@ function TryOnWorkspace({ projectId, modelAccess }) {
     const [dragOver, setDragOver] = useState(false);
     const [video, setVideo] = useState(null); // { url } — animation of an image character
     const [showVideo, setShowVideo] = useState(false);
-    const [history, setHistory] = useState([]);
+    const [history, setHistory] = useState([]); // the project's submitted finals (server rows)
+    // The project's locked cast: canonical characters the whole team dresses.
+    const [cast, setCast] = useState([]);
+    // When the canvas character came from the locked cast, its ORIGINAL image
+    // anchors identity on every merge — the approved face never drifts.
+    const [castAnchor, setCastAnchor] = useState(null); // { name, mimeType, b64 }
+    const [lockName, setLockName] = useState(null); // non-null = the lock name form is open
     const charInputRef = useRef(null);
     const charRefInputRef = useRef(null);
     const assetInputRef = useRef(null);
     const canvasRef = useRef(null);
 
-    useEffect(() => { setHistory(loadHistory()); }, []);
+    // Project switch = clean room: the canvas empties and the wardrobe, cast
+    // and finals reload for the newly selected project.
+    useEffect(() => {
+        setCharacter(null);
+        setVersions([]);
+        setOverlays([]);
+        setItemsWorn([]);
+        setSelectedIds(new Set());
+        setCastAnchor(null);
+        setLockName(null);
+        setVideo(null);
+        setShowVideo(false);
+        setError(null);
+        setAssets([]);
+        setCast([]);
+        setHistory([]);
+        if (!projectId) return undefined;
+        let alive = true;
+        Promise.all([
+            storeFetch(`/api/tryon/assets?projectId=${projectId}`),
+            storeFetch(`/api/tryon/characters?projectId=${projectId}`),
+            storeFetch(`/api/tryon/finals?projectId=${projectId}`),
+        ]).then(([a, c, f]) => {
+            if (!alive) return;
+            setAssets((a.items || []).map((r) => ({ id: r.id, name: r.name, mediaKey: r.media_key, createdBy: r.created_by })));
+            setCast(c.items || []);
+            setHistory(f.items || []);
+        }).catch((e) => { if (alive) setError(e.message); });
+        return () => { alive = false; };
+    }, [projectId]);
 
     const run = async (kind, fn) => {
         if (busy) return;
@@ -353,21 +401,20 @@ function TryOnWorkspace({ projectId, modelAccess }) {
         setShowVideo(false);
     };
 
-    const recordFinal = async (entry) => {
-        const full = { id: `fin-${Date.now().toString(36)}`, projectId, createdAt: Date.now(), ...entry };
-        setHistory((prev) => {
-            const next = [full, ...prev].slice(0, HISTORY_MAX);
-            persistHistory(next);
-            return next;
+    const recordFinal = async ({ kind, mediaKey, items, model }) => {
+        const d = await storeFetch('/api/tryon/finals', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ projectId, kind, mediaKey, items, model }),
         });
+        setHistory((prev) => [d.item, ...prev]);
     };
 
-    const deleteHistory = (id) => {
-        setHistory((prev) => {
-            const next = prev.filter((h) => h.id !== id);
-            persistHistory(next);
-            return next;
-        });
+    const deleteHistory = async (id) => {
+        try {
+            await storeFetch(`/api/tryon/finals?id=${id}&projectId=${projectId}`, { method: 'DELETE' });
+            setHistory((prev) => prev.filter((h) => h.id !== id));
+        } catch (e) { setError(e.message); }
     };
 
     const videoOptions = (overrides = {}) => ({
@@ -379,6 +426,7 @@ function TryOnWorkspace({ projectId, modelAccess }) {
         const p = charPrompt.trim();
         if (!p && !charRefs.length) throw new Error(`Describe the character ${charKind} you want to create — or attach a photo.`);
         setItemsWorn([]); // a fresh character wears nothing yet
+        setCastAnchor(null); // a new identity — no longer the locked cast member
         // With reference photos attached (casting / look test), the person in
         // them IS the character — identity locked, the prompt styles the look.
         const prompt = charRefs.length
@@ -417,6 +465,7 @@ function TryOnWorkspace({ projectId, modelAccess }) {
 
     const uploadCharacter = (file) => run('character', async () => {
         setItemsWorn([]); // a fresh character wears nothing yet
+        setCastAnchor(null); // a new identity — no longer the locked cast member
         if (file?.type?.startsWith('image/')) {
             const img = await fileToInline(file);
             replaceCharacter({ kind: 'image', ...img });
@@ -430,23 +479,45 @@ function TryOnWorkspace({ projectId, modelAccess }) {
         }
     });
 
+    // Upload into the PROJECT wardrobe: bytes to the bucket, a row to the
+    // store — the whole team sees it, on any device, from now on. The inline
+    // b64 is kept locally so an immediate merge needs no round trip.
     const addAssets = async (files) => {
         setError(null);
         const added = [];
         for (const file of Array.from(files || []).filter((f) => f.type?.startsWith('image/'))) {
             try {
                 const img = await fileToInline(file);
-                const a = { id: `a-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, name: file.name, ...img };
+                const { key } = await uploadToCdn(file);
+                const d = await storeFetch('/api/tryon/assets', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ projectId, name: file.name, mediaKey: key }),
+                });
+                const a = { id: d.item.id, name: d.item.name, mediaKey: key, createdBy: d.item.created_by, ...img };
                 added.push(a);
-                setAssets((prev) => [...prev, a]);
-            } catch { /* unreadable image — skip */ }
+                setAssets((prev) => [a, ...prev]);
+            } catch (e) { setError(e.message); }
         }
         return added;
     };
 
-    const removeAsset = (id) => {
-        setAssets((prev) => prev.filter((a) => a.id !== id));
-        setSelectedIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    const removeAsset = async (id) => {
+        try {
+            await storeFetch(`/api/tryon/assets?id=${id}&projectId=${projectId}`, { method: 'DELETE' });
+            setAssets((prev) => prev.filter((a) => a.id !== id));
+            setSelectedIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+        } catch (e) { setError(e.message); }
+    };
+
+    // A wardrobe row loaded from the server has no bytes yet — pull them once
+    // through the proxy and cache on the entry.
+    const ensureInline = async (asset) => {
+        if (asset.b64) return asset;
+        const inline = await inlineFromKey(asset.mediaKey);
+        const full = { ...asset, ...inline };
+        setAssets((prev) => prev.map((a) => (a.id === asset.id ? full : a)));
+        return full;
     };
 
     const toggleSelect = (id) => {
@@ -468,8 +539,9 @@ function TryOnWorkspace({ projectId, modelAccess }) {
         return { x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height };
     };
 
-    const dropMerge = (asset, x = 0.5, y = 0.35) => run('merge', async () => {
+    const dropMerge = (rawAsset, x = 0.5, y = 0.35) => run('merge', async () => {
         if (!character) throw new Error('Add a character first, then drop items on it.');
+        const asset = await ensureInline(rawAsset);
         const w = 0.35; // sticker width as a fraction of the canvas
         const overlay = { id: `ov-${Date.now().toString(36)}`, asset, x: clamp(x - w / 2, 0, 1 - w), y: clamp(y - 0.08, 0, 0.9), w };
         setOverlays([overlay]); // visible under the busy veil while it renders
@@ -518,6 +590,8 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                     refs = [base, asset];
                     prompt = extra ? `${MERGE_PROMPT}\nAdditional instruction: ${extra}` : MERGE_PROMPT;
                 }
+                // A locked cast character anchors identity on every merge.
+                if (castAnchor) { refs.push(castAnchor); prompt += `\n${ANCHOR_NOTE}`; }
                 const img = await runImageJob({ projectId, modelId: imageModel, prompt, refs });
                 replaceCharacter({ kind: 'image', ...img });
             }
@@ -531,7 +605,7 @@ function TryOnWorkspace({ projectId, modelAccess }) {
     // character with the whole set, each item in its natural place.
     const mergeSelected = () => run('merge', async () => {
         if (!character) throw new Error('Add a character first.');
-        const picked = assets.filter((a) => selectedIds.has(a.id));
+        const picked = await Promise.all(assets.filter((a) => selectedIds.has(a.id)).map(ensureInline));
         if (!picked.length) throw new Error('Select at least one asset first.');
         setShowVideo(false);
         const extra = note.trim();
@@ -556,15 +630,18 @@ function TryOnWorkspace({ projectId, modelAccess }) {
             const { url } = await pollTask(id);
             replaceCharacter({ kind: 'video', url });
         } else {
-            // The character ref takes one slot of the model's reference cap.
-            const cap = imageRefMax(imageModel) - 1;
+            // The character ref takes one slot of the model's reference cap —
+            // and the cast identity anchor, when present, takes another.
+            const cap = imageRefMax(imageModel) - 1 - (castAnchor ? 1 : 0);
             if (picked.length > cap) {
-                throw new Error(`${IMAGE_MODELS.find((m) => m.id === imageModel)?.name || 'This model'} takes up to ${cap} items at once — unselect some, or switch to a model with a higher reference limit.`);
+                throw new Error(`${IMAGE_MODELS.find((m) => m.id === imageModel)?.name || 'This model'} takes up to ${cap} items at once here — unselect some, or switch to a model with a higher reference limit.`);
             }
             const base = character.b64 ? character : await urlToInline(character.dataUrl)
                 .catch(() => { throw new Error('This image can’t be reused directly — download it and upload it as the character.'); });
-            const prompt = extra ? `${MERGE_PROMPT}\nAdditional instruction: ${extra}` : MERGE_PROMPT;
-            const img = await runImageJob({ projectId, modelId: imageModel, prompt, refs: [base, ...picked] });
+            let prompt = extra ? `${MERGE_PROMPT}\nAdditional instruction: ${extra}` : MERGE_PROMPT;
+            const refs = [base, ...picked];
+            if (castAnchor) { refs.push(castAnchor); prompt += `\n${ANCHOR_NOTE}`; }
+            const img = await runImageJob({ projectId, modelId: imageModel, prompt, refs });
             replaceCharacter({ kind: 'image', ...img });
         }
         setItemsWorn((prev) => [...prev, ...picked.map((a) => a.name)]);
@@ -594,18 +671,76 @@ function TryOnWorkspace({ projectId, modelAccess }) {
     // The generations already happened per drop; this is the explicit "this
     // one is final" step, so only submitted results are listed.
 
-    const submitFinal = async () => {
-        if (!character || busy) return;
-        setError(null);
+    // Persist a video URL (ModelArk link, dies in ~24h) into the bucket and
+    // return its permanent key.
+    const archiveUrl = async (url, tag) => {
+        const d = await storeFetch('/api/byteplus/archive', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url, taskId: `${tag}-${Date.now().toString(36)}` }),
+        });
+        if (!d?.key) throw new Error('Could not archive the video.');
+        return d.key;
+    };
+
+    const submitFinal = () => run('final', async () => {
+        if (!character) throw new Error('Add a character first.');
         const items = itemsWorn.join(', ') || 'Final look';
+        const videoModelName = MODELS.find((m) => m.id === videoModel)?.name || videoModel;
         if (showVideo && video) {
-            await recordFinal({ kind: 'video', url: video.url, model: MODELS.find((m) => m.id === videoModel)?.name || videoModel, items: `${items} — animation` });
+            const key = await archiveUrl(video.url, 'tryon-final');
+            await recordFinal({ kind: 'video', mediaKey: key, model: videoModelName, items: `${items} — animation` });
         } else if (character.kind === 'video') {
-            await recordFinal({ kind: 'video', url: character.url, model: MODELS.find((m) => m.id === videoModel)?.name || videoModel, items });
+            const key = await archiveUrl(character.url, 'tryon-final');
+            await recordFinal({ kind: 'video', mediaKey: key, model: videoModelName, items });
         } else {
-            const thumb = await shrinkDataUrl(character.dataUrl).catch(() => null);
-            await recordFinal({ kind: 'image', thumb: thumb || character.dataUrl, model: IMAGE_MODELS.find((m) => m.id === imageModel)?.name || imageModel, items });
+            const { key } = await uploadToCdn(dataUrlToFile(character.dataUrl, 'tryon-final.jpg'));
+            await recordFinal({ kind: 'image', mediaKey: key, model: IMAGE_MODELS.find((m) => m.id === imageModel)?.name || imageModel, items });
         }
+    });
+
+    // Lock the canvas character into the project cast under a name — from
+    // then on it is the project's shared, protected reference character.
+    const lockCharacter = () => run('final', async () => {
+        const name = (lockName || '').trim();
+        if (!character) throw new Error('Add a character first.');
+        if (!name) throw new Error('Give the character a name to lock it.');
+        let key;
+        if (character.kind === 'video') key = await archiveUrl(character.url, 'tryon-cast');
+        else ({ key } = await uploadToCdn(dataUrlToFile(character.dataUrl, `${name.replace(/[^\w.-]+/g, '_')}.jpg`)));
+        const d = await storeFetch('/api/tryon/characters', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ projectId, name, mediaKey: key, kind: character.kind }),
+        });
+        setCast((prev) => [d.item, ...prev]);
+        setLockName(null);
+        // Locking also arms the identity anchor for this session.
+        if (character.kind === 'image' && character.b64) {
+            setCastAnchor({ name, mimeType: character.mimeType, b64: character.b64 });
+        }
+    });
+
+    // Put a locked cast member on the canvas; image casts arm the identity
+    // anchor so every merge keeps the approved face.
+    const pickCastMember = (m) => run('character', async () => {
+        setItemsWorn([]);
+        if (m.kind === 'video') {
+            const url = await presignKey(m.media_key);
+            replaceCharacter({ kind: 'video', url });
+            setCastAnchor(null);
+        } else {
+            const inline = await inlineFromKey(m.media_key);
+            replaceCharacter({ kind: 'image', ...inline });
+            setCastAnchor({ name: m.name, mimeType: inline.mimeType, b64: inline.b64 });
+        }
+    });
+
+    const deleteCastMember = async (id) => {
+        try {
+            await storeFetch(`/api/tryon/characters?id=${id}&projectId=${projectId}`, { method: 'DELETE' });
+            setCast((prev) => prev.filter((m) => m.id !== id));
+        } catch (e) { setError(e.message); }
     };
 
     const animate = () => run('animate', async () => {
@@ -630,19 +765,18 @@ function TryOnWorkspace({ projectId, modelAccess }) {
         setShowVideo(false);
     };
 
-    const reuseFromHistory = (h) => {
-        if (busy) return;
-        setError(null);
+    const reuseFromHistory = (h) => run('character', async () => {
         setItemsWorn([]);
+        setCastAnchor(null);
         if (h.kind === 'image') {
-            try { replaceCharacter({ kind: 'image', ...parseDataUrl(h.thumb) }); } catch { setError('Could not load that result.'); }
+            const inline = await inlineFromKey(h.media_key);
+            replaceCharacter({ kind: 'image', ...inline });
         } else {
-            replaceCharacter({ kind: 'video', url: h.url });
+            const url = await presignKey(h.media_key);
+            replaceCharacter({ kind: 'video', url });
         }
         window.scrollTo({ top: 0, behavior: 'smooth' });
-    };
-
-    const projectHistory = history.filter((h) => !h.projectId || !projectId || h.projectId === projectId);
+    });
 
     // One width rules the canvas, its action row and its hints: capped by the
     // column AND the viewport height (aspect 3/4 → width = height × 0.75), so
@@ -670,6 +804,31 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                         ))}
                     </div>
                 </div>
+                {cast.length > 0 && (
+                    <div className="flex flex-col gap-1.5">
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-ink-2"><Lock size={10} /> Project cast <span className="font-normal text-ink-3">— shared, identity-locked</span></span>
+                        <ul className="flex gap-2 overflow-x-auto pb-1">
+                            {cast.map((m) => (
+                                <li key={m.id} className="group relative shrink-0">
+                                    <button type="button" onClick={() => pickCastMember(m)} disabled={!!busy}
+                                        title={`${m.name} — locked by ${m.creator_name || 'a teammate'}; click to dress this character`}
+                                        className="flex w-16 flex-col items-center gap-1 disabled:opacity-40">
+                                        {m.kind === 'video'
+                                            ? <span className="grid h-16 w-16 place-items-center rounded-lg border border-line bg-black text-ink-3"><Film size={18} /></span>
+                                            // eslint-disable-next-line @next/next/no-img-element
+                                            : <img src={fileSrc(m.media_key)} alt={m.name} className="h-16 w-16 rounded-lg border border-line object-cover transition-colors group-hover:border-accent/60" />}
+                                        <span className="w-16 truncate text-center text-[10px] text-ink-2">{m.name}</span>
+                                    </button>
+                                    <button type="button" aria-label={`Remove ${m.name}`}
+                                        onClick={() => deleteCastMember(m.id)}
+                                        className="absolute -right-1 -top-1 hidden rounded-full border border-line bg-paper-1 p-0.5 text-ink-3 hover:text-danger group-hover:block">
+                                        <X size={10} />
+                                    </button>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
                 {charKind === 'image'
                     ? <ModelSelect kind="image" value={imageModel} onChange={setImageModel} disabled={!!busy} modelAccess={modelAccess} title="Image model" full />
                     : <ModelSelect kind="video" value={videoModel} onChange={setVideoModel} disabled={!!busy} modelAccess={modelAccess} title="Video model" full />}
@@ -762,9 +921,10 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/50 text-white backdrop-blur-[2px]">
                             <Loader2 size={22} className="animate-spin" />
                             <span className="text-xs font-medium">
-                                {busy === 'character' ? (charKind === 'video' ? 'Creating the character video… (~1–3 min)' : 'Creating the character…')
+                                {busy === 'character' ? (charKind === 'video' ? 'Creating the character video… (~1–3 min)' : 'Loading the character…')
                                     : busy === 'merge' ? (character?.kind === 'video' ? 'Placing it across the video… (~2–5 min)' : 'Placing it right there…')
-                                        : 'Bringing the character to life… (~1–2 min)'}
+                                        : busy === 'final' ? 'Saving to the project…'
+                                            : 'Bringing the character to life… (~1–2 min)'}
                             </span>
                         </div>
                     )}
@@ -798,16 +958,42 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                         </span>
                     )}
                     {character && (
-                        <button type="button" onClick={submitFinal} disabled={!!busy}
-                            className="ml-auto inline-flex items-center gap-2 rounded-md bg-accent px-4 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-40">
-                            <Wand2 size={14} /> Submit final
-                        </button>
+                        <span className="ml-auto inline-flex items-center gap-2">
+                            <button type="button" onClick={() => setLockName((v) => (v == null ? '' : null))} disabled={!!busy}
+                                title="Lock this character into the project cast — the whole team can then dress this exact character, and its face stays protected"
+                                className="inline-flex items-center gap-1.5 rounded-md border border-line px-3 py-2 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink disabled:opacity-40">
+                                <Lock size={13} /> Lock
+                            </button>
+                            <button type="button" onClick={submitFinal} disabled={!!busy}
+                                className="inline-flex items-center gap-2 rounded-md bg-accent px-4 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-40">
+                                <Wand2 size={14} /> Submit final
+                            </button>
+                        </span>
                     )}
                 </div>
 
+                {lockName != null && (
+                    <div className={`flex ${canvasW} items-center gap-2`}>
+                        <input autoFocus value={lockName} onChange={(e) => setLockName(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') lockCharacter(); if (e.key === 'Escape') setLockName(null); }}
+                            placeholder="Name this character — e.g. Inspector Rahul"
+                            className="min-w-0 flex-1 rounded-md border border-line bg-paper-3 px-3 py-2 text-xs text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent" />
+                        <button type="button" onClick={lockCharacter} disabled={!!busy || !lockName.trim()}
+                            className="rounded-md bg-accent px-3 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-40">
+                            Lock to project
+                        </button>
+                    </div>
+                )}
+
+                {castAnchor && !busy && (
+                    <p className={`${canvasW} text-[11px] text-accent-hi`}>
+                        <Lock size={10} className="mr-1 inline" /> Identity locked to “{castAnchor.name}” — every try-on keeps this exact face.
+                    </p>
+                )}
+
                 {character && !busy && (
                     <p className={`${canvasW} text-[11px] leading-relaxed text-ink-3`}>
-                        Drop an item anywhere on the character — the AI merges it <strong className="font-semibold text-ink-2">at that exact spot</strong>, properly worn and blended (each drop is one generation). Happy with the look? <strong className="font-semibold text-ink-2">Submit final</strong> saves it to History below.
+                        Drop an item anywhere on the character — the AI merges it <strong className="font-semibold text-ink-2">at that exact spot</strong>, properly worn and blended (each drop is one generation). Happy with the look? <strong className="font-semibold text-ink-2">Submit final</strong> saves it to the project’s History below; <strong className="font-semibold text-ink-2">Lock</strong> makes this character the project’s shared reference.
                     </p>
                 )}
 
@@ -846,7 +1032,7 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                                         disabled={!!busy}
                                         className={`block w-full cursor-grab overflow-hidden rounded-lg border transition-colors active:cursor-grabbing disabled:cursor-default disabled:opacity-60 ${picked ? 'border-accent ring-2 ring-accent/50' : 'border-line hover:border-accent/60'}`}>
                                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        <img src={a.dataUrl} alt={a.name} className="aspect-square w-full object-cover" />
+                                        <img src={a.dataUrl || fileSrc(a.mediaKey)} alt={a.name} className="aspect-square w-full object-cover" />
                                     </button>
                                     {picked && (
                                         <span className="pointer-events-none absolute left-1 top-1 grid h-4 w-4 place-items-center rounded-full bg-accent p-0.5 text-accent-ink">
@@ -893,25 +1079,24 @@ function TryOnWorkspace({ projectId, modelAccess }) {
             <div className="mb-3 flex items-center gap-2">
                 <History size={15} className="text-accent-hi" />
                 <h2 className="text-sm font-semibold">History — final submissions</h2>
-                <span className="text-[11px] text-ink-3">only completed results are listed · stored on this device</span>
+                <span className="text-[11px] text-ink-3">only completed results are listed · shared with this project</span>
             </div>
-            {!projectHistory.length ? (
+            {!history.length ? (
                 <p className="rounded-xl border border-line bg-paper-2 p-5 text-xs text-ink-3">
-                    Nothing here yet. Place an item on a character and press <strong className="font-semibold text-ink-2">Submit final</strong> — the finished result shows up here once it completes.
+                    Nothing here yet. Place an item on a character and press <strong className="font-semibold text-ink-2">Submit final</strong> — the finished result shows up here for the whole project.
                 </p>
             ) : (
                 <ul className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-                    {projectHistory.map((h) => (
+                    {history.map((h) => (
                         <li key={h.id} className="flex flex-col overflow-hidden rounded-xl border border-line bg-paper-2">
                             {h.kind === 'image'
                                 // eslint-disable-next-line @next/next/no-img-element
-                                ? <img src={h.thumb} alt={h.items || 'Final result'} className="aspect-[3/4] w-full object-cover" />
-                                : <video src={h.url} controls preload="metadata" playsInline className="aspect-[3/4] w-full bg-black object-contain" />}
+                                ? <img src={fileSrc(h.media_key)} alt={h.items || 'Final result'} className="aspect-[3/4] w-full object-cover" />
+                                : <video src={fileSrc(h.media_key)} controls preload="metadata" playsInline className="aspect-[3/4] w-full bg-black object-contain" />}
                             <div className="flex flex-col gap-1.5 p-3">
-                                <span className="truncate text-xs font-medium text-ink-2" title={h.items}>{h.items || 'Final result'}</span>
+                                <span className="truncate text-xs font-medium text-ink-2" title={h.items}>{h.items || 'Final look'}</span>
                                 <span className="text-[11px] text-ink-3">
-                                    {h.model} · {new Date(h.createdAt).toLocaleString()}
-                                    {h.kind === 'video' ? ' · video link expires in ~24h' : ''}
+                                    {[h.model, h.creator_name, new Date(h.created_at).toLocaleDateString()].filter(Boolean).join(' · ')}
                                 </span>
                                 <div className="mt-1 flex gap-2">
                                     <button type="button" onClick={() => reuseFromHistory(h)} disabled={!!busy}
