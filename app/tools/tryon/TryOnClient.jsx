@@ -66,7 +66,26 @@ export default function TryOnClient() {
     // null = unknown (loading / pre-migration) → everything stays selectable
     // and the server remains the enforcer, the behaviour before this filter.
     const [modelAccess, setModelAccess] = useState(null);
+    // Workspace workflows (named styles). The gateway already inherits the
+    // user's studio attachment on every Try-On generation — this makes that
+    // visible and controllable here: keep the attachment, pick another
+    // workflow for this tool, or switch styling off entirely.
+    const [workflows, setWorkflows] = useState([]);
+    const [wfAccess, setWfAccess] = useState('none');
     const { status, error: statusError, refresh } = useToolStatus('tryon', projectId);
+
+    useEffect(() => {
+        let alive = true;
+        fetch('/api/workflows')
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => {
+                if (!alive || !d) return;
+                setWorkflows(Array.isArray(d.items) ? d.items : []);
+                setWfAccess(d.access ?? 'none');
+            })
+            .catch(() => { /* picker just stays hidden */ });
+        return () => { alive = false; };
+    }, []);
 
     useEffect(() => {
         fetch('/api/projects')
@@ -119,7 +138,7 @@ export default function TryOnClient() {
                     ? <div className="text-xs text-danger">{projectsError}</div>
                     : (
                         <ToolAccessGate toolName="Try-On" status={status} error={statusError} projectId={projectId} onChanged={refresh} needsToolBudget={false}>
-                            <TryOnWorkspace projectId={projectId} modelAccess={modelAccess} />
+                            <TryOnWorkspace projectId={projectId} modelAccess={modelAccess} workflows={workflows} wfAccess={wfAccess} />
                         </ToolAccessGate>
                     )}
             </div>
@@ -198,7 +217,7 @@ async function flattenComposite(character, overlay, maxDim = 1024) {
 
 // Submit one image generation and poll it to a displayable image.
 // Returns { mimeType, b64, dataUrl } (inline whenever the provider allows).
-async function runImageJob({ projectId, modelId, prompt, refs = [] }) {
+async function runImageJob({ projectId, modelId, prompt, refs = [], styleOptions = {} }) {
     const request = refs.length
         ? { prompt, parts: [{ text: prompt }, ...refs.map((r) => ({ inlineData: { mimeType: r.mimeType, data: r.b64 } }))] }
         : { prompt };
@@ -212,7 +231,9 @@ async function runImageJob({ projectId, modelId, prompt, refs = [] }) {
             projectId, modelId, request,
             // mode: the generation_ledger surfaces it as 'Mode / Style', which
             // is what the console's Try-On ledger tab filters on.
-            options: { imageCount: 1, aspectRatio: '3:4', imageSize, mode: 'tryon' },
+            // styleOptions: workflow routing — styleWorkflowId to pin one, or
+            // styleLook 'none' to opt this generation out of styling.
+            options: { imageCount: 1, aspectRatio: '3:4', imageSize, mode: 'tryon', ...styleOptions },
         }),
     });
     const data = await res.json().catch(() => null);
@@ -304,7 +325,7 @@ function modelAllowed(m, modelAccess) {
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-function TryOnWorkspace({ projectId, modelAccess }) {
+function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
     // character: { kind:'image', mimeType, b64, dataUrl } or
     //            { kind:'video', url, assetUrl? } (assetUrl = cached asset:// ref)
     const [character, setCharacter] = useState(null);
@@ -340,6 +361,11 @@ function TryOnWorkspace({ projectId, modelAccess }) {
     // anchors identity on every merge — the approved face never drifts.
     const [castAnchor, setCastAnchor] = useState(null); // { name, mimeType, b64 }
     const [lockName, setLockName] = useState(null); // non-null = the lock name form is open
+    // Workflow choice for every generation this tool fires:
+    // 'auto' = whatever the user attached in the studio (the gateway inherits
+    // it anyway — this is the default and today's behaviour), 'none' = styling
+    // off for Try-On, or a workflow id to pin one explicitly.
+    const [wfChoice, setWfChoice] = useState('auto');
     const charInputRef = useRef(null);
     const charRefInputRef = useRef(null);
     const assetInputRef = useRef(null);
@@ -422,6 +448,15 @@ function TryOnWorkspace({ projectId, modelAccess }) {
         generate_audio: false, watermark: false, seed: -1, ...overrides,
     });
 
+    // The workflow choice, in each pipeline's dialect. Image jobs carry style
+    // routing in options; video tasks carry it as createTask's (styleLook,
+    // workflowId) header pair. 'auto' sends nothing — the gateway then applies
+    // the user's studio attachment (or the project style) exactly as before.
+    const wfImageStyle = () => (wfChoice === 'none' ? { styleLook: 'none' }
+        : wfChoice === 'auto' ? {} : { styleWorkflowId: Number(wfChoice) });
+    const wfVideoArgs = () => (wfChoice === 'none' ? ['none', null]
+        : wfChoice === 'auto' ? [null, null] : [null, Number(wfChoice)]);
+
     const generateCharacter = () => run('character', async () => {
         const p = charPrompt.trim();
         if (!p && !charRefs.length) throw new Error(`Describe the character ${charKind} you want to create — or attach a photo.`);
@@ -433,7 +468,7 @@ function TryOnWorkspace({ projectId, modelAccess }) {
             ? `Full-body photorealistic shot of the person from the reference photo(s) — keep their face, identity, skin tone, hair and build EXACTLY as in the references. Standing, facing the camera, clean simple background, soft studio lighting. ${p || 'Natural, neutral styling.'}`
             : `Full-body photorealistic shot of a character, standing, facing the camera, clean simple background, soft studio lighting. ${p}`;
         if (charKind === 'image') {
-            const img = await runImageJob({ projectId, modelId: imageModel, prompt, refs: charRefs });
+            const img = await runImageJob({ projectId, modelId: imageModel, prompt, refs: charRefs, styleOptions: wfImageStyle() });
             replaceCharacter({ kind: 'image', ...img });
         } else {
             // Reference photos make this an r2v task — needs the 2.0 family;
@@ -444,7 +479,7 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                 prompt: `${prompt} The character moves subtly and naturally; stable camera.`,
                 mediaItems: charRefs.map((r) => ({ kind: 'image', url: r.dataUrl, role: 'reference_image' })),
             });
-            const { id } = await createTask(payload, 'tryon', projectId);
+            const { id } = await createTask(payload, 'tryon', projectId, ...wfVideoArgs());
             const { url } = await pollTask(id);
             replaceCharacter({ kind: 'video', url });
         }
@@ -571,7 +606,7 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                         { kind: 'image', url: asset.dataUrl, role: 'reference_image' },
                     ],
                 });
-                const { id } = await createTask(payload, 'tryon', projectId);
+                const { id } = await createTask(payload, 'tryon', projectId, ...wfVideoArgs());
                 const { url } = await pollTask(id);
                 replaceCharacter({ kind: 'video', url });
             } else {
@@ -592,7 +627,7 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                 }
                 // A locked cast character anchors identity on every merge.
                 if (castAnchor) { refs.push(castAnchor); prompt += `\n${ANCHOR_NOTE}`; }
-                const img = await runImageJob({ projectId, modelId: imageModel, prompt, refs });
+                const img = await runImageJob({ projectId, modelId: imageModel, prompt, refs, styleOptions: wfImageStyle() });
                 replaceCharacter({ kind: 'image', ...img });
             }
             setItemsWorn((prev) => [...prev, asset.name]);
@@ -626,7 +661,7 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                     ...picked.map((a) => ({ kind: 'image', url: a.dataUrl, role: 'reference_image' })),
                 ],
             });
-            const { id } = await createTask(payload, 'tryon', projectId);
+            const { id } = await createTask(payload, 'tryon', projectId, ...wfVideoArgs());
             const { url } = await pollTask(id);
             replaceCharacter({ kind: 'video', url });
         } else {
@@ -641,7 +676,7 @@ function TryOnWorkspace({ projectId, modelAccess }) {
             let prompt = extra ? `${MERGE_PROMPT}\nAdditional instruction: ${extra}` : MERGE_PROMPT;
             const refs = [base, ...picked];
             if (castAnchor) { refs.push(castAnchor); prompt += `\n${ANCHOR_NOTE}`; }
-            const img = await runImageJob({ projectId, modelId: imageModel, prompt, refs });
+            const img = await runImageJob({ projectId, modelId: imageModel, prompt, refs, styleOptions: wfImageStyle() });
             replaceCharacter({ kind: 'image', ...img });
         }
         setItemsWorn((prev) => [...prev, ...picked.map((a) => a.name)]);
@@ -750,7 +785,7 @@ function TryOnWorkspace({ projectId, modelAccess }) {
             prompt: ANIMATE_PROMPT,
             mediaItems: [{ kind: 'image', url: character.dataUrl, role: 'first_frame' }],
         });
-        const { id } = await createTask(payload, 'tryon', projectId);
+        const { id } = await createTask(payload, 'tryon', projectId, ...wfVideoArgs());
         const { url } = await pollTask(id);
         setVideo({ url });
         setShowVideo(true);
@@ -832,6 +867,19 @@ function TryOnWorkspace({ projectId, modelAccess }) {
                 {charKind === 'image'
                     ? <ModelSelect kind="image" value={imageModel} onChange={setImageModel} disabled={!!busy} modelAccess={modelAccess} title="Image model" full />
                     : <ModelSelect kind="video" value={videoModel} onChange={setVideoModel} disabled={!!busy} modelAccess={modelAccess} title="Video model" full />}
+                {wfAccess === 'approved' && workflows.length > 0 && (
+                    <select value={wfChoice} onChange={(e) => setWfChoice(e.target.value)} disabled={!!busy}
+                        title="Workspace workflow (named style) applied to every generation in this tool — characters, try-ons and animations. Auto follows your studio attachment; None switches styling off for Try-On."
+                        className="w-full rounded-md border border-line bg-paper-3 px-2 py-1.5 text-[11px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-40">
+                        <option value="auto">Workflow: studio attachment (auto)</option>
+                        <option value="none">Workflow: none for Try-On</option>
+                        {workflows.map((w) => (
+                            <option key={w.id} value={String(w.id)}>
+                                Workflow: {w.name}{w.media && w.media !== 'all' ? ` (${w.media} only)` : ''}
+                            </option>
+                        ))}
+                    </select>
+                )}
                 <div className="flex flex-col gap-2"
                     onDragOver={(e) => { if (e.dataTransfer?.types?.includes('Files')) e.preventDefault(); }}
                     onDrop={(e) => { if (e.dataTransfer.files?.length) { e.preventDefault(); addCharRefs(e.dataTransfer.files); } }}>
