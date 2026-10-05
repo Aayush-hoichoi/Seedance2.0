@@ -2,7 +2,7 @@ import TryOnClient from './TryOnClient.jsx';
 
 export const metadata = {
     title: 'Try-On — loglineAI Studio',
-    description: 'Look tests & casting: attach an actor photo or create a character, drag & drop costumes — AI places them exactly, then animates.',
+    description: 'Look tests & casting: attach an actor photo or create a character, drag & drop costumes — AI places them exactly. Image only.',
 };
 
 export default function TryOnPage() {
