@@ -1,35 +1,32 @@
 'use client';
 
 // Try-On — Lucy-style (lucy.decart.ai) virtual try-on as a studio tool.
-// 1. Pick Image or Video, pick the model (same catalogs as the studio), then
-//    get a character on the canvas: generate from a prompt, or upload.
+// IMAGE ONLY by design: no video characters, no video merges, no animation —
+// every generation here is an image (old video finals in History stay viewable).
+// 1. Pick the image model (same catalog as the studio), then get a character
+//    on the canvas: generate from a prompt, or upload a photo.
 // 2. Upload asset images (clothing, props, artwork) into the shelf.
 // 3. Drag an asset onto the character and the AI places it RIGHT THERE,
 //    immediately: the drop point is baked into a flattened composite the
 //    model is told to respect, so a cap dropped on the head sits on the head
-//    at that exact spot, blended realistically. (Video characters run a
-//    Seedance reference edit instead — no spatial pin there.) Each drop is
-//    one generation, billed like any studio generation.
+//    at that exact spot, blended realistically. Each drop is one generation,
+//    billed like any studio generation.
 // 4. Submit final records the finished look on the canvas into the History
 //    section below — only completed, explicitly submitted results appear.
-// Billing/access rides the existing generation pipelines untouched: images go
-// through POST /api/generations (gateway quota + budgets), video through the
-// ModelArk proxy.
+// Billing/access rides the existing generation pipeline untouched: images go
+// through POST /api/generations (gateway quota + budgets).
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Check, Clapperboard, Film, History, ImagePlus, Loader2, Lock, Shirt, Sparkles, Undo2, Upload, Wand2, X } from 'lucide-react';
+import { ArrowLeft, Check, History, ImagePlus, Loader2, Lock, Shirt, Sparkles, Undo2, Upload, Wand2, X } from 'lucide-react';
 import ProjectSelect from '../../seedance/ProjectSelect.jsx';
 import MicButton from '../../seedance/MicButton.jsx';
 import ToolAccessGate, { BudgetChip, useToolStatus } from '../ToolAccessGate.jsx';
-import { IMAGE_MODELS, MODELS, imageRefMax } from '../../../lib/seedance/constants.js';
-import { buildPayload, createTask, pollTask } from '../../../lib/seedance/client.js';
-import { registerAssetFromUrl } from '../../../lib/seedance/assetsClient.js';
+import { IMAGE_MODELS, imageRefMax } from '../../../lib/seedance/constants.js';
 import { uploadToCdn } from '../../../lib/seedance/upload.js';
 import { resolveProjectId, rememberProjectId } from '../../../lib/seedance/projectChoice.mjs';
 
 const DEFAULT_IMAGE_MODEL_ID = 'nano-banana-2'; // open image model
-const MINI_VIDEO_MODEL_ID = MODELS.find((m) => m.kind === 'mini').id; // open video tier
 
 // Drop-merge prompt: Image 1 is the flattened canvas — the character with the
 // item pasted as a flat sticker at the exact spot the user dropped it — and
@@ -44,12 +41,6 @@ Keep the character's face, identity, hair, pose, body and the background exactly
 const MERGE_PROMPT = `Virtual try-on. Image 1 is the character; every following image is one item to put on them.
 Place EVERY item in its correct, natural position for what it is: a cap/hat on the head, shoes on the feet, glasses on the face, a shirt/jacket/dress on the torso, trousers on the legs, a bag held or over the shoulder, artwork hung on the wall. Resize and fit each one to the character's pose and perspective, with realistic fabric folds, contact shadows and matching lighting — all items worn together in one coherent outfit.
 Keep the character's face, identity, hair, pose, body and the background from Image 1 exactly unchanged — change ONLY what the items add. Output a single photorealistic image with no pasted-on look.`;
-
-const VIDEO_MERGE_PROMPT = `Virtual try-on video edit. Video 1 is the character performance; every following image is one item.
-Recreate Video 1 exactly — same person, same motion, same timing, same camera, same background — with ONE change: every item is now on the character, each in its correct natural position for what it is (a cap on the head, shoes on the feet, a jacket worn on the torso, glasses on the face), fitted to the body and moving with it throughout; an object, prop or artwork is placed naturally with them in the scene.
-Nothing else may change: no added motion, no altered identity, no new background.`;
-
-const ANIMATE_PROMPT = 'The character comes to life: stands up (if seated) and moves naturally and confidently — subtle realistic body motion, the clothing moves with them. Keep the identity, outfit, lighting and background exactly as the image. Smooth, stable camera.';
 
 // Appended when the canvas character came from the project's LOCKED cast: the
 // original is sent as the last reference so the approved face survives any
@@ -283,6 +274,7 @@ async function storeFetch(path, init) {
 }
 
 // Same-origin byte proxy for a stored object — usable as an <img>/<video> src
+// (History keeps playing finals submitted back when Try-On still made videos)
 // AND fetchable for inline bytes without depending on the bucket's CORS.
 const fileSrc = (key) => `/api/tryon/file?key=${encodeURIComponent(key)}`;
 
@@ -305,14 +297,6 @@ function dataUrlToFile(dataUrl, name) {
     return new File([bytes], name, { type: mimeType });
 }
 
-// Fresh presigned URL for a stored VIDEO — merges need a URL the provider
-// itself can fetch, which the auth-gated proxy above is not.
-async function presignKey(key) {
-    const d = await storeFetch(`/api/byteplus/archive?key=${encodeURIComponent(key)}`);
-    if (!d?.url) throw new Error('Could not load the stored video.');
-    return d.url;
-}
-
 // ---------------------------------------------------------------------------
 // Workspace
 
@@ -326,8 +310,7 @@ function modelAllowed(m, modelAccess) {
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
-    // character: { kind:'image', mimeType, b64, dataUrl } or
-    //            { kind:'video', url, assetUrl? } (assetUrl = cached asset:// ref)
+    // character: { kind:'image', mimeType, b64, dataUrl }
     const [character, setCharacter] = useState(null);
     const [versions, setVersions] = useState([]); // older character states, newest first
     const [assets, setAssets] = useState([]); // { id, name, mimeType, b64, dataUrl, aspect }
@@ -345,15 +328,11 @@ function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
     // path: an actor's photo (or several) drives the generated character's
     // identity, and the prompt describes the look to test on them.
     const [charRefs, setCharRefs] = useState([]); // { name, mimeType, b64, dataUrl, aspect }
-    const [charKind, setCharKind] = useState('image'); // what Generate creates
     const [imageModel, setImageModel] = useState(DEFAULT_IMAGE_MODEL_ID);
-    const [videoModel, setVideoModel] = useState(MINI_VIDEO_MODEL_ID);
     const [note, setNote] = useState('');
-    const [busy, setBusy] = useState(null); // 'character' | 'final' | 'animate'
+    const [busy, setBusy] = useState(null); // 'character' | 'merge' | 'final'
     const [error, setError] = useState(null);
     const [dragOver, setDragOver] = useState(false);
-    const [video, setVideo] = useState(null); // { url } — animation of an image character
-    const [showVideo, setShowVideo] = useState(false);
     const [history, setHistory] = useState([]); // the project's submitted finals (server rows)
     // The project's locked cast: canonical characters the whole team dresses.
     const [cast, setCast] = useState([]);
@@ -381,8 +360,6 @@ function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
         setSelectedIds(new Set());
         setCastAnchor(null);
         setLockName(null);
-        setVideo(null);
-        setShowVideo(false);
         setError(null);
         setAssets([]);
         setCast([]);
@@ -415,16 +392,12 @@ function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
         if (!modelAccess) return;
         const img = IMAGE_MODELS.find((m) => m.id === imageModel);
         if (img && !modelAllowed(img, modelAccess)) setImageModel(DEFAULT_IMAGE_MODEL_ID);
-        const vid = MODELS.find((m) => m.id === videoModel);
-        if (vid && !modelAllowed(vid, modelAccess)) setVideoModel(MINI_VIDEO_MODEL_ID);
-    }, [modelAccess, imageModel, videoModel]);
+    }, [modelAccess, imageModel]);
 
     const replaceCharacter = (next) => {
         setVersions((v) => (character ? [character, ...v].slice(0, 8) : v));
         setCharacter(next);
         setOverlays([]);
-        setVideo(null);
-        setShowVideo(false);
     };
 
     const recordFinal = async ({ kind, mediaKey, items, model }) => {
@@ -443,23 +416,15 @@ function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
         } catch (e) { setError(e.message); }
     };
 
-    const videoOptions = (overrides = {}) => ({
-        model: videoModel, ratio: 'adaptive', resolution: '720p', duration: 5,
-        generate_audio: false, watermark: false, seed: -1, ...overrides,
-    });
-
-    // The workflow choice, in each pipeline's dialect. Image jobs carry style
-    // routing in options; video tasks carry it as createTask's (styleLook,
-    // workflowId) header pair. 'auto' sends nothing — the gateway then applies
-    // the user's studio attachment (or the project style) exactly as before.
+    // The workflow choice in the image pipeline's dialect: styleWorkflowId to
+    // pin one, styleLook 'none' to opt out. 'auto' sends nothing — the gateway
+    // then applies the user's studio attachment (or the project style).
     const wfImageStyle = () => (wfChoice === 'none' ? { styleLook: 'none' }
         : wfChoice === 'auto' ? {} : { styleWorkflowId: Number(wfChoice) });
-    const wfVideoArgs = () => (wfChoice === 'none' ? ['none', null]
-        : wfChoice === 'auto' ? [null, null] : [null, Number(wfChoice)]);
 
     const generateCharacter = () => run('character', async () => {
         const p = charPrompt.trim();
-        if (!p && !charRefs.length) throw new Error(`Describe the character ${charKind} you want to create — or attach a photo.`);
+        if (!p && !charRefs.length) throw new Error('Describe the character image you want to create — or attach a photo.');
         setItemsWorn([]); // a fresh character wears nothing yet
         setCastAnchor(null); // a new identity — no longer the locked cast member
         // With reference photos attached (casting / look test), the person in
@@ -467,22 +432,8 @@ function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
         const prompt = charRefs.length
             ? `Full-body photorealistic shot of the person from the reference photo(s) — keep their face, identity, skin tone, hair and build EXACTLY as in the references. Standing, facing the camera, clean simple background, soft studio lighting. ${p || 'Natural, neutral styling.'}`
             : `Full-body photorealistic shot of a character, standing, facing the camera, clean simple background, soft studio lighting. ${p}`;
-        if (charKind === 'image') {
-            const img = await runImageJob({ projectId, modelId: imageModel, prompt, refs: charRefs, styleOptions: wfImageStyle() });
-            replaceCharacter({ kind: 'image', ...img });
-        } else {
-            // Reference photos make this an r2v task — needs the 2.0 family;
-            // fall back to the open Mini tier when the picked model can't.
-            const model = !charRefs.length || MODELS.find((m) => m.id === videoModel)?.supportsReference !== false ? videoModel : MINI_VIDEO_MODEL_ID;
-            const payload = buildPayload({
-                options: videoOptions({ model, ratio: '3:4' }),
-                prompt: `${prompt} The character moves subtly and naturally; stable camera.`,
-                mediaItems: charRefs.map((r) => ({ kind: 'image', url: r.dataUrl, role: 'reference_image' })),
-            });
-            const { id } = await createTask(payload, 'tryon', projectId, ...wfVideoArgs());
-            const { url } = await pollTask(id);
-            replaceCharacter({ kind: 'video', url });
-        }
+        const img = await runImageJob({ projectId, modelId: imageModel, prompt, refs: charRefs, styleOptions: wfImageStyle() });
+        replaceCharacter({ kind: 'image', ...img });
     });
 
     // Prompt-bar photo attachments (capped at the selected image model's
@@ -501,17 +452,9 @@ function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
     const uploadCharacter = (file) => run('character', async () => {
         setItemsWorn([]); // a fresh character wears nothing yet
         setCastAnchor(null); // a new identity — no longer the locked cast member
-        if (file?.type?.startsWith('image/')) {
-            const img = await fileToInline(file);
-            replaceCharacter({ kind: 'image', ...img });
-        } else if (file?.type?.startsWith('video/')) {
-            // Video needs a real URL (ModelArk takes no data: videos) — reuse the
-            // CDN upload the Upscale tool uses.
-            const { url } = await uploadToCdn(file);
-            replaceCharacter({ kind: 'video', url });
-        } else {
-            throw new Error('Pick an image or video file.');
-        }
+        if (!file?.type?.startsWith('image/')) throw new Error('Pick an image file — Try-On is image only.');
+        const img = await fileToInline(file);
+        replaceCharacter({ kind: 'image', ...img });
     });
 
     // Upload into the PROJECT wardrobe: bytes to the bucket, a row to the
@@ -580,56 +523,27 @@ function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
         const w = 0.35; // sticker width as a fraction of the canvas
         const overlay = { id: `ov-${Date.now().toString(36)}`, asset, x: clamp(x - w / 2, 0, 1 - w), y: clamp(y - 0.08, 0, 0.9), w };
         setOverlays([overlay]); // visible under the busy veil while it renders
-        setShowVideo(false);
         const extra = note.trim();
         try {
-            if (character.kind === 'video') {
-                // The character video must enter as a verified library asset —
-                // ModelArk's input scan rejects person footage referenced by raw
-                // URL. The asset:// ref is cached for repeat merges.
-                let assetUrl = character.assetUrl;
-                if (!assetUrl) {
-                    const reg = await registerAssetFromUrl({ url: character.url, kind: 'video' });
-                    assetUrl = reg.url;
-                    setCharacter((c) => (c?.url === character.url ? { ...c, assetUrl } : c));
-                }
-                // Reference edits need a model that runs r2v (the 2.0 family) —
-                // fall back to the open Mini tier when the picked model can't.
-                const model = MODELS.find((m) => m.id === videoModel)?.supportsReference !== false ? videoModel : MINI_VIDEO_MODEL_ID;
-                const prompt = extra ? `${VIDEO_MERGE_PROMPT}\nAdditional instruction: ${extra}` : VIDEO_MERGE_PROMPT;
-                const payload = buildPayload({
-                    // duration -1: a video edit inherits the source clip's length.
-                    options: videoOptions({ model, generate_audio: true, duration: -1 }),
-                    prompt,
-                    mediaItems: [
-                        { kind: 'video', url: assetUrl, role: 'reference_video' },
-                        { kind: 'image', url: asset.dataUrl, role: 'reference_image' },
-                    ],
-                });
-                const { id } = await createTask(payload, 'tryon', projectId, ...wfVideoArgs());
-                const { url } = await pollTask(id);
-                replaceCharacter({ kind: 'video', url });
-            } else {
-                // Image character: composite with the sticker at the drop point
-                // (the position instruction), plus the clean product shot. Falls
-                // back to position-less refs on a tainted canvas.
-                let refs;
-                let prompt;
-                try {
-                    const composite = await flattenComposite(character, overlay);
-                    refs = [composite, asset];
-                    prompt = extra ? `${POSITION_PROMPT}\nAdditional instruction: ${extra}` : POSITION_PROMPT;
-                } catch {
-                    const base = character.b64 ? character : await urlToInline(character.dataUrl)
-                        .catch(() => { throw new Error('This image can’t be reused directly — download it and upload it as the character.'); });
-                    refs = [base, asset];
-                    prompt = extra ? `${MERGE_PROMPT}\nAdditional instruction: ${extra}` : MERGE_PROMPT;
-                }
-                // A locked cast character anchors identity on every merge.
-                if (castAnchor) { refs.push(castAnchor); prompt += `\n${ANCHOR_NOTE}`; }
-                const img = await runImageJob({ projectId, modelId: imageModel, prompt, refs, styleOptions: wfImageStyle() });
-                replaceCharacter({ kind: 'image', ...img });
+            // Composite with the sticker at the drop point (the position
+            // instruction), plus the clean product shot. Falls back to
+            // position-less refs on a tainted canvas.
+            let refs;
+            let prompt;
+            try {
+                const composite = await flattenComposite(character, overlay);
+                refs = [composite, asset];
+                prompt = extra ? `${POSITION_PROMPT}\nAdditional instruction: ${extra}` : POSITION_PROMPT;
+            } catch {
+                const base = character.b64 ? character : await urlToInline(character.dataUrl)
+                    .catch(() => { throw new Error('This image can’t be reused directly — download it and upload it as the character.'); });
+                refs = [base, asset];
+                prompt = extra ? `${MERGE_PROMPT}\nAdditional instruction: ${extra}` : MERGE_PROMPT;
             }
+            // A locked cast character anchors identity on every merge.
+            if (castAnchor) { refs.push(castAnchor); prompt += `\n${ANCHOR_NOTE}`; }
+            const img = await runImageJob({ projectId, modelId: imageModel, prompt, refs, styleOptions: wfImageStyle() });
+            replaceCharacter({ kind: 'image', ...img });
             setItemsWorn((prev) => [...prev, asset.name]);
         } finally {
             setOverlays([]);
@@ -642,43 +556,20 @@ function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
         if (!character) throw new Error('Add a character first.');
         const picked = await Promise.all(assets.filter((a) => selectedIds.has(a.id)).map(ensureInline));
         if (!picked.length) throw new Error('Select at least one asset first.');
-        setShowVideo(false);
         const extra = note.trim();
-        if (character.kind === 'video') {
-            let assetUrl = character.assetUrl;
-            if (!assetUrl) {
-                const reg = await registerAssetFromUrl({ url: character.url, kind: 'video' });
-                assetUrl = reg.url;
-                setCharacter((c) => (c?.url === character.url ? { ...c, assetUrl } : c));
-            }
-            const model = MODELS.find((m) => m.id === videoModel)?.supportsReference !== false ? videoModel : MINI_VIDEO_MODEL_ID;
-            const prompt = extra ? `${VIDEO_MERGE_PROMPT}\nAdditional instruction: ${extra}` : VIDEO_MERGE_PROMPT;
-            const payload = buildPayload({
-                options: videoOptions({ model, generate_audio: true, duration: -1 }),
-                prompt,
-                mediaItems: [
-                    { kind: 'video', url: assetUrl, role: 'reference_video' },
-                    ...picked.map((a) => ({ kind: 'image', url: a.dataUrl, role: 'reference_image' })),
-                ],
-            });
-            const { id } = await createTask(payload, 'tryon', projectId, ...wfVideoArgs());
-            const { url } = await pollTask(id);
-            replaceCharacter({ kind: 'video', url });
-        } else {
-            // The character ref takes one slot of the model's reference cap —
-            // and the cast identity anchor, when present, takes another.
-            const cap = imageRefMax(imageModel) - 1 - (castAnchor ? 1 : 0);
-            if (picked.length > cap) {
-                throw new Error(`${IMAGE_MODELS.find((m) => m.id === imageModel)?.name || 'This model'} takes up to ${cap} items at once here — unselect some, or switch to a model with a higher reference limit.`);
-            }
-            const base = character.b64 ? character : await urlToInline(character.dataUrl)
-                .catch(() => { throw new Error('This image can’t be reused directly — download it and upload it as the character.'); });
-            let prompt = extra ? `${MERGE_PROMPT}\nAdditional instruction: ${extra}` : MERGE_PROMPT;
-            const refs = [base, ...picked];
-            if (castAnchor) { refs.push(castAnchor); prompt += `\n${ANCHOR_NOTE}`; }
-            const img = await runImageJob({ projectId, modelId: imageModel, prompt, refs, styleOptions: wfImageStyle() });
-            replaceCharacter({ kind: 'image', ...img });
+        // The character ref takes one slot of the model's reference cap —
+        // and the cast identity anchor, when present, takes another.
+        const cap = imageRefMax(imageModel) - 1 - (castAnchor ? 1 : 0);
+        if (picked.length > cap) {
+            throw new Error(`${IMAGE_MODELS.find((m) => m.id === imageModel)?.name || 'This model'} takes up to ${cap} items at once here — unselect some, or switch to a model with a higher reference limit.`);
         }
+        const base = character.b64 ? character : await urlToInline(character.dataUrl)
+            .catch(() => { throw new Error('This image can’t be reused directly — download it and upload it as the character.'); });
+        let prompt = extra ? `${MERGE_PROMPT}\nAdditional instruction: ${extra}` : MERGE_PROMPT;
+        const refs = [base, ...picked];
+        if (castAnchor) { refs.push(castAnchor); prompt += `\n${ANCHOR_NOTE}`; }
+        const img = await runImageJob({ projectId, modelId: imageModel, prompt, refs, styleOptions: wfImageStyle() });
+        replaceCharacter({ kind: 'image', ...img });
         setItemsWorn((prev) => [...prev, ...picked.map((a) => a.name)]);
         setSelectedIds(new Set());
     });
@@ -706,32 +597,11 @@ function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
     // The generations already happened per drop; this is the explicit "this
     // one is final" step, so only submitted results are listed.
 
-    // Persist a video URL (ModelArk link, dies in ~24h) into the bucket and
-    // return its permanent key.
-    const archiveUrl = async (url, tag) => {
-        const d = await storeFetch('/api/byteplus/archive', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url, taskId: `${tag}-${Date.now().toString(36)}` }),
-        });
-        if (!d?.key) throw new Error('Could not archive the video.');
-        return d.key;
-    };
-
     const submitFinal = () => run('final', async () => {
         if (!character) throw new Error('Add a character first.');
         const items = itemsWorn.join(', ') || 'Final look';
-        const videoModelName = MODELS.find((m) => m.id === videoModel)?.name || videoModel;
-        if (showVideo && video) {
-            const key = await archiveUrl(video.url, 'tryon-final');
-            await recordFinal({ kind: 'video', mediaKey: key, model: videoModelName, items: `${items} — animation` });
-        } else if (character.kind === 'video') {
-            const key = await archiveUrl(character.url, 'tryon-final');
-            await recordFinal({ kind: 'video', mediaKey: key, model: videoModelName, items });
-        } else {
-            const { key } = await uploadToCdn(dataUrlToFile(character.dataUrl, 'tryon-final.jpg'));
-            await recordFinal({ kind: 'image', mediaKey: key, model: IMAGE_MODELS.find((m) => m.id === imageModel)?.name || imageModel, items });
-        }
+        const { key } = await uploadToCdn(dataUrlToFile(character.dataUrl, 'tryon-final.jpg'));
+        await recordFinal({ kind: 'image', mediaKey: key, model: IMAGE_MODELS.find((m) => m.id === imageModel)?.name || imageModel, items });
     });
 
     // Lock the canvas character into the project cast under a name — from
@@ -740,9 +610,7 @@ function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
         const name = (lockName || '').trim();
         if (!character) throw new Error('Add a character first.');
         if (!name) throw new Error('Give the character a name to lock it.');
-        let key;
-        if (character.kind === 'video') key = await archiveUrl(character.url, 'tryon-cast');
-        else ({ key } = await uploadToCdn(dataUrlToFile(character.dataUrl, `${name.replace(/[^\w.-]+/g, '_')}.jpg`)));
+        const { key } = await uploadToCdn(dataUrlToFile(character.dataUrl, `${name.replace(/[^\w.-]+/g, '_')}.jpg`));
         const d = await storeFetch('/api/tryon/characters', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -756,19 +624,13 @@ function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
         }
     });
 
-    // Put a locked cast member on the canvas; image casts arm the identity
-    // anchor so every merge keeps the approved face.
+    // Put a locked cast member on the canvas and arm the identity anchor so
+    // every merge keeps the approved face.
     const pickCastMember = (m) => run('character', async () => {
         setItemsWorn([]);
-        if (m.kind === 'video') {
-            const url = await presignKey(m.media_key);
-            replaceCharacter({ kind: 'video', url });
-            setCastAnchor(null);
-        } else {
-            const inline = await inlineFromKey(m.media_key);
-            replaceCharacter({ kind: 'image', ...inline });
-            setCastAnchor({ name: m.name, mimeType: inline.mimeType, b64: inline.b64 });
-        }
+        const inline = await inlineFromKey(m.media_key);
+        replaceCharacter({ kind: 'image', ...inline });
+        setCastAnchor({ name: m.name, mimeType: inline.mimeType, b64: inline.b64 });
     });
 
     const deleteCastMember = async (id) => {
@@ -778,38 +640,18 @@ function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
         } catch (e) { setError(e.message); }
     };
 
-    const animate = () => run('animate', async () => {
-        if (character?.kind !== 'image') throw new Error('Add an image character first.');
-        const payload = buildPayload({
-            options: videoOptions(),
-            prompt: ANIMATE_PROMPT,
-            mediaItems: [{ kind: 'image', url: character.dataUrl, role: 'first_frame' }],
-        });
-        const { id } = await createTask(payload, 'tryon', projectId, ...wfVideoArgs());
-        const { url } = await pollTask(id);
-        setVideo({ url });
-        setShowVideo(true);
-    });
-
     const undo = () => {
         if (!versions.length || busy) return;
         setCharacter(versions[0]);
         setVersions((v) => v.slice(1));
         setOverlays([]);
-        setVideo(null);
-        setShowVideo(false);
     };
 
     const reuseFromHistory = (h) => run('character', async () => {
         setItemsWorn([]);
         setCastAnchor(null);
-        if (h.kind === 'image') {
-            const inline = await inlineFromKey(h.media_key);
-            replaceCharacter({ kind: 'image', ...inline });
-        } else {
-            const url = await presignKey(h.media_key);
-            replaceCharacter({ kind: 'video', url });
-        }
+        const inline = await inlineFromKey(h.media_key);
+        replaceCharacter({ kind: 'image', ...inline });
         window.scrollTo({ top: 0, behavior: 'smooth' });
     });
 
@@ -829,29 +671,19 @@ function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
                 <div className="flex items-center gap-2">
                     <StepDot n={1} />
                     <span className="text-sm font-semibold">Character</span>
-                    <div className="ml-auto flex overflow-hidden rounded-md border border-line" role="radiogroup" aria-label="Character media type">
-                        {['image', 'video'].map((k) => (
-                            <button key={k} type="button" onClick={() => setCharKind(k)} disabled={!!busy}
-                                aria-pressed={charKind === k}
-                                className={`px-3 py-1 text-[11px] font-semibold capitalize transition-colors ${charKind === k ? 'bg-accent text-accent-ink' : 'bg-paper-3 text-ink-3 hover:text-ink'}`}>
-                                {k}
-                            </button>
-                        ))}
-                    </div>
                 </div>
                 {cast.length > 0 && (
                     <div className="flex flex-col gap-1.5">
                         <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-ink-2"><Lock size={10} /> Project cast <span className="font-normal text-ink-3">— shared, identity-locked</span></span>
                         <ul className="flex gap-2 overflow-x-auto pb-1">
-                            {cast.map((m) => (
+                            {/* Image members only — Try-On no longer dresses video characters. */}
+                            {cast.filter((m) => m.kind !== 'video').map((m) => (
                                 <li key={m.id} className="group relative shrink-0">
                                     <button type="button" onClick={() => pickCastMember(m)} disabled={!!busy}
                                         title={`${m.name} — locked by ${m.creator_name || 'a teammate'}; click to dress this character`}
                                         className="flex w-16 flex-col items-center gap-1 disabled:opacity-40">
-                                        {m.kind === 'video'
-                                            ? <span className="grid h-16 w-16 place-items-center rounded-lg border border-line bg-black text-ink-3"><Film size={18} /></span>
-                                            // eslint-disable-next-line @next/next/no-img-element
-                                            : <img src={fileSrc(m.media_key)} alt={m.name} className="h-16 w-16 rounded-lg border border-line object-cover transition-colors group-hover:border-accent/60" />}
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img src={fileSrc(m.media_key)} alt={m.name} className="h-16 w-16 rounded-lg border border-line object-cover transition-colors group-hover:border-accent/60" />
                                         <span className="w-16 truncate text-center text-[10px] text-ink-2">{m.name}</span>
                                     </button>
                                     <button type="button" aria-label={`Remove ${m.name}`}
@@ -864,12 +696,10 @@ function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
                         </ul>
                     </div>
                 )}
-                {charKind === 'image'
-                    ? <ModelSelect kind="image" value={imageModel} onChange={setImageModel} disabled={!!busy} modelAccess={modelAccess} title="Image model" full />
-                    : <ModelSelect kind="video" value={videoModel} onChange={setVideoModel} disabled={!!busy} modelAccess={modelAccess} title="Video model" full />}
+                <ModelSelect value={imageModel} onChange={setImageModel} disabled={!!busy} modelAccess={modelAccess} title="Image model" full />
                 {wfAccess === 'approved' && workflows.length > 0 && (
                     <select value={wfChoice} onChange={(e) => setWfChoice(e.target.value)} disabled={!!busy}
-                        title="Workspace workflow (named style) applied to every generation in this tool — characters, try-ons and animations. Auto follows your studio attachment; None switches styling off for Try-On."
+                        title="Workspace workflow (named style) applied to every generation in this tool — characters and try-ons. Auto follows your studio attachment; None switches styling off for Try-On."
                         className="w-full rounded-md border border-line bg-paper-3 px-2 py-1.5 text-[11px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-40">
                         <option value="auto">Workflow: studio attachment (auto)</option>
                         <option value="none">Workflow: none for Try-On</option>
@@ -887,9 +717,7 @@ function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); generateCharacter(); } }}
                         placeholder={charRefs.length
                             ? 'Describe the look to test on this person — e.g. 1920s police uniform'
-                            : charKind === 'image'
-                                ? 'Describe a character — or attach an actor’s photo for a look test / casting'
-                                : 'e.g. a young man in a plain t-shirt, standing and talking to the camera'}
+                            : 'Describe a character — or attach an actor’s photo for a look test / casting'}
                         className="w-full resize-none rounded-md border border-line bg-paper-3 px-3 py-2 text-xs leading-relaxed text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent" />
                     <div className="flex gap-2">
                         <input ref={charRefInputRef} type="file" accept="image/*" multiple className="hidden"
@@ -904,7 +732,7 @@ function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
                             className="grid h-8 w-9 shrink-0 place-items-center rounded-md border border-line bg-paper-3 text-ink-3 transition-colors hover:text-ink disabled:opacity-40" />
                         <button type="button" onClick={generateCharacter} disabled={!!busy || (!charPrompt.trim() && !charRefs.length)}
                             className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-40">
-                            <Sparkles size={13} /> Generate {charKind}
+                            <Sparkles size={13} /> Generate image
                         </button>
                     </div>
                 </div>
@@ -924,11 +752,11 @@ function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
                         <span className="text-[10px] text-ink-3">This person becomes the character — the prompt styles the look (casting / look test).</span>
                     </div>
                 )}
-                <input ref={charInputRef} type="file" accept="image/*,video/*" className="hidden"
+                <input ref={charInputRef} type="file" accept="image/*" className="hidden"
                     onChange={(e) => { uploadCharacter(e.target.files?.[0]); e.target.value = ''; }} />
                 <button type="button" onClick={() => charInputRef.current?.click()} disabled={!!busy}
                     className="inline-flex items-center justify-center gap-1.5 rounded-md border border-line px-3 py-2 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink disabled:opacity-40">
-                    <Upload size={13} /> Or upload a character photo / video
+                    <Upload size={13} /> Or upload a character photo
                 </button>
             </section>
 
@@ -941,11 +769,7 @@ function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
                     onDrop={onDrop}
                     className={`relative flex aspect-[3/4] ${canvasW} items-center justify-center overflow-hidden rounded-xl border bg-paper-2 transition-colors ${dragOver ? 'border-accent ring-2 ring-accent/40' : 'border-line'}`}
                 >
-                    {showVideo && video ? (
-                        <video src={video.url} controls autoPlay loop playsInline className="h-full w-full object-contain bg-black" />
-                    ) : character?.kind === 'video' ? (
-                        <video src={character.url} controls autoPlay loop playsInline className="h-full w-full object-contain bg-black" />
-                    ) : character ? (
+                    {character ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={character.dataUrl} alt="Character" className="h-full w-full object-cover" />
                     ) : (
@@ -957,7 +781,7 @@ function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
                     )}
 
                     {/* Where the item was dropped — shown while the merge renders */}
-                    {!showVideo && overlays.map((o) => (
+                    {overlays.map((o) => (
                         <div key={o.id} style={{ left: `${o.x * 100}%`, top: `${o.y * 100}%`, width: `${o.w * 100}%` }} className="pointer-events-none absolute">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src={o.asset.dataUrl} alt={o.asset.name} draggable={false}
@@ -969,10 +793,9 @@ function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
                         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/50 text-white backdrop-blur-[2px]">
                             <Loader2 size={22} className="animate-spin" />
                             <span className="text-xs font-medium">
-                                {busy === 'character' ? (charKind === 'video' ? 'Creating the character video… (~1–3 min)' : 'Loading the character…')
-                                    : busy === 'merge' ? (character?.kind === 'video' ? 'Placing it across the video… (~2–5 min)' : 'Placing it right there…')
-                                        : busy === 'final' ? 'Saving to the project…'
-                                            : 'Bringing the character to life… (~1–2 min)'}
+                                {busy === 'character' ? 'Loading the character…'
+                                    : busy === 'merge' ? 'Placing it right there…'
+                                        : 'Saving to the project…'}
                             </span>
                         </div>
                     )}
@@ -984,26 +807,11 @@ function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
                 </div>
 
                 <div className={`flex ${canvasW} flex-wrap items-center gap-2`}>
-                    {video && (
-                        <button type="button" onClick={() => setShowVideo((s) => !s)}
-                            className="rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink">
-                            {showVideo ? 'Show image' : 'Show video'}
-                        </button>
-                    )}
                     {versions.length > 0 && (
                         <button type="button" onClick={undo} disabled={!!busy}
                             className="inline-flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink disabled:opacity-40">
                             <Undo2 size={13} /> Undo
                         </button>
-                    )}
-                    {character?.kind === 'image' && (
-                        <span className="inline-flex items-center gap-2">
-                            <ModelSelect kind="video" value={videoModel} onChange={setVideoModel} disabled={!!busy} modelAccess={modelAccess} title="Model used for the animation" />
-                            <button type="button" onClick={animate} disabled={!!busy}
-                                className="inline-flex items-center gap-2 rounded-md border border-line px-3 py-2 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink disabled:opacity-40">
-                                <Clapperboard size={14} /> Animate
-                            </button>
-                        </span>
                     )}
                     {character && (
                         <span className="ml-auto inline-flex items-center gap-2">
@@ -1147,10 +955,13 @@ function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
                                     {[h.model, h.creator_name, new Date(h.created_at).toLocaleDateString()].filter(Boolean).join(' · ')}
                                 </span>
                                 <div className="mt-1 flex gap-2">
-                                    <button type="button" onClick={() => reuseFromHistory(h)} disabled={!!busy}
-                                        className="rounded-md border border-line px-2.5 py-1 text-[11px] font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink disabled:opacity-40">
-                                        Use as character
-                                    </button>
+                                    {/* Old video finals stay viewable but can't be dressed — image only. */}
+                                    {h.kind === 'image' && (
+                                        <button type="button" onClick={() => reuseFromHistory(h)} disabled={!!busy}
+                                            className="rounded-md border border-line px-2.5 py-1 text-[11px] font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink disabled:opacity-40">
+                                            Use as character
+                                        </button>
+                                    )}
                                     <button type="button" onClick={() => deleteHistory(h.id)}
                                         className="ml-auto rounded-md px-2 py-1 text-[11px] text-ink-3 transition-colors hover:text-danger">
                                         Delete
@@ -1171,16 +982,15 @@ function StepDot({ n }) {
     return <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-accent/15 text-[10px] font-bold text-accent-hi">{n}</span>;
 }
 
-// Model picker, fed by the same catalogs as the studio (image or video).
+// Image-model picker, fed by the same catalog as the studio.
 // Studio access carries over: a gated model the user already has is plainly
 // selectable here; one they lack is disabled (request it in the studio once,
 // and it unlocks everywhere — never "exclusively for Try-On").
-function ModelSelect({ kind, value, onChange, disabled, title, modelAccess, full = false }) {
-    const models = kind === 'image' ? IMAGE_MODELS : MODELS;
+function ModelSelect({ value, onChange, disabled, title, modelAccess, full = false }) {
     return (
         <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} title={title}
             className={`${full ? 'w-full' : 'max-w-[11rem]'} rounded-md border border-line bg-paper-3 px-2 py-1.5 text-[11px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-40`}>
-            {models.map((m) => {
+            {IMAGE_MODELS.map((m) => {
                 const allowed = modelAllowed(m, modelAccess);
                 return (
                     <option key={m.id} value={m.id} disabled={!allowed}>
