@@ -176,6 +176,24 @@ export async function PATCH(request) {
     const [before] = await sql`SELECT * FROM quotas WHERE id = ${id} AND deleted_at IS NULL`;
     if (!before) return apiError('NOT_FOUND', 'Budget not found.');
 
+    // Lock / unlock. A locked budget rejects every request it applies to,
+    // whatever its remaining headroom, until an admin unlocks it. The flag
+    // flip is idempotent; the reservation gate reads it fresh on every check.
+    if (typeof body?.lock === 'boolean') {
+        if (body.lock === !!before.locked_at) {
+            return NextResponse.json(before); // already in the requested state
+        }
+        const [quota] = await sql`UPDATE quotas SET locked_at = CASE WHEN ${body.lock} THEN now() ELSE NULL END
+            WHERE id = ${id} AND deleted_at IS NULL RETURNING *`;
+        if (!quota) return apiError('NOT_FOUND', 'Budget not found.');
+        await writeAudit(sql, {
+            actorId: user.userId, actorEmail: user.email,
+            action: body.lock ? 'quota.locked' : 'quota.unlocked',
+            targetType: 'quota', targetId: id, before, after: quota, ip: clientIp(request),
+        });
+        return NextResponse.json(quota);
+    }
+
     // Model-scope change (widen to all models, or move/narrow to one model).
     // Usage re-attributes itself from billing_events on the next read, so a
     // widened budget can wake up over-cap — that is by design; the console

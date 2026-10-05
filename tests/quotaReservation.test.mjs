@@ -39,6 +39,7 @@ async function reservationDb() {
             id serial PRIMARY KEY, project_id integer, user_id text, model_id text,
             type text NOT NULL, "window" text NOT NULL, hard_limit numeric NOT NULL,
             policy text NOT NULL DEFAULT 'hard', soft_overage_pct numeric NOT NULL DEFAULT 5,
+            locked_at timestamptz,
             created_at timestamptz NOT NULL DEFAULT now(), deleted_at timestamptz
         );
         CREATE TABLE billing_events (
@@ -111,6 +112,25 @@ test('blocks when multiple layered hard limits are exhausted', async () => {
 
     const row = await reserve(sql, 5);
     assert.equal(row, null, 'no wallet in the group has room');
+});
+
+test('a locked budget blocks reservations despite headroom', async () => {
+    const sql = await reservationDb();
+    await addQuota(sql, { userId: 'neha', modelId: 'seedance', limit: 500 });
+    await sql`UPDATE quotas SET locked_at = now()`;
+
+    const row = await reserve(sql, 5);
+    assert.equal(row, null, 'a locked budget rejects even its first dollar');
+});
+
+test('unlocking restores spending under the same budget', async () => {
+    const sql = await reservationDb();
+    await addQuota(sql, { userId: 'neha', modelId: 'seedance', limit: 500 });
+    await sql`UPDATE quotas SET locked_at = now()`;
+    await sql`UPDATE quotas SET locked_at = NULL`;
+
+    const row = await reserve(sql, 5);
+    assert.ok(row, 'an unlocked budget with headroom reserves normally');
 });
 
 test('a member with only a personal budget is still bound by it', async () => {

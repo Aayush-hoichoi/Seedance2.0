@@ -72,6 +72,7 @@ async function integrationDb() {
             id serial PRIMARY KEY, project_id integer, user_id text, model_id text,
             type text NOT NULL, "window" text NOT NULL, hard_limit numeric NOT NULL,
             policy text NOT NULL DEFAULT 'hard', soft_overage_pct numeric NOT NULL DEFAULT 0,
+            locked_at timestamptz,
             alert_thresholds integer[] NOT NULL DEFAULT ARRAY[80,90,100],
             created_by text, created_at timestamptz NOT NULL DEFAULT now(), deleted_at timestamptz
         );

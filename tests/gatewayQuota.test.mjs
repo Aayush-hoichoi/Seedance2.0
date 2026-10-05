@@ -111,6 +111,20 @@ test('members without a personal wallet are still blocked by the shared pool', (
     assert.equal(r.violations[0].quota.id, 2);
 });
 
+test('a locked budget blocks despite headroom, and a shared pool with room never forgives it', () => {
+    const pool = { id: 8, project_id: 7, user_id: null, model_id: 'seedance', type: 'usd', window: 'monthly', hard_limit: 100, policy: 'hard', soft_overage_pct: 5 };
+    const wallet = { ...QUOTAS[5], locked_at: '2026-07-11T00:00:00Z' }; // u1+seedance, barely used
+    const r = evalWith({ quotas: [pool, wallet], used: { 8: 10, 6: 1 } });
+    assert.equal(r.ok, false);
+    assert.equal(r.violations[0].quota.id, 6);
+});
+
+test('an unlocked sibling budget still works next to a locked one', () => {
+    const locked = { ...QUOTAS[6], locked_at: '2026-07-11T00:00:00Z' }; // u1+nano-banana, locked
+    const r = evalWith({ quotas: [QUOTAS[5], locked], used: { 6: 1 } }); // request is for seedance
+    assert.equal(r.ok, true);
+});
+
 test('a drained personal hard limit blocks even while the shared project budget has room', () => {
     const r = evalWith({ used: { 2: 10, 3: 50 } }); // personal full, shared open
     assert.equal(r.ok, false);
