@@ -9,7 +9,7 @@ import { PageHeader, Card, Badge, Button, Modal, Field, Input, Select, DataTable
 import { useApi, sendJson, fmtUsd, fmtInt, fmtDate, monthStartIso } from '../../lib.js';
 import { supportedResolutionsFor } from '../../../../lib/seedance/constants.js';
 import { groupProjectBudgets, projectOverallBudget } from '../projectBudgetGroups.mjs';
-import { ChevronDown, History, PauseCircle, Pencil, PlayCircle, Plus, ShieldBan, ShieldCheck, Trash2, Wallet } from 'lucide-react';
+import { ChevronDown, History, Lock, LockOpen, PauseCircle, Pencil, PlayCircle, Plus, ShieldBan, ShieldCheck, Trash2, Wallet } from 'lucide-react';
 
 const SpendDonut = dynamic(() => import('../../charts.jsx').then((m) => m.SpendDonut), { ssr: false });
 const TopBars = dynamic(() => import('../../charts.jsx').then((m) => m.TopBars), { ssr: false });
@@ -201,9 +201,21 @@ export default function ProjectDetailClient({ projectId }) {
                                                             <span className="ml-1.5 font-normal text-ink-3">{q.type} · {q.window}</span>
                                                         </div>
                                                         <div className="flex shrink-0 items-center gap-1.5">
+                                                            {q.locked_at ? <Badge tone="red">locked</Badge> : null}
                                                             <Badge tone={q.policy === 'hard' ? 'red' : 'amber'}>{q.policy}{q.policy === 'soft' ? ` +${q.soft_overage_pct}%` : ''}</Badge>
                                                             {isAdmin ? (
                                                                 <>
+                                                                    <Button variant="ghost" size="xs"
+                                                                        title={q.locked_at ? 'Unlock — allow spending again' : 'Lock — stop all spending under this budget'}
+                                                                        aria-label={q.locked_at ? 'Unlock budget' : 'Lock budget'}
+                                                                        onClick={async () => {
+                                                                            const r = await sendJson('/api/admin/quotas', 'PATCH', { id: q.id, lock: !q.locked_at });
+                                                                            if (!r.ok) return toast.error(r.data?.message || 'Failed');
+                                                                            toast.success(r.data.locked_at ? 'Budget locked — spending stopped' : 'Budget unlocked');
+                                                                            quotas.mutate();
+                                                                        }}>
+                                                                        {q.locked_at ? <LockOpen size={13} /> : <Lock size={13} />}
+                                                                    </Button>
                                                                     <Button variant="ghost" size="xs" title="Change history" aria-label="Change history"
                                                                         onClick={() => setHistoryQuota(q)}>
                                                                         <History size={13} />
@@ -886,14 +898,17 @@ function AddBudgetModal({ project, members, models, modelsLoading, modelsError, 
 
     // Cap mode starts from the minimum workable number (combined spend or
     // member budgets, whichever is higher) instead of an empty box — the
-    // admin adjusts upward from reality. Fires once per open, so typing or
+    // admin adjusts upward from reality. Set-cap mode (a fixed model from an
+    // uncapped row) prefills what is already spent, so saving as-is freezes
+    // the model at its current spend. Fires once per open, so typing or
     // clearing the box afterwards is never fought.
+    const prefillAmount = overallCap ? overallFloor : lockedModelId != null ? spentSoFar : 0;
     const prefilledCap = useRef(false);
     useEffect(() => {
-        if (!overallCap || !previewData || overallFloor <= 0 || prefilledCap.current) return;
+        if (!previewData || prefillAmount <= 0 || prefilledCap.current) return;
         prefilledCap.current = true;
-        setForm((prev) => (prev.addAmount === '' ? { ...prev, addAmount: String(Math.ceil(overallFloor * 100) / 100) } : prev));
-    }, [overallCap, previewData, overallFloor]); // eslint-disable-line react-hooks/exhaustive-deps
+        setForm((prev) => (prev.addAmount === '' ? { ...prev, addAmount: String(Math.ceil(prefillAmount * 100) / 100) } : prev));
+    }, [previewData, prefillAmount]); // eslint-disable-line react-hooks/exhaustive-deps
     const validAddAmount = addAmount > 0 && (!wholeNumber || Number.isInteger(addAmount))
         && !needsModel && !exceedsOverall && !belowFloor;
 
@@ -1042,6 +1057,8 @@ function AddBudgetModal({ project, members, models, modelsLoading, modelsError, 
                 </div>
                 {needsModel ? (
                     <div className="mt-3 text-xs text-ink-3">Pick a model — member budgets can no longer cover all models at once.</div>
+                ) : lockedModelId != null && previewData && spentSoFar > 0 && addAmount > 0 && addAmount <= Math.ceil(spentSoFar * 100) / 100 ? (
+                    <div className="mt-3 text-xs text-ink-3">Prefilled with what is already spent — saving as-is locks this model at its current spend. Raise the amount to allow more.</div>
                 ) : null}
                 {belowFloor ? (
                     <div className="mt-3 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs leading-relaxed text-danger">
