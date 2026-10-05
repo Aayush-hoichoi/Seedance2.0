@@ -256,14 +256,33 @@ export default function ProjectDetailClient({ projectId }) {
                                                             {group.overallCapUsd != null ? 'within the All models budget' : 'uncapped'}
                                                         </span>
                                                         {isAdmin ? (
-                                                            <Button variant="outline" size="xs" title="Set a hard cap for this model"
-                                                                onClick={() => setAddingBudget({
-                                                                    lockedUserId: group.userId ?? '',
-                                                                    label: group.userId ? emailOf(group.userId) : 'Everyone',
-                                                                    modelId: row.model_id,
-                                                                })}>
-                                                                <Plus size={13} /> Set cap
-                                                            </Button>
+                                                            <>
+                                                                <Button variant="ghost" size="xs"
+                                                                    title="Lock — create a budget frozen at the current spend and stop this model"
+                                                                    aria-label="Lock model spending"
+                                                                    onClick={async () => {
+                                                                        const create = await sendJson('/api/admin/quotas', 'POST', {
+                                                                            projectId: project.id, userId: group.userId || null, modelId: row.model_id,
+                                                                            type: 'usd', window: 'lifetime', policy: 'hard',
+                                                                            hardLimit: Math.max(Math.ceil(Number(row.cost_usd || 0) * 100) / 100, 0.01),
+                                                                        });
+                                                                        if (!create.ok) return toast.error(create.data?.message || 'Failed');
+                                                                        const lock = await sendJson('/api/admin/quotas', 'PATCH', { id: create.data.id, lock: true });
+                                                                        if (!lock.ok) return toast.error(lock.data?.message || 'Budget created but could not be locked — lock it from its card.');
+                                                                        toast.success('Model locked — spending stopped');
+                                                                        quotas.mutate();
+                                                                    }}>
+                                                                    <Lock size={13} />
+                                                                </Button>
+                                                                <Button variant="outline" size="xs" title="Set a hard cap for this model"
+                                                                    onClick={() => setAddingBudget({
+                                                                        lockedUserId: group.userId ?? '',
+                                                                        label: group.userId ? emailOf(group.userId) : 'Everyone',
+                                                                        modelId: row.model_id,
+                                                                    })}>
+                                                                    <Plus size={13} /> Set cap
+                                                                </Button>
+                                                            </>
                                                         ) : null}
                                                     </div>
                                                 </div>
