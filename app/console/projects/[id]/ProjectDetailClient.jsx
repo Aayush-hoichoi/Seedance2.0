@@ -239,9 +239,21 @@ export default function ProjectDetailClient({ projectId }) {
                                                         {row.model_name || row.model_id}
                                                         <span className="ml-1.5 font-normal text-warn">no model budget</span>
                                                     </div>
-                                                    <span className="shrink-0 text-xs text-ink-3">
-                                                        {group.overallCapUsd != null ? 'within the All models budget' : 'uncapped'}
-                                                    </span>
+                                                    <div className="flex shrink-0 items-center gap-1.5">
+                                                        <span className="text-xs text-ink-3">
+                                                            {group.overallCapUsd != null ? 'within the All models budget' : 'uncapped'}
+                                                        </span>
+                                                        {isAdmin ? (
+                                                            <Button variant="outline" size="xs" title="Set a hard cap for this model"
+                                                                onClick={() => setAddingBudget({
+                                                                    lockedUserId: group.userId ?? '',
+                                                                    label: group.userId ? emailOf(group.userId) : 'Everyone',
+                                                                    modelId: row.model_id,
+                                                                })}>
+                                                                <Plus size={13} /> Set cap
+                                                            </Button>
+                                                        ) : null}
+                                                    </div>
                                                 </div>
                                                 <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
                                                     <span className="text-ink-2">{fmtUsd(row.cost_usd)} spent</span>
@@ -299,6 +311,7 @@ export default function ProjectDetailClient({ projectId }) {
                             modelsError={budgetModels.error}
                             lockedUserId={addingBudget.lockedUserId}
                             lockedUserLabel={addingBudget.label}
+                            lockedModelId={addingBudget.modelId}
                             overallCap={addingBudget.overallCap}
                             onClose={() => setAddingBudget(null)}
                             onCreated={() => {
@@ -832,9 +845,9 @@ function EditBudgetModal({ quota, projectName, userName, allocatedUsd = 0, onClo
 // pinned so "Add budget" always lands on the right person.
 // overallCap: opened from the overall-budget card, so the scope that defines
 // that budget (everyone, all models, USD) is fixed and only the amount is free.
-function AddBudgetModal({ project, members, models, modelsLoading, modelsError, lockedUserId = null, lockedUserLabel, overallCap = false, onClose, onCreated }) {
+function AddBudgetModal({ project, members, models, modelsLoading, modelsError, lockedUserId = null, lockedUserLabel, lockedModelId = null, overallCap = false, onClose, onCreated }) {
     const [saving, setSaving] = useState(false);
-    const [form, setForm] = useState({ type: 'usd', window: 'lifetime', addAmount: '', policy: 'hard', softOveragePct: 5, userId: lockedUserId || '', modelId: '' });
+    const [form, setForm] = useState({ type: 'usd', window: 'lifetime', addAmount: '', policy: 'hard', softOveragePct: 5, userId: lockedUserId || '', modelId: lockedModelId || '' });
     const previewParams = new URLSearchParams({
         projectId: String(project.id),
         type: form.type,
@@ -1017,8 +1030,9 @@ function AddBudgetModal({ project, members, models, modelsLoading, modelsError, 
                         </Select>
                     </Field>
                     <Field label={form.userId ? 'Model (required for member budgets)' : 'Model (blank = all models)'}>
-                        <Select className="w-full" value={form.modelId} disabled={overallCap || !models.length}
-                            title={overallCap ? 'The overall project budget covers every model' : undefined}
+                        <Select className="w-full" value={form.modelId} disabled={overallCap || lockedModelId != null || !models.length}
+                            title={overallCap ? 'The overall project budget covers every model'
+                                : lockedModelId != null ? 'This card adds budget for a fixed model' : undefined}
                             onChange={(e) => setForm({ ...form, modelId: e.target.value })}>
                             <option value="">{modelsError ? 'Could not load models' : modelsLoading ? 'Loading models…' : form.userId ? 'Select a model…' : '—'}</option>
                             {models.map((model) => <option key={model.id} value={model.id}>{model.display_name} · {model.category}</option>)}
