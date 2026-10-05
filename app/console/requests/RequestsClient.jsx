@@ -11,6 +11,7 @@
 // keep working; this hub just reads/writes the same endpoints.
 
 import { useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { Badge, Button, Card, EmptyState, PageHeader } from '../ui.jsx';
 import { useApi, sendJson, timeAgo } from '../lib.js';
@@ -19,7 +20,13 @@ import { PendingRequest } from '../users/UsersClient.jsx';
 import { Inbox } from 'lucide-react';
 
 export default function RequestsClient() {
-    const [tab, setTab] = useState('access');
+    // ?tab=budgets|access|… lands the page on that tab — Teams approval cards
+    // deep-link here so an admin opens straight onto the request they were
+    // pinged about.
+    const wanted = useSearchParams().get('tab');
+    const [tab, setTab] = useState(
+        ['access', 'budgets', 'projects', 'exr', 'tryon', 'workflows'].includes(wanted) ? wanted : 'access',
+    );
 
     // The tab badges share SWR keys with the tab bodies (and with the pages
     // this hub mirrors), so these cost no extra requests.
