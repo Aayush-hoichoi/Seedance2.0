@@ -20,7 +20,6 @@ import { enhancePrompt } from '../../lib/seedance/enhance.js';
 import { friendlyError } from '../../lib/seedance/friendlyError.js';
 import { moveItem } from '../../lib/seedance/reorder.mjs';
 import { mediaItemFromUpload } from '../../lib/seedance/mediaItem.mjs';
-import { variantRole, variantSlotFor, collectVariantItems, itemsForOutput, imageRefsForOutput } from '../../lib/seedance/batchVariants.mjs';
 import { savePromptRecord, fetchPromptRecords, setLikeRecord, setBinRecord, deletePromptRecord } from '../../lib/seedance/promptsClient.js';
 import { uploadToCdn } from '../../lib/seedance/upload.js';
 import { validateMediaFile, greenScreenShare } from '../../lib/seedance/inspectMedia.js';
@@ -1270,26 +1269,6 @@ export default function SeedanceStudio() {
     const onUploadFile = (slot, file, metadata) =>
         registerInto(slot, { name: file.name, initialStatus: 'Uploading', resolveUrl: () => uploadToCdn(file), metadata });
 
-    // Per-output override (batch ×N): a different reference for output k+1 —
-    // a video in video-reference modes, the first-frame image in image-driven
-    // modes. Validated like any reference, then parked under a synthetic role —
-    // flattenMedia ignores it; the generate loop swaps it in for its output's
-    // primary reference (same prompt, same settings).
-    const onUploadVariant = async (k, file) => {
-        const slot = variantSlotFor(mode);
-        if (!slot) return;
-        if (!file.type.startsWith(`${slot.kind}/`)) { setError(`${file.name}: attach a ${slot.kind} file.`); return; }
-        const f = slot.kind === 'image' ? await fitImageToLimits(file) : file;
-        const effectiveTaskType = mode.id === 'reference' ? (options.taskType || 'auto') : 'auto';
-        const { error: invalid, meta } = await validateMediaFile(slot.kind, f, MODELS.find((m) => m.id === options.model)?.kind ?? null, effectiveTaskType);
-        if (invalid) { setError(invalid); return; }
-        if (slot.kind === 'video') {
-            const warn = editClipWarning(selectedModel?.kind, meta?.durationSec, f.name);
-            if (warn) setNotice(warn);
-        }
-        onUploadFile({ kind: slot.kind, role: variantRole(k), max: 1 }, f, meta);
-    };
-
     // ONE picker for everything: route each selected file by its MIME type to the
     // mode's first open slot of that kind, validate against the Seedance limits,
     // then upload+register. Mirrors the ModelArk playground's "+ Image/Video/Audio".
@@ -1465,25 +1444,11 @@ export default function SeedanceStudio() {
     const removeImageRef = (i) => setImageRefs((prev) => prev.filter((_, idx) => idx !== i));
     const reorderImageRefs = (from, to) => setImageRefs((prev) => moveItem(prev, from, to));
 
-    // Image-mode per-output overrides (batch ×N): output k+1's variant replaces
-    // the FIRST reference image for that output only. Same inline-base64 shape
-    // as imageRefs — send-time only, never persisted.
-    const [imageVariants, setImageVariants] = useState({}); // output index → ref
-    const onUploadImageVariant = async (k, file) => {
-        if (!file?.type?.startsWith('image/')) return;
-        try {
-            const ref = await downscaleForInline(file);
-            setImageVariants((prev) => ({ ...prev, [k]: { name: file.name, ...ref } }));
-        } catch { /* unreadable image — skip */ }
-    };
-    const removeImageVariant = (k) => setImageVariants(({ [k]: _, ...rest }) => rest);
-
     const changeMediaType = (t) => {
         setMediaType(t);
         setError(null);
         setNotice(null);
         setImageRefs([]);
-        setImageVariants({});
         if (t === 'image') {
             // Studio always runs on Nano Banana Pro; otherwise keep a valid image
             // model (falling back to the default when arriving from video).
@@ -1635,7 +1600,7 @@ export default function SeedanceStudio() {
                 setEnhancing(false);
                 if (polished) { structured = polished; meta = { userPrompt: raw }; }
             }
-            for (let i = 0; i < batch; i++) launchImageJob(structured, imageRefsForOutput(imageRefs, imageVariants, i), meta);
+            for (let i = 0; i < batch; i++) launchImageJob(structured, imageRefs, meta);
             return;
         }
         // Belt to the picker's suspenders: never submit a reference-based mode
@@ -1647,18 +1612,10 @@ export default function SeedanceStudio() {
         const problem = validate(mode, prompt, mediaByRole, selectedModel?.kind);
         if (problem) { setError(problem); return; }
 
-        // Per-output reference overrides (video, or the first-frame image) ride
-        // along for rehydration/registration, but each OUTPUT's request only
-        // carries its own swap — so aggregate limits (counts, summed durations,
-        // body size) check per output, not the combined pool.
-        const variantItems = collectVariantItems(mediaByRole, variantSlotFor(mode)?.role, batch);
-        const mediaItems = [...flattenMedia(mode, mediaByRole), ...variantItems];
+        const mediaItems = flattenMedia(mode, mediaByRole);
         if (mediaItems.some((m) => m.pending)) { setError('Wait for reference assets to finish registering into your library.'); return; }
-        for (let i = 0; i < batch; i++) {
-            const perOutput = itemsForOutput(mediaItems, i);
-            const aggProblem = validateAggregate(perOutput, selectedModel?.kind) || validateRequestSize(perOutput);
-            if (aggProblem) { setError(aggProblem); return; }
-        }
+        const aggProblem = validateAggregate(mediaItems, selectedModel?.kind) || validateRequestSize(mediaItems);
+        if (aggProblem) { setError(aggProblem); return; }
 
         // A DECLARED 2.5 edit/extend task needs a reference video, and an edit
         // only accepts 4–30s sources — the provider now validates the subtype
@@ -1803,59 +1760,51 @@ export default function SeedanceStudio() {
             return;
         }
 
-        // Build EVERY output's payload before launching ANY: output i may carry
-        // its own reference video (batch variants) — same prompt, same settings
-        // — and a build error must not leave the batch half-fired.
-        const is25 = selectedModel?.kind === 'full_2_5';
-        const launches = [];
-        for (let i = 0; i < batch; i++) {
-            const items = itemsForOutput(resolvedItems, i);
-            try {
-                // 2.5-only params ride along only when the model takes them: the
-                // declared omni-reference subtype (reference mode only — other
-                // modes have fixed roles that pin the task type) and the output
-                // container. 'auto' is the provider default; sending it anyway
-                // moves the constraint check to submit time, so send it whenever
-                // reference assets are attached.
-                const hasOmniRefs = items.some((m) => String(m.role || '').startsWith('reference_'));
-                const payloadOptions = {
-                    ...options,
-                    // A mov choice must not survive a switch to a model without the
-                    // param — null makes buildPayload skip the field entirely.
-                    output_format: is25 ? options.output_format : null,
-                    ...(is25 && hasOmniRefs && mode.id === 'reference' ? { omni_reference_task_type: options.taskType || 'auto' } : {}),
-                };
-                // Snapshot the attached reference assets (asset:// links live in
-                // the BytePlus library, so they stay reusable from history; data:
-                // URLs would bloat storage and are skipped). Powers the panel +
-                // Reuse — per output, so history shows the video THIS output used.
-                const refs = items
-                    .filter((m) => typeof m.url === 'string' && !m.url.startsWith('data:'))
-                    .map((m) => ({
-                        kind: m.kind,
-                        role: m.role,
-                        url: m.url,
-                        previewUrl: typeof m.previewUrl === 'string' && !m.previewUrl.startsWith('data:') ? m.previewUrl : null,
-                        name: m.name || null,
-                        assetId: m.assetId || null,
-                        tosKey: m.tosKey || null,
-                    }));
-                launches.push({
-                    payload: buildPayload({ options: payloadOptions, prompt: apiPrompt, mediaItems: items }),
-                    // Settings snapshot so Reuse can restore the full setup
-                    // (duration, aspect ratio, resolution, audio, …).
-                    creation: { modeId: mode.id, refs: refs.length ? refs : null, options: { ...options } },
-                });
-            } catch (e) {
-                setError(e.message);
-                return;
-            }
+        let payload;
+        try {
+            // 2.5-only params ride along only when the model takes them: the
+            // declared omni-reference subtype (reference mode only — other
+            // modes have fixed roles that pin the task type) and the output
+            // container. 'auto' is the provider default; sending it anyway
+            // moves the constraint check to submit time, so send it whenever
+            // reference assets are attached.
+            const is25 = selectedModel?.kind === 'full_2_5';
+            const hasOmniRefs = resolvedItems.some((m) => String(m.role || '').startsWith('reference_'));
+            const payloadOptions = {
+                ...options,
+                // A mov choice must not survive a switch to a model without the
+                // param — null makes buildPayload skip the field entirely.
+                output_format: is25 ? options.output_format : null,
+                ...(is25 && hasOmniRefs && mode.id === 'reference' ? { omni_reference_task_type: options.taskType || 'auto' } : {}),
+            };
+            payload = buildPayload({ options: payloadOptions, prompt: apiPrompt, mediaItems: resolvedItems });
+        } catch (e) {
+            setError(e.message);
+            return;
         }
+
+        // Snapshot the attached reference assets (asset:// links live in the
+        // BytePlus library, so they stay reusable from history; data: URLs
+        // would bloat storage and are skipped). Powers the panel + Reuse.
+        const refs = resolvedItems
+            .filter((m) => typeof m.url === 'string' && !m.url.startsWith('data:'))
+            .map((m) => ({
+                kind: m.kind,
+                role: m.role,
+                url: m.url,
+                previewUrl: typeof m.previewUrl === 'string' && !m.previewUrl.startsWith('data:') ? m.previewUrl : null,
+                name: m.name || null,
+                assetId: m.assetId || null,
+                tosKey: m.tosKey || null,
+            }));
+        // Snapshot the settings used for this generation so Reuse can restore
+        // the full setup (duration, aspect ratio, resolution, audio, …).
+        const creation = { modeId: mode.id, refs: refs.length ? refs : null, options: { ...options } };
 
         // Fire `batch` parallel generations (seed -1 → each gets its own random
         // seed). Registered assets are shared by the batch AND later submits
         // (resolveMediaRefs cache) — the age sweep cleans them up.
-        for (const l of launches) launchJob(l.payload, apiPrompt, promptMeta, l.creation);
+        for (let i = 0; i < batch; i++) launchJob(payload, apiPrompt, promptMeta, creation);
     };
 
     /* ── settings memory (survives a reload) ────────────────────────────── */
@@ -2085,7 +2034,6 @@ export default function SeedanceStudio() {
         setPrompt('');
         setMediaByRole({});
         setImageRefs([]);
-        setImageVariants({});
         setNotice(null);
         setConfirmClear(false);
     };
@@ -2517,7 +2465,6 @@ export default function SeedanceStudio() {
                 setBatch={setBatch}
                 onMediaError={setError}
                 onUploadFiles={onUploadFiles}
-                onUploadVariant={onUploadVariant}
                 mannequinSources={mannequinSources}
                 onImportMannequin={onImportMannequin}
                 tags={tags}
@@ -2530,9 +2477,6 @@ export default function SeedanceStudio() {
                 onUploadImageRefs={onUploadImageRefs}
                 removeImageRef={removeImageRef}
                 reorderImageRefs={reorderImageRefs}
-                imageVariants={imageVariants}
-                onUploadImageVariant={onUploadImageVariant}
-                removeImageVariant={removeImageVariant}
                 cinematic={cinematic}
                 onOpenCinematic={() => setShowCinematic(true)}
                 workflows={workflows}
