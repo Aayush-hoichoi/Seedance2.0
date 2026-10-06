@@ -14,6 +14,7 @@ const SECTIONS = [
     { id: 'video-models', label: 'Video models' },
     { id: 'image-models', label: 'Image models' },
     { id: 'modes', label: 'Generation modes' },
+    { id: 'prompting', label: 'Prompting Seedance' },
     { id: 'uploads', label: 'Upload limits' },
     { id: 'access', label: 'Getting access' },
     { id: 'budgets', label: 'Budgets & spending' },
@@ -61,6 +62,19 @@ export default function UserDocs() {
                 <DocSection id="modes" title="Generation modes"
                     lead="Select a mode to see what it does and exactly which inputs it needs. Combine it with a model to check compatibility — reference-based modes only run on the Seedance 2.0/2.5 family.">
                     <ModeExplorer />
+                </DocSection>
+
+                <DocSection id="prompting" title="Prompting Seedance — the official formulas"
+                    lead={<>How the model wants to be talked to, from the official BytePlus ModelArk Seedance documentation (<a href="https://docs.byteplus.com/en/docs/modelark/seedance-2-0" target="_blank" rel="noreferrer" className="text-accent-hi underline underline-offset-2">Seedance 2.0 tutorial</a> and prompt guide).</>}>
+                    <FactList items={[
+                        ['Naming your files', 'Refer to attachments as "Image 1", "Video 2", "Audio 1" — numbered by the order you attached them, counting from 1 per type. That is the only way the model knows which file you mean.'],
+                        ['Image reference', 'Formula: Reference / extract / combine [the subject] from Image n to generate [your scene], keeping the subject’s characteristics consistent. Images carry character look, visual style and composition.'],
+                        ['Video reference', 'Formula: Reference [the action / camera movement / effect] from Video n to generate [your scene], keeping it consistent. Videos carry subject, camera moves, performance and overall style.'],
+                        ['Audio reference', 'For a voice: [Character] says: "the lines", voice timbre references Audio 1. For music/sound: describe when it should appear + Audio n. Audio carries timbre, melody and dialogue.'],
+                        ['Editing a video', 'Adding: describe the element, when it appears and where. Deleting: name what goes AND spell out what must stay unchanged — it works much better. Replacing: just describe the swap ("Replace the cat in Video 1 with the lion from Image 1").'],
+                        ['Extending a video', 'Formula: Extend Video 1 forward/backward + what the new part shows. An extension normally contains only the tail of the original — say "…and then end with Video 1" if you want the original included. Stitching: Video 1 + transition + Video 2 + transition + Video 3 (max 3 clips on 2.0).'],
+                        ['First/last frame trick', 'In Multi reference you can ask for an image to be the first or last frame in the prompt — but if the frames must match exactly, use the dedicated Image → Video / First + Last frame modes instead.'],
+                    ]} />
                 </DocSection>
 
                 <DocSection id="uploads" title="Upload & reference limits"
@@ -152,6 +166,9 @@ export default function UserDocs() {
                         ['Prompting', 'Up to 5000 characters. The styled modes (Motion Capture, Green Screen, Performance Transfer, Mannequin, Customized) rewrite your prompt into a strict production brief automatically — describe what should change, the enhancer handles structure.'],
                         ['Ratios', 'On Seedance 2.5, video edits and first-frame tasks always inherit the input’s aspect ratio — the ratio picker is ignored for those. Pick "adaptive" when unsure.'],
                         ['Keep sources clean', 'Green-screen modes want a real green-screen plate. Reference videos must be 24–60 fps and inside the size limits above — the studio checks before spending.'],
+                        ['Real human faces', 'Seedance officially rejects reference images/videos containing real human faces uploaded directly. Use outputs generated under this platform’s account, digital characters, or properly authorized portrait assets — and if a legitimate production shot still gets flagged, that’s what the Sensitive Content model is for.'],
+                        ['4K playback', '4K output is 10-bit H.265/HEVC. If a 4K clip won’t play, it’s usually the player, not the file: use Safari (macOS) or VLC/mpv; Chrome and Edge need strong hardware decoding.'],
+                        ['Stretched or jumping frames', 'In Image → Video, stretching/compression jumps mean your input image’s dimensions don’t match the output resolution. Fix: crop the image to a supported size, or set the ratio to "adaptive" and regenerate.'],
                         ['Downloads', 'Download links expire after 7 days but the media is kept — revisit the gallery for a fresh link. The MuAPI-based /studio playground is separate: its output is not archived here.'],
                         ['Watermark', 'Off by default. It’s a per-generation Seedance option and doesn’t change the price.'],
                     ]} />
