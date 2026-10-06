@@ -11,7 +11,6 @@ import { MODES, RATIOS, RESOLUTIONS, IMAGE_RATIOS, IMAGE_STUDIO_ID, modeAllowedF
 import { estimateLabel, unitEstimate } from './estimateLabel.mjs';
 import { summarize as summarizeCinematic } from '../../lib/seedance/cinematic.mjs';
 import { filterTags, tagLabelFor, tagToken, TOKEN_RE } from '../../lib/seedance/tags.js';
-import { variantRole, variantSlotFor } from '../../lib/seedance/batchVariants.mjs';
 import { friendlyError } from '../../lib/seedance/friendlyError.js';
 import { moveItem } from '../../lib/seedance/reorder.mjs';
 import MediaHoverPreview from './MediaHoverPreview.jsx';
@@ -746,41 +745,40 @@ function MediaButtons({ mode, mediaByRole, setMediaByRole, disabled, onUploadFil
     );
 }
 
-// Per-output reference overrides, shown while batch ×N is selected: output #1
-// uses the refs attached to its left; each extra output can swap in its OWN
-// reference — a video in video modes, an image in image-driven and Image modes
-// — same prompt, same settings. Video-mode variants are parked in mediaByRole
-// under a synthetic `batch_variant_<k>` role (never a mode slot), so upload/
-// pending/drafts/Clear-all behave like any other reference; Image-mode ones
-// live in the studio's inline imageVariants map.
-function BatchVariantUploader({ batch, kind, itemFor, onUpload, onRemove }) {
+// Per-output reference-video overrides, shown while batch ×N is selected:
+// output #1 uses the refs attached to its left; each extra output can swap in
+// its OWN video — same prompt, same settings. Variants are parked in
+// mediaByRole under a synthetic `batch_variant_<k>` role (never a mode slot),
+// so upload/pending/drafts/Clear-all behave like any other reference.
+function BatchVariantUploader({ batch, mediaByRole, setMediaByRole, onUpload }) {
     const inputRef = useRef(null);
     const slotRef = useRef(1); // which output the open file dialog fills
     return (
         <div className="flex items-center gap-2 shrink-0 pl-2 border-l border-white/[0.08]">
             {Array.from({ length: batch - 1 }, (_, i) => i + 1).map((k) => {
-                const item = itemFor(k);
+                const role = `batch_variant_${k}`;
+                const item = (mediaByRole[role] || [])[0];
                 return item ? (
                     <Thumb
-                        key={k}
+                        key={role}
                         item={item}
                         badge={`#${k + 1}`}
-                        onRemove={() => onRemove(k)}
+                        onRemove={() => setMediaByRole((prev) => ({ ...prev, [role]: [] }))}
                     />
                 ) : (
                     <button
-                        key={k}
+                        key={role}
                         type="button"
-                        title={`Different reference ${kind} for output #${k + 1} — same prompt; this ${kind} replaces the main ${kind} for that output only`}
+                        title={`Different reference video for output #${k + 1} — same prompt; this video replaces the main video for that output only`}
                         onClick={() => { slotRef.current = k; inputRef.current?.click(); }}
                         className="relative w-10 h-10 shrink-0 rounded-full border bg-white/[0.03] border-white/[0.08] border-dashed hover:bg-white/10 hover:border-primary/50 flex items-center justify-center text-white/50 hover:text-primary transition-all"
                     >
-                        {kind === 'video' ? <FilmIcon /> : <ImageIcon />}
+                        <FilmIcon />
                         <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 px-1.5 py-0.5 bg-black/80 rounded-full text-[8px] font-black leading-none whitespace-nowrap pointer-events-none">#{k + 1}</span>
                     </button>
                 );
             })}
-            <input ref={inputRef} type="file" hidden accept={`${kind}/*`} onChange={(e) => { const f = e.target.files?.[0]; if (f) onUpload?.(slotRef.current, f); e.target.value = ''; }} />
+            <input ref={inputRef} type="file" hidden accept="video/*" onChange={(e) => { const f = e.target.files?.[0]; if (f) onUpload?.(slotRef.current, f); e.target.value = ''; }} />
         </div>
     );
 }
@@ -793,12 +791,11 @@ export default function PromptBar({
     mediaByRole, setMediaByRole, models, allowedModelIds, projectId, resolutions, selectedModel, lock25 = null, tierCaps = {}, pendingTiers = {},
     error, notice, setNotice, onClear = null, onGenerate, enhancing = false, batch = 1, setBatch,
     hasBarContent = false,
-    onMediaError, onUploadFiles, onUploadVariant, tags, sidebarLeft = '', barRef,
+    onMediaError, onUploadFiles, onUploadVariantVideo, tags, sidebarLeft = '', barRef,
     mannequinSources = [], onImportMannequin,
     mediaType = 'video', onChangeMediaType, imageModels = [],
     imageStudio = false, onChangeImageModel,
     imageRefs = [], onUploadImageRefs, removeImageRef, reorderImageRefs,
-    imageVariants = {}, onUploadImageVariant, removeImageVariant,
     cinematic = null, onOpenCinematic,
     projectStyle = null, styleLook = null, onChangeStyleLook,
     workflows = [], workflow = null, workflowAttached = null, workflowAccess = 'none', workflowsAdmin = false,
@@ -1056,31 +1053,13 @@ export default function PromptBar({
                         </div>
                     )}
                     {!isImage && <MediaButtons mode={mode} mediaByRole={mediaByRole} setMediaByRole={setMediaByRole} onUploadFiles={onUploadFiles} tags={allTags} />}
-                    {!isImage && batch > 1 && variantSlotFor(mode) && (
-                        <BatchVariantUploader
-                            batch={batch}
-                            kind={variantSlotFor(mode).kind}
-                            itemFor={(k) => (mediaByRole[variantRole(k)] || [])[0]}
-                            onUpload={onUploadVariant}
-                            onRemove={(k) => setMediaByRole((prev) => ({ ...prev, [variantRole(k)]: [] }))}
-                        />
+                    {!isImage && batch > 1 && !mode.autoMannequin && mode.media.some((s) => s.kind === 'video') && (
+                        <BatchVariantUploader batch={batch} mediaByRole={mediaByRole} setMediaByRole={setMediaByRole} onUpload={onUploadVariantVideo} />
                     )}
                     {!isImage && mode.id === 'mannequin' && mannequinSources.length > 0 && (
                         <MannequinImport sources={mannequinSources} onImport={onImportMannequin} />
                     )}
                     {isImage && <ImageRefUploader refs={imageRefs} onUpload={onUploadImageRefs} onRemove={removeImageRef} onReorder={reorderImageRefs} maxRefs={imageRefMax(options.model)} />}
-                    {isImage && batch > 1 && (
-                        <BatchVariantUploader
-                            batch={batch}
-                            kind="image"
-                            itemFor={(k) => {
-                                const v = imageVariants?.[k];
-                                return v ? { previewUrl: v.previewUrl, isImage: true, kind: 'image', name: v.name } : null;
-                            }}
-                            onUpload={onUploadImageVariant}
-                            onRemove={removeImageVariant}
-                        />
-                    )}
 
                     {/* Chip-rendered prompt: a backdrop paints the text (tokens as
                         cyan chips) behind a transparent-text textarea, so editing
