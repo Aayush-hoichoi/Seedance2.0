@@ -20,6 +20,7 @@ import { enhancePrompt } from '../../lib/seedance/enhance.js';
 import { friendlyError } from '../../lib/seedance/friendlyError.js';
 import { moveItem } from '../../lib/seedance/reorder.mjs';
 import { mediaItemFromUpload } from '../../lib/seedance/mediaItem.mjs';
+import { batchRole, batchMedia, mediaBatches, imageRefBatches } from '../../lib/seedance/refBatches.mjs';
 import { savePromptRecord, fetchPromptRecords, setLikeRecord, setBinRecord, deletePromptRecord } from '../../lib/seedance/promptsClient.js';
 import { uploadToCdn } from '../../lib/seedance/upload.js';
 import { validateMediaFile, greenScreenShare } from '../../lib/seedance/inspectMedia.js';
@@ -176,6 +177,11 @@ export default function SeedanceStudio() {
     const [batch, setBatch] = useState(1); // generations fired per Generate click
     const [mediaType, setMediaType] = useState('video'); // 'video' (Seedance) | 'image' (Nano Banana)
     const [imageRefs, setImageRefs] = useState([]); // Image-mode reference images (base64 inline parts for Gemini)
+    // Image-mode reference BATCHES: extra ref groups beyond imageRefs, one
+    // generation per group on Generate (video modes keep theirs in mediaByRole
+    // under synthetic batch<k>: keys — see lib/seedance/refBatches.mjs).
+    // Session-only: drafts persist the base imageRefs group, not these.
+    const [extraImageBatches, setExtraImageBatches] = useState([]);
     const [cinematic, setCinematic] = useState(null); // active Cinematic Cameras setup (image mode) or null = off
     const [showCinematic, setShowCinematic] = useState(false); // the cinematic camera modal
     const [selectedId, setSelectedId] = useState(null); // rail selection; null = follow newest
@@ -1247,14 +1253,17 @@ export default function SeedanceStudio() {
     // from the slot so first_frame/last_frame stay correct. The ModelArk Asset
     // Library is deliberately NOT used (its entry tier caps out at 50 assets);
     // `tosKey` lets history refs re-presign the URL forever via /api/byteplus/archive.
-    const registerInto = async (slot, { name, initialStatus, resolveUrl, metadata = {} }) => {
+    const registerInto = async (slot, { name, initialStatus, resolveUrl, metadata = {} }, batchK = 0) => {
         setError(null);
+        // Reference batch k≥1 parks its items under a synthetic key; the item
+        // itself keeps the real role (buildPayload reads item.role, not the key).
+        const roleKey = batchK ? batchRole(batchK, slot.role) : slot.role;
         const key = `pending-${pendingRef.current++}`;
         const placeholder = { kind: slot.kind, role: slot.role, url: '', name, isImage: slot.kind === 'image', pending: true, status: initialStatus, pendingKey: key };
-        setMediaByRole((prev) => ({ ...prev, [slot.role]: [...(prev[slot.role] || []), placeholder].slice(0, slot.max) }));
+        setMediaByRole((prev) => ({ ...prev, [roleKey]: [...(prev[roleKey] || []), placeholder].slice(0, slot.max) }));
 
-        const patch = (fn) => setMediaByRole((prev) => ({ ...prev, [slot.role]: (prev[slot.role] || []).map((m) => (m.pendingKey === key ? fn(m) : m)) }));
-        const drop = () => setMediaByRole((prev) => ({ ...prev, [slot.role]: (prev[slot.role] || []).filter((m) => m.pendingKey !== key) }));
+        const patch = (fn) => setMediaByRole((prev) => ({ ...prev, [roleKey]: (prev[roleKey] || []).map((m) => (m.pendingKey === key ? fn(m) : m)) }));
+        const drop = () => setMediaByRole((prev) => ({ ...prev, [roleKey]: (prev[roleKey] || []).filter((m) => m.pendingKey !== key) }));
 
         try {
             const up = await resolveUrl();
@@ -1266,16 +1275,18 @@ export default function SeedanceStudio() {
     };
 
     // Pick a local file → upload to TOS, then register that URL.
-    const onUploadFile = (slot, file, metadata) =>
-        registerInto(slot, { name: file.name, initialStatus: 'Uploading', resolveUrl: () => uploadToCdn(file), metadata });
+    const onUploadFile = (slot, file, metadata, batchK = 0) =>
+        registerInto(slot, { name: file.name, initialStatus: 'Uploading', resolveUrl: () => uploadToCdn(file), metadata }, batchK);
 
     // ONE picker for everything: route each selected file by its MIME type to the
     // mode's first open slot of that kind, validate against the Seedance limits,
     // then upload+register. Mirrors the ModelArk playground's "+ Image/Video/Audio".
-    const onUploadFiles = async (fileList) => {
+    // batchK ≥ 1 targets that reference batch's own slots instead of the base set.
+    const onUploadFiles = async (fileList, batchK = 0) => {
         const files = Array.from(fileList || []);
         if (!files.length) return;
-        const used = Object.fromEntries(mode.media.map((s) => [s.role, (mediaByRole[s.role] || []).length]));
+        const view = batchK ? batchMedia(mediaByRole, batchK) : mediaByRole;
+        const used = Object.fromEntries(mode.media.map((s) => [s.role, (view[s.role] || []).length]));
         for (const file of files) {
             const kind = file.type.startsWith('video/') ? 'video'
                 : file.type.startsWith('audio/') ? 'audio'
@@ -1314,7 +1325,7 @@ export default function SeedanceStudio() {
                 }
             }
             used[slot.role] += 1;
-            onUploadFile(slot, f, meta);
+            onUploadFile(slot, f, meta, batchK);
         }
     };
 
@@ -1430,25 +1441,48 @@ export default function SeedanceStudio() {
     // Image-mode reference images: downscaled to ~1024px JPEG, kept as base64
     // so they can go inline as {inlineData} parts. NOT persisted to the job /
     // localStorage (base64 would blow the quota) — send-time only.
+    const inlineRefsFrom = async (files) => {
+        const out = [];
+        for (const file of Array.from(files || []).filter((f) => f.type?.startsWith('image/'))) {
+            try { out.push({ name: file.name, ...(await downscaleForInline(file)) }); }
+            catch { /* unreadable image — skip */ }
+        }
+        return out;
+    };
     const onUploadImageRefs = async (files) => {
         const cap = imageRefMax(options.model); // Nano Banana Pro takes 14, Flash 3
-        const picked = Array.from(files || []).filter((f) => f.type?.startsWith('image/'));
-        for (const file of picked) {
-            if (imageRefs.length >= cap) break;
-            try {
-                const ref = await downscaleForInline(file);
-                setImageRefs((prev) => (prev.length >= cap ? prev : [...prev, { name: file.name, ...ref }]));
-            } catch { /* unreadable image — skip */ }
+        for (const ref of await inlineRefsFrom(files)) {
+            setImageRefs((prev) => (prev.length >= cap ? prev : [...prev, ref]));
         }
     };
     const removeImageRef = (i) => setImageRefs((prev) => prev.filter((_, idx) => idx !== i));
     const reorderImageRefs = (from, to) => setImageRefs((prev) => moveItem(prev, from, to));
+
+    // Image reference batches: a new group exists FROM its first upload (no
+    // empty-group state anywhere), and a group emptied by removes disappears —
+    // the generation count is always exactly the groups you can see.
+    const onAddImageBatch = async (files) => {
+        const refs = (await inlineRefsFrom(files)).slice(0, imageRefMax(options.model));
+        if (refs.length) setExtraImageBatches((prev) => [...prev, refs]);
+    };
+    const onUploadToImageBatch = async (i, files) => {
+        const cap = imageRefMax(options.model);
+        const refs = await inlineRefsFrom(files);
+        setExtraImageBatches((prev) => prev.map((g, j) => (j === i ? [...g, ...refs].slice(0, cap) : g)));
+    };
+    const editImageBatch = (i, fn) => setExtraImageBatches((prev) => prev
+        .map((g, j) => (j === i ? fn(g) : g))
+        .filter((g) => g.length));
+    const onRemoveFromImageBatch = (i, idx) => editImageBatch(i, (g) => g.filter((_, j) => j !== idx));
+    const onReorderImageBatch = (i, from, to) => editImageBatch(i, (g) => moveItem(g, from, to));
+    const onRemoveImageBatch = (i) => setExtraImageBatches((prev) => prev.filter((_, j) => j !== i));
 
     const changeMediaType = (t) => {
         setMediaType(t);
         setError(null);
         setNotice(null);
         setImageRefs([]);
+        setExtraImageBatches([]);
         if (t === 'image') {
             // Studio always runs on Nano Banana Pro; otherwise keep a valid image
             // model (falling back to the default when arriving from video).
@@ -1600,7 +1634,13 @@ export default function SeedanceStudio() {
                 setEnhancing(false);
                 if (polished) { structured = polished; meta = { userPrompt: raw }; }
             }
-            for (let i = 0; i < batch; i++) launchImageJob(structured, imageRefs, meta);
+            // One generation per reference batch (same prompt, that batch's
+            // refs); with a single batch the ×N selector decides the count.
+            const groups = imageRefBatches(imageRefs, extraImageBatches);
+            const perGroup = groups.length > 1 ? 1 : batch;
+            for (const refs of groups) {
+                for (let i = 0; i < perGroup; i++) launchImageJob(structured, refs, meta);
+            }
             return;
         }
         // Belt to the picker's suspenders: never submit a reference-based mode
@@ -1609,13 +1649,23 @@ export default function SeedanceStudio() {
             setError(`${selectedModel?.name || 'This model'} doesn't support ${mode.name} — switch the model to Seedance 2.0, or the mode to Text/Image → Video.`);
             return;
         }
-        const problem = validate(mode, prompt, mediaByRole, selectedModel?.kind);
-        if (problem) { setError(problem); return; }
+        // Every reference set this click submits: the mode's own slots first,
+        // then one per Add-batch group (same prompt and settings, one
+        // generation each). Every check below runs per set, so a half-filled
+        // batch is caught before anything is priced or launched.
+        const mediaSets = mediaBatches(mediaByRole);
+        const batchLabel = (i, msg) => (mediaSets.length > 1 && i > 0 ? `Batch ${i + 1} — ${msg}` : msg);
+        for (const [i, set] of mediaSets.entries()) {
+            const problem = validate(mode, prompt, set, selectedModel?.kind);
+            if (problem) { setError(batchLabel(i, problem)); return; }
+        }
 
-        const mediaItems = flattenMedia(mode, mediaByRole);
-        if (mediaItems.some((m) => m.pending)) { setError('Wait for reference assets to finish registering into your library.'); return; }
-        const aggProblem = validateAggregate(mediaItems, selectedModel?.kind) || validateRequestSize(mediaItems);
-        if (aggProblem) { setError(aggProblem); return; }
+        const itemSets = mediaSets.map((set) => flattenMedia(mode, set));
+        if (itemSets.flat().some((m) => m.pending)) { setError('Wait for reference assets to finish registering into your library.'); return; }
+        for (const [i, items] of itemSets.entries()) {
+            const aggProblem = validateAggregate(items, selectedModel?.kind) || validateRequestSize(items);
+            if (aggProblem) { setError(batchLabel(i, aggProblem)); return; }
+        }
 
         // A DECLARED 2.5 edit/extend task needs a reference video, and an edit
         // only accepts 4–30s sources — the provider now validates the subtype
@@ -1623,17 +1673,19 @@ export default function SeedanceStudio() {
         const declaredTask = selectedModel?.kind === 'full_2_5' && mode.id === 'reference' && options.taskType !== 'auto'
             ? options.taskType : null;
         if (declaredTask) {
-            const vids = mediaItems.filter((m) => m.kind === 'video');
-            if ((declaredTask === 'edit' || declaredTask === 'extend') && vids.length === 0) {
-                setError(`A video ${declaredTask} task needs at least one reference video — attach one or set Task back to Auto.`);
-                return;
-            }
-            const badClip = declaredTask === 'edit'
-                ? vids.find((m) => editClipDurationInvalid(m.durationSec))
-                : null;
-            if (badClip) {
-                setError(`${badClip.name || 'A reference clip'} is ${badClip.durationSec.toFixed(1)}s — video edits only accept 4–30s sources.`);
-                return;
+            for (const [i, items] of itemSets.entries()) {
+                const vids = items.filter((m) => m.kind === 'video');
+                if ((declaredTask === 'edit' || declaredTask === 'extend') && vids.length === 0) {
+                    setError(batchLabel(i, `A video ${declaredTask} task needs at least one reference video — attach one or set Task back to Auto.`));
+                    return;
+                }
+                const badClip = declaredTask === 'edit'
+                    ? vids.find((m) => editClipDurationInvalid(m.durationSec))
+                    : null;
+                if (badClip) {
+                    setError(batchLabel(i, `${badClip.name || 'A reference clip'} is ${badClip.durationSec.toFixed(1)}s — video edits only accept 4–30s sources.`));
+                    return;
+                }
             }
         }
 
@@ -1641,8 +1693,12 @@ export default function SeedanceStudio() {
         // API expects, then checked against what's actually attached.
         let apiPrompt = modeSupportsTags(mode) ? normalizePromptForApi(prompt) : prompt;
         if (modeSupportsTags(mode)) {
-            const refProblem = validatePromptReferences(apiPrompt, tags);
-            if (refProblem) { setError(refProblem); return; }
+            // The shared prompt's @Image1/@Video1 mentions must resolve in
+            // EVERY batch — each output binds them against its own refs.
+            for (const [i, set] of mediaSets.entries()) {
+                const refProblem = validatePromptReferences(apiPrompt, buildTags(mode, set));
+                if (refProblem) { setError(batchLabel(i, refProblem)); return; }
+            }
         }
 
         // Styled modes promise the source video's Bengali dialogue in the
@@ -1695,7 +1751,7 @@ export default function SeedanceStudio() {
         // A reused ref may point at an asset:// that per-batch cleanup already
         // deleted; re-source it from its TOS key first so the verification below
         // registers a live asset instead of shipping a dead id to ModelArk.
-        let resolvedItems = await rehydrateStaleAssetRefs(mediaItems);
+        let resolvedSets = await Promise.all(itemSets.map(rehydrateStaleAssetRefs));
 
         // Source media (images AND videos) must go through the Asset Library:
         // ModelArk's input scan rejects real-person footage/portraits referenced
@@ -1708,7 +1764,7 @@ export default function SeedanceStudio() {
         // the endpoint's own moderation accepts what the Library won't. Only a
         // clip that is BOTH sensitive AND shows a person fails on every path.
         const rawUrlFallback = !!MODELS.find((m) => m.id === options.model)?.rawUrlFallback;
-        if (resolvedItems.some((m) => (m.kind === 'image' || m.kind === 'video') && /^https?:/i.test(String(m.url)))) {
+        if (resolvedSets.flat().some((m) => (m.kind === 'image' || m.kind === 'video') && /^https?:/i.test(String(m.url)))) {
             setEnhancing(true);
             setNotice('Verifying reference media (takes ~30s)…');
             const register = (a) => registerAssetFromUrl({ ...a, project: activeProject });
@@ -1717,7 +1773,14 @@ export default function SeedanceStudio() {
                     ? { url: a.url, assetId: null }
                     : Promise.reject(e)));
             try {
-                resolvedItems = await resolveMediaRefs(resolvedItems, rawUrlFallback ? registerWithFallback : register);
+                // Sets resolve one after another so resolveMediaRefs's
+                // cross-submit cache dedups a ref shared between batches
+                // instead of racing two registrations of the same URL.
+                const out = [];
+                for (const items of resolvedSets) {
+                    out.push(await resolveMediaRefs(items, rawUrlFallback ? registerWithFallback : register));
+                }
+                resolvedSets = out;
             } catch (e) {
                 setError(`Reference verification failed — ${e.message}`);
                 return;
@@ -1732,7 +1795,10 @@ export default function SeedanceStudio() {
         // brief is the prompt, audio forced off. Feed the result to Mannequin
         // mode (via Reuse) to drive a character with it.
         if (mode.autoMannequin) {
-            const video = resolvedItems.find((m) => m.kind === 'video');
+            // Mannequin fires one fixed-brief job — reference batches don't
+            // apply (the Add-batch control is hidden for it), so only the base
+            // set matters here.
+            const video = resolvedSets[0].find((m) => m.kind === 'video');
             const snap = (items) => items
                 .filter((m) => typeof m.url === 'string' && !m.url.startsWith('data:'))
                 .map((m) => ({
@@ -1760,7 +1826,10 @@ export default function SeedanceStudio() {
             return;
         }
 
-        let payload;
+        // One payload + history snapshot PER reference set, all built before
+        // anything launches — a set that fails to build must not leave the
+        // sets before it already running.
+        const launches = [];
         try {
             // 2.5-only params ride along only when the model takes them: the
             // declared omni-reference subtype (reference mode only — other
@@ -1769,42 +1838,48 @@ export default function SeedanceStudio() {
             // moves the constraint check to submit time, so send it whenever
             // reference assets are attached.
             const is25 = selectedModel?.kind === 'full_2_5';
-            const hasOmniRefs = resolvedItems.some((m) => String(m.role || '').startsWith('reference_'));
-            const payloadOptions = {
-                ...options,
-                // A mov choice must not survive a switch to a model without the
-                // param — null makes buildPayload skip the field entirely.
-                output_format: is25 ? options.output_format : null,
-                ...(is25 && hasOmniRefs && mode.id === 'reference' ? { omni_reference_task_type: options.taskType || 'auto' } : {}),
-            };
-            payload = buildPayload({ options: payloadOptions, prompt: apiPrompt, mediaItems: resolvedItems });
+            for (const items of resolvedSets) {
+                const hasOmniRefs = items.some((m) => String(m.role || '').startsWith('reference_'));
+                const payloadOptions = {
+                    ...options,
+                    // A mov choice must not survive a switch to a model without the
+                    // param — null makes buildPayload skip the field entirely.
+                    output_format: is25 ? options.output_format : null,
+                    ...(is25 && hasOmniRefs && mode.id === 'reference' ? { omni_reference_task_type: options.taskType || 'auto' } : {}),
+                };
+                const payload = buildPayload({ options: payloadOptions, prompt: apiPrompt, mediaItems: items });
+
+                // Snapshot the attached reference assets (asset:// links live in the
+                // BytePlus library, so they stay reusable from history; data: URLs
+                // would bloat storage and are skipped). Powers the panel + Reuse.
+                const refs = items
+                    .filter((m) => typeof m.url === 'string' && !m.url.startsWith('data:'))
+                    .map((m) => ({
+                        kind: m.kind,
+                        role: m.role,
+                        url: m.url,
+                        previewUrl: typeof m.previewUrl === 'string' && !m.previewUrl.startsWith('data:') ? m.previewUrl : null,
+                        name: m.name || null,
+                        assetId: m.assetId || null,
+                        tosKey: m.tosKey || null,
+                    }));
+                // Snapshot the settings used for this generation so Reuse can restore
+                // the full setup (duration, aspect ratio, resolution, audio, …).
+                launches.push({ payload, creation: { modeId: mode.id, refs: refs.length ? refs : null, options: { ...options } } });
+            }
         } catch (e) {
             setError(e.message);
             return;
         }
 
-        // Snapshot the attached reference assets (asset:// links live in the
-        // BytePlus library, so they stay reusable from history; data: URLs
-        // would bloat storage and are skipped). Powers the panel + Reuse.
-        const refs = resolvedItems
-            .filter((m) => typeof m.url === 'string' && !m.url.startsWith('data:'))
-            .map((m) => ({
-                kind: m.kind,
-                role: m.role,
-                url: m.url,
-                previewUrl: typeof m.previewUrl === 'string' && !m.previewUrl.startsWith('data:') ? m.previewUrl : null,
-                name: m.name || null,
-                assetId: m.assetId || null,
-                tosKey: m.tosKey || null,
-            }));
-        // Snapshot the settings used for this generation so Reuse can restore
-        // the full setup (duration, aspect ratio, resolution, audio, …).
-        const creation = { modeId: mode.id, refs: refs.length ? refs : null, options: { ...options } };
-
-        // Fire `batch` parallel generations (seed -1 → each gets its own random
-        // seed). Registered assets are shared by the batch AND later submits
-        // (resolveMediaRefs cache) — the age sweep cleans them up.
-        for (let i = 0; i < batch; i++) launchJob(payload, apiPrompt, promptMeta, creation);
+        // One generation per reference set; with a single set the ×N selector
+        // decides instead (seed -1 → each gets its own random seed). Registered
+        // assets are shared by the batch AND later submits (resolveMediaRefs
+        // cache) — the age sweep cleans them up.
+        const perSet = launches.length > 1 ? 1 : batch;
+        for (const { payload, creation } of launches) {
+            for (let i = 0; i < perSet; i++) launchJob(payload, apiPrompt, promptMeta, creation);
+        }
     };
 
     /* ── settings memory (survives a reload) ────────────────────────────── */
@@ -1943,6 +2018,7 @@ export default function SeedanceStudio() {
         setPrompt(d?.prompt ?? '');
         setMediaByRole(d?.mediaByRole ?? {});
         setImageRefs(d?.imageRefs ?? []);
+        setExtraImageBatches([]); // image batches are session-only; video batches ride mediaByRole
         if (d) {
             setNotice(DRAFT_NOTICE);
             // Async: it may replace the banner above with a "reference is gone"
@@ -2009,6 +2085,7 @@ export default function SeedanceStudio() {
     // which reads $0.00 until there is something to actually generate.
     const hasBarContent = !!prompt.trim()
         || imageRefs.length > 0
+        || extraImageBatches.length > 0
         || Object.values(mediaByRole).some((items) => items?.length);
 
     // Clearing throws away uploads that took time to make, and the button sits
@@ -2020,6 +2097,7 @@ export default function SeedanceStudio() {
     // a generic "are you sure" the user has to translate.
     const clearSummary = () => {
         const refCount = imageRefs.length
+            + extraImageBatches.reduce((t, g) => t + g.length, 0)
             + Object.values(mediaByRole).reduce((t, items) => t + (items?.length || 0), 0);
         const parts = [];
         if (prompt.trim()) parts.push('your prompt');
@@ -2034,6 +2112,7 @@ export default function SeedanceStudio() {
         setPrompt('');
         setMediaByRole({});
         setImageRefs([]);
+        setExtraImageBatches([]);
         setNotice(null);
         setConfirmClear(false);
     };
@@ -2050,6 +2129,7 @@ export default function SeedanceStudio() {
         if (job.mediaType === 'image') {
             setMediaType('image');
             setImageRefs([]); // inline refs weren't persisted; user re-adds if needed
+            setExtraImageBatches([]);
             // Cinematic Studio if it carried a camera setup. It's its own model
             // now, so a Studio reuse resolves to IMAGE_STUDIO_MODEL_ID even for
             // pre-change jobs that were saved under 'nano-banana-pro'.
@@ -2236,7 +2316,6 @@ export default function SeedanceStudio() {
     // autoSelectedRef is still reset on project switch (see selectProject).
     const binnedJobs = scopedJobs.filter((j) => j.deleted);
     const activeCount = visibleJobs.filter((j) => ACTIVE_STATUSES.includes(j.status)).length;
-    const doneCount = visibleJobs.filter((j) => j.status === 'done' && j.videoUrl).length;
     // What plays big in the center: only an explicitly selected job (set by a
     // rail click, a fresh Generate, or an in-flight resume) — never auto-play
     // old history after a reload. A binned job never plays on the stage.
@@ -2477,6 +2556,12 @@ export default function SeedanceStudio() {
                 onUploadImageRefs={onUploadImageRefs}
                 removeImageRef={removeImageRef}
                 reorderImageRefs={reorderImageRefs}
+                extraImageBatches={extraImageBatches}
+                onAddImageBatch={onAddImageBatch}
+                onUploadToImageBatch={onUploadToImageBatch}
+                onRemoveFromImageBatch={onRemoveFromImageBatch}
+                onReorderImageBatch={onReorderImageBatch}
+                onRemoveImageBatch={onRemoveImageBatch}
                 cinematic={cinematic}
                 onOpenCinematic={() => setShowCinematic(true)}
                 workflows={workflows}
