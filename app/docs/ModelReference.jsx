@@ -62,7 +62,7 @@ function AccessBadge({ gated }) {
 // Gemini / OpenAI docs.
 const VIDEO_NOTES = {
     full_2_5: 'Highest tier. Up to 30s per clip, biggest multi-reference caps (30 images / 10 videos / 10 audio, audio can be used alone). Aspect ratio is inherited from your input on edit/extend and first-frame tasks — the picker is ignored there. 4K is not available on this tier.',
-    full: 'The full Seedance 2.0 tier — the only video tier with native 4K. Up to 15s per clip.',
+    full: 'The full Seedance 2.0 tier — the only video tier with native 4K. Up to 15s per clip. Official 4K output is 10-bit H.265/HEVC for professional/HDR work; 480p–1080p are 8-bit.',
     fast: 'Faster, cheaper variant of Seedance 2.0. Capped at 720p and 15s.',
     mini: 'The open default — no access request needed. Capped at 720p and 15s.',
     pro_1_5: 'Open tier for text→video and image→video only: no reference-based modes (Motion Capture, Green Screen, Mannequin, Customized, Multi reference are unavailable).',
@@ -112,6 +112,9 @@ export function VideoModelExplorer() {
                 <Row label="Aspect ratios">
                     {RATIOS.map((r) => <Tag key={r}>{r}</Tag>)}
                     {m.kind === 'full_2_5' && <div className="mt-1.5 flex items-start gap-1.5 text-xs text-ink-3"><Info size={12} className="mt-0.5 shrink-0" /> On Seedance 2.5, edit/extend tasks and first-frame tasks ignore the ratio picker — the output follows the input video/image.</div>}
+                </Row>
+                <Row label="Output format">
+                    MP4{m.supports4k ? ' — 8-bit color up to 1080p, 10-bit H.265/HEVC at 4K. 4K clips need a capable player: Safari (macOS) or VLC/mpv play them everywhere; Chrome/Edge need strong hardware decoding.' : ' — 8-bit color.'}
                 </Row>
                 <Row label="Reference modes">
                     {m.supportsReference !== false

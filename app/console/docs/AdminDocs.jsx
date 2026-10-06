@@ -85,6 +85,7 @@ export default function AdminDocs() {
                 lead="Console → Queue shows live jobs with cancel and per-project pause.">
                 <FactList items={[
                     ['Limits', 'Queue depth 500 pending per project; concurrency 50 per project and 50 per model (set high on purpose — the BytePlus account quota is the real limiter).'],
+                    ['Provider limits (official)', 'BytePlus caps Seedance 2.0 at 600 requests/min and 10 concurrent tasks per enterprise account for non-4K — but 4K is 15 requests/min and 1 concurrent task. Expect 4K jobs to serialize at the provider no matter what the gateway allows.'],
                     ['Ordering', 'Interactive before batch, then fairest project (fewest running), then oldest. Paused projects are skipped entirely.'],
                     ['Retries', 'Transient failures (429, 5xx, network) retry up to 3 times with 10s/40s/60s backoff; a job that never reached a provider gets one extra attempt. 4xx input/policy errors fail immediately. Timeouts: 30 min video, 5 min image.'],
                     ['Refusals are ledgered', 'Every refusal (pause, queue full, access, tier cap, quota) writes a rejected job row with the reason — nothing disappears silently.'],
