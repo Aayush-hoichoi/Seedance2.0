@@ -55,6 +55,20 @@ test('a data: previewUrl is dropped while its durable url is kept', () => {
     assert.equal(d.mediaByRole.reference_images[0].url, 'asset://abc');
 });
 
+test('reference batches survive the round trip under their synthetic keys', () => {
+    const d = roundTrip(7, {
+        prompt: 'p',
+        mediaByRole: {
+            reference_images: [vref({ name: 'base.jpg' })],
+            'batch2:reference_images': [vref({ name: 'b2.jpg' })],
+        },
+    });
+    assert.equal(d.mediaByRole.reference_images[0].name, 'base.jpg');
+    assert.equal(d.mediaByRole['batch2:reference_images'].length, 1);
+    // The restored ITEM carries the real role buildPayload expects, not the key.
+    assert.equal(d.mediaByRole['batch2:reference_images'][0].role, 'reference_images');
+});
+
 test('references land clamped to the live slot, and vanished slots are skipped', () => {
     const d = roundTrip(7, {
         prompt: 'p',

@@ -10,7 +10,8 @@ import { Lock } from 'lucide-react';
 import { MODES, RATIOS, RESOLUTIONS, IMAGE_RATIOS, IMAGE_STUDIO_ID, modeAllowedForModel, resolutionWithinTier, imageRefMax, durationMaxFor, ratioIsInherited, imageResolutionsFor } from '../../lib/seedance/constants.js';
 import { estimateLabel, unitEstimate } from './estimateLabel.mjs';
 import { summarize as summarizeCinematic } from '../../lib/seedance/cinematic.mjs';
-import { filterTags, tagLabelFor, tagToken, TOKEN_RE } from '../../lib/seedance/tags.js';
+import { buildTags, filterTags, tagLabelFor, tagToken, TOKEN_RE } from '../../lib/seedance/tags.js';
+import { batchIndices, batchMedia, withBatchMedia, nextBatchIndex, MAX_OUTPUTS } from '../../lib/seedance/refBatches.mjs';
 import { friendlyError } from '../../lib/seedance/friendlyError.js';
 import { moveItem } from '../../lib/seedance/reorder.mjs';
 import MediaHoverPreview from './MediaHoverPreview.jsx';
@@ -745,6 +746,50 @@ function MediaButtons({ mode, mediaByRole, setMediaByRole, disabled, onUploadFil
     );
 }
 
+// "Add batch": start another COMPLETE reference set — same prompt and
+// settings, one extra generation per set. A batch is born from the files it is
+// created with (no empty-batch state to carry); its row then has its own "+".
+function AddBatchButton({ accept, title, onFiles }) {
+    const inputRef = useRef(null);
+    return (
+        <>
+            <input ref={inputRef} type="file" hidden accept={accept} multiple onChange={(e) => { onFiles?.(e.target.files); e.target.value = ''; }} />
+            <button
+                type="button"
+                title={title}
+                onClick={() => inputRef.current?.click()}
+                className="h-10 px-3 shrink-0 rounded-full border bg-white/[0.03] border-white/[0.08] border-dashed hover:bg-white/10 hover:border-primary/50 flex items-center gap-1.5 text-white/50 hover:text-primary transition-all"
+            >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+                <span className="text-[11px] font-semibold">Add batch</span>
+            </button>
+        </>
+    );
+}
+
+// One extra reference batch: a numbered row carrying the same reference strip
+// as the main row, plus a remove for the whole batch (and its output).
+function BatchRow({ n, onRemove, children }) {
+    return (
+        <div className="flex items-start gap-2 px-1 pt-2 border-t border-dashed border-white/[0.06]">
+            <span
+                className="shrink-0 mt-2.5 px-1.5 py-0.5 rounded-md bg-primary/10 text-primary text-[9px] font-black uppercase tracking-wide whitespace-nowrap"
+                title={`Output ${n} is generated from this batch's references — same prompt and settings`}
+            >
+                Batch {n}
+            </span>
+            {children}
+            <button
+                type="button"
+                onClick={onRemove}
+                aria-label={`Remove batch ${n}`}
+                title="Remove this batch and its output"
+                className="ml-auto shrink-0 mt-2 w-5 h-5 rounded-full text-white/35 hover:text-danger hover:bg-danger/10 transition-colors text-sm leading-none"
+            >×</button>
+        </div>
+    );
+}
+
 /* ── the bar ────────────────────────────────────────────────────────────── */
 const BATCH_OPTIONS = [1, 2 /* , 4 — capped at ×2 for now; uncomment to bring ×4 back */];
 
@@ -758,6 +803,7 @@ export default function PromptBar({
     mediaType = 'video', onChangeMediaType, imageModels = [],
     imageStudio = false, onChangeImageModel,
     imageRefs = [], onUploadImageRefs, removeImageRef, reorderImageRefs,
+    extraImageBatches = [], onAddImageBatch, onUploadToImageBatch, onRemoveFromImageBatch, onReorderImageBatch, onRemoveImageBatch,
     cinematic = null, onOpenCinematic,
     projectStyle = null, styleLook = null, onChangeStyleLook,
     workflows = [], workflow = null, workflowAttached = null, workflowAccess = 'none', workflowsAdmin = false,
@@ -771,6 +817,18 @@ export default function PromptBar({
     // rather than shown with a value that gets discarded. Any attached video
     // counts: the model decides edit vs generate while it renders.
     const hasVideoRefAttached = (mode?.media || []).some((slot) => slot.kind === 'video' && (mediaByRole[slot.role] || []).length > 0);
+
+    // Reference batches: every batch beyond the first adds one output per
+    // Generate click; with extra batches present the ×N selector gives way —
+    // the row count IS the generation count.
+    const videoBatchKs = batchIndices(mediaByRole);
+    const outputCount = 1 + (isImage ? extraImageBatches.length : videoBatchKs.length);
+    const effectiveBatch = outputCount > 1 ? outputCount : batch;
+    // MediaButtons edits a batch through its own {role: items} view; writes go
+    // back under the synthetic batch<k>: keys (object or updater, like setState).
+    const setBatchView = (k) => (next) => setMediaByRole((prev) => (
+        withBatchMedia(prev, k, typeof next === 'function' ? next(batchMedia(prev, k)) : next)
+    ));
     const ratioInherited = !isImage && ratioIsInherited({
         modelId: options.model,
         hasVideoRef: hasVideoRefAttached,
@@ -964,7 +1022,10 @@ export default function PromptBar({
     // the EXPANDED height. Reporting the docked pill's height would shrink the
     // page, un-scroll it, undock the bar and oscillate.
     if (docked) {
-        const attached = mode.media.reduce((n, s) => n + (mediaByRole[s.role] || []).length, 0);
+        // Counts every batch's references (image mode: the inline groups).
+        const attached = isImage
+            ? imageRefs.length + extraImageBatches.reduce((n, g) => n + g.length, 0)
+            : Object.values(mediaByRole).reduce((n, items) => n + (items?.length || 0), 0);
         return (
             <div className={`fixed bottom-[var(--bar-bottom,1rem)] left-0 right-0 ${sidebarLeft} mx-auto w-[95%] max-w-xl z-40 animate-fade-in-up`}>
                 <button
@@ -1015,10 +1076,25 @@ export default function PromptBar({
                         </div>
                     )}
                     {!isImage && <MediaButtons mode={mode} mediaByRole={mediaByRole} setMediaByRole={setMediaByRole} onUploadFiles={onUploadFiles} tags={allTags} />}
+                    {!isImage && !mode.autoMannequin && mode.media.length > 0 && outputCount < MAX_OUTPUTS
+                        && mode.media.some((s) => (mediaByRole[s.role] || []).length > 0) && (
+                        <AddBatchButton
+                            accept={[...new Set(mode.media.map((s) => s.kind))].map((k) => ACCEPT[k]).join(',')}
+                            title="Add a reference batch — another complete reference set generated with the same prompt, one more output per click"
+                            onFiles={(files) => onUploadFiles?.(files, nextBatchIndex(mediaByRole))}
+                        />
+                    )}
                     {!isImage && mode.id === 'mannequin' && mannequinSources.length > 0 && (
                         <MannequinImport sources={mannequinSources} onImport={onImportMannequin} />
                     )}
                     {isImage && <ImageRefUploader refs={imageRefs} onUpload={onUploadImageRefs} onRemove={removeImageRef} onReorder={reorderImageRefs} maxRefs={imageRefMax(options.model)} />}
+                    {isImage && imageRefs.length > 0 && outputCount < MAX_OUTPUTS && (
+                        <AddBatchButton
+                            accept="image/*"
+                            title="Add a reference batch — another set of reference images generated with the same prompt, one more output per click"
+                            onFiles={(files) => onAddImageBatch?.(files)}
+                        />
+                    )}
 
                     {/* Chip-rendered prompt: a backdrop paints the text (tokens as
                         cyan chips) behind a transparent-text textarea, so editing
@@ -1076,6 +1152,32 @@ export default function PromptBar({
                         className="shrink-0 self-start mt-1.5 p-1.5 rounded-lg text-white/40 hover:text-white transition-colors"
                     />
                 </div>
+
+                {/* Reference batches: each row is a COMPLETE reference set for one
+                    extra output — Generate fires one generation per row, all with
+                    the same prompt and settings. */}
+                {!isImage && videoBatchKs.map((k, i) => (
+                    <BatchRow key={k} n={i + 2} onRemove={() => setMediaByRole((prev) => withBatchMedia(prev, k, {}))}>
+                        <MediaButtons
+                            mode={mode}
+                            mediaByRole={batchMedia(mediaByRole, k)}
+                            setMediaByRole={setBatchView(k)}
+                            onUploadFiles={(files) => onUploadFiles?.(files, k)}
+                            tags={buildTags(mode, batchMedia(mediaByRole, k))}
+                        />
+                    </BatchRow>
+                ))}
+                {isImage && extraImageBatches.map((g, i) => (
+                    <BatchRow key={i} n={i + 2} onRemove={() => onRemoveImageBatch?.(i)}>
+                        <ImageRefUploader
+                            refs={g}
+                            onUpload={(files) => onUploadToImageBatch?.(i, files)}
+                            onRemove={(idx) => onRemoveFromImageBatch?.(i, idx)}
+                            onReorder={(from, to) => onReorderImageBatch?.(i, from, to)}
+                            maxRefs={imageRefMax(options.model)}
+                        />
+                    </BatchRow>
+                ))}
 
                 {/* error (red) / notice (amber) — descriptive hint line was removed to declutter the bar */}
                 {error && (
@@ -1357,15 +1459,17 @@ export default function PromptBar({
                                 isImage, model: selectedModel, imageModel: selectedImageModel,
                                 options, hasVideoInput: hasVideoRefAttached,
                             });
-                            const label = estimateLabel({ unitUsd: est, batch, hasContent: hasBarContent });
+                            const label = estimateLabel({ unitUsd: est, batch: effectiveBatch, hasContent: hasBarContent });
                             return label ? (
                                 <span className="shrink-0 text-[11px] font-semibold tabular-nums text-white/35 pr-1" title={label.title}>
                                     {label.text}
                                 </span>
                             ) : null;
                         })()}
-                        {/* Batch: fire 1 / 2 / 4 parallel generations per click */}
-                        {setBatch && (
+                        {/* Batch: fire 1 / 2 / 4 parallel generations per click.
+                            With reference batches attached the row count IS the
+                            generation count, so the selector steps aside. */}
+                        {setBatch && outputCount === 1 && (
                             <div className="flex items-center shrink-0 self-stretch rounded-md border border-white/[0.06] overflow-hidden" title="How many generations to start per click">
                                 {BATCH_OPTIONS.map((n) => (
                                     <button
@@ -1386,7 +1490,7 @@ export default function PromptBar({
                             {enhancing ? (
                                 <><span className="animate-spin inline-block">◌</span> Structuring prompt…</>
                             ) : (
-                                batch > 1 ? `Generate ×${batch}` : 'Generate'
+                                effectiveBatch > 1 ? `Generate ×${effectiveBatch}` : 'Generate'
                             )}
                         </button>
                     </div>
