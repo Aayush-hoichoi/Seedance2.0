@@ -46,15 +46,19 @@ export async function GET(request) {
         if (params.get('mine')) {
             const before = params.get('before') || null;
             if (before && before.length > 40) return NextResponse.json({ error: 'Invalid cursor.' }, { status: 400 });
+            // Tiebreaker half of the cursor (the last row's task_id): without
+            // it, rows sharing the boundary timestamp — batch ×N — got skipped.
+            const beforeId = params.get('beforeId') || null;
+            if (beforeId && beforeId.length > 200) return NextResponse.json({ error: 'Invalid cursor.' }, { status: 400 });
             // Callers on slow networks (the tools' studio picker) ask for small
             // pages via ?limit=; the studio history rail keeps the 200 default.
             const limit = positiveInteger(params.get('limit'));
             if (limit === undefined) return NextResponse.json({ error: 'Invalid limit.' }, { status: 400 });
             const size = Math.min(limit || 200, 200);
-            const rows = await listUserGenerations(user.userId, size, before);
+            const rows = await listUserGenerations(user.userId, size, before, null, beforeId);
             // A full page means there may be older rows — hand back a cursor.
-            const nextBefore = rows.length === size ? rows[rows.length - 1].created_at : null;
-            return NextResponse.json({ items: rows.map(toItem), nextBefore });
+            const last = rows.length === size ? rows[rows.length - 1] : null;
+            return NextResponse.json({ items: rows.map(toItem), nextBefore: last?.created_at ?? null, nextBeforeId: last?.task_id ?? null });
         }
         if (params.get('liked')) {
             const rows = await listLikedGenerations(user.userId);
@@ -75,6 +79,8 @@ export async function GET(request) {
         if (target.length > 200) return NextResponse.json({ error: 'Invalid user id.' }, { status: 400 });
         const before = params.get('before') || null;
         if (before && before.length > 40) return NextResponse.json({ error: 'Invalid cursor.' }, { status: 400 });
+        const beforeId = params.get('beforeId') || null;
+        if (beforeId && beforeId.length > 200) return NextResponse.json({ error: 'Invalid cursor.' }, { status: 400 });
         const projectId = positiveInteger(params.get('project'));
         if (projectId === undefined) return NextResponse.json({ error: 'Invalid project id.' }, { status: 400 });
         const limit = positiveInteger(params.get('limit'));
@@ -82,7 +88,7 @@ export async function GET(request) {
         const size = Math.min(limit || PAGE, PAGE);
 
         const [rows, projectRows] = await Promise.all([
-            listUserGenerations(target, size, before, projectId),
+            listUserGenerations(target, size, before, projectId, beforeId),
             listUserGenerationProjects(target),
         ]);
         const projects = projectRows
@@ -97,8 +103,8 @@ export async function GET(request) {
         const total = projectId == null
             ? projectRows.reduce((sum, row) => sum + Number(row.generations), 0)
             : projects.find((project) => project.id === projectId)?.generations ?? 0;
-        const nextBefore = rows.length === size ? rows[rows.length - 1].created_at : null;
-        return NextResponse.json({ items: rows.map(toItem), projects, total, nextBefore });
+        const last = rows.length === size ? rows[rows.length - 1] : null;
+        return NextResponse.json({ items: rows.map(toItem), projects, total, nextBefore: last?.created_at ?? null, nextBeforeId: last?.task_id ?? null });
     } catch (e) {
         console.error('[gallery] failed:', e.message);
         return NextResponse.json({ error: 'Could not load the gallery.' }, { status: 502 });

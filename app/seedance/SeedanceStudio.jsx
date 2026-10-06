@@ -641,20 +641,6 @@ export default function SeedanceStudio() {
         }
     };
 
-    // One-time backfill: history created before project tagging has no
-    // projectId. All of it predates project separation (single Default
-    // project), so stamp it onto the home project (the oldest — projects[0]).
-    useEffect(() => {
-        if (!projects.length) return;
-        const home = projects[0].id;
-        setJobs((prev) => {
-            if (!prev.some((j) => j.projectId == null)) return prev;
-            const next = prev.map((j) => (j.projectId == null ? { ...j, projectId: home } : j));
-            saveJobs(next);
-            return next;
-        });
-    }, [projects]);
-
     // The active project as an object (id + name), for routing reference
     // assets into that project's own BytePlus group. null when no project.
     const activeProject = useMemo(
@@ -1228,16 +1214,20 @@ export default function SeedanceStudio() {
         };
         (async () => {
             let before = null;
+            let beforeId = null;
             // ponytail: sequential 200-row pages, 50-page (10k) safety cap —
             // switch to on-scroll fetching if rails ever grow past that.
             for (let page = 0; page < 50; page += 1) {
-                const url = before ? `/api/gallery?mine=1&before=${encodeURIComponent(before)}` : '/api/gallery?mine=1';
-                const r = await fetch(url);
+                const qs = new URLSearchParams({ mine: '1' });
+                if (before) qs.set('before', before);
+                if (beforeId) qs.set('beforeId', beforeId);
+                const r = await fetch(`/api/gallery?${qs}`);
                 if (!r.ok) return;
                 const d = await r.json();
                 const items = Array.isArray(d?.items) ? d.items : [];
                 if (items.length) mergeMine(items);
                 before = d?.nextBefore || null;
+                beforeId = d?.nextBeforeId || null;
                 if (!before) return;
             }
         })().catch(() => { /* DB history unavailable: ModelArk merge + local still work */ });
@@ -2266,12 +2256,13 @@ export default function SeedanceStudio() {
 
     // Binned jobs stay in `jobs` (so they persist + can be restored) but are
     // hidden from every main view. The Bin tab in the Assets overlay shows them.
-    // History is scoped strictly to the active project so nothing flashes in
-    // and gets culled. Until the projects fetch resolves we render no jobs at
-    // all (projectsLoaded gate); legacy untagged jobs are backfilled to the
-    // home project (effect above), so by first paint every job has a project.
+    // History is scoped to the active project. Until the projects fetch
+    // resolves we render no jobs at all (projectsLoaded gate). A job with NO
+    // project tag (legacy history, or a fail-open row the gateway never
+    // tagged) shows in EVERY project's rail — the old strict match made those
+    // jobs invisible in all projects, which read as "my generations are gone".
     // projectId == null only when there's no gateway/project at all → show all.
-    const belongsToProject = (j) => projectId == null || j.projectId === projectId;
+    const belongsToProject = (j) => projectId == null || j.projectId == null || j.projectId === projectId;
     const scopedJobs = projectsLoaded ? jobs.filter(belongsToProject) : [];
     const visibleJobs = scopedJobs.filter((j) => !j.deleted);
 

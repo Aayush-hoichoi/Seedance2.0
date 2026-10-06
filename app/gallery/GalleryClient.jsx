@@ -69,7 +69,7 @@ export default function GalleryClient() {
                 setItems(d.items || []);
                 setProjects(d.projects || []);
                 setTotal(Number(d.total) || 0);
-                setNextBefore(d.nextBefore || null);
+                setNextBefore(d.nextBefore ? { before: d.nextBefore, beforeId: d.nextBeforeId || null } : null);
             })
             .catch((e) => { if (alive) { setError(e.message); setItems([]); } });
         return () => { alive = false; };
@@ -123,7 +123,7 @@ export default function GalleryClient() {
             const data = await response.json();
             if (requestKeyRef.current !== requestKey) return;
             setItems((current) => [...(current || []), ...(data.items || [])]);
-            setNextBefore(data.nextBefore || null);
+            setNextBefore(data.nextBefore ? { before: data.nextBefore, beforeId: data.nextBeforeId || null } : null);
         } catch (e) {
             if (requestKeyRef.current === requestKey) setError(e.message);
         } finally {
@@ -319,10 +319,12 @@ export default function GalleryClient() {
     );
 }
 
-function galleryUrl(userId, projectId = '', before = null) {
+// cursor = { before, beforeId } straight from the API's nextBefore/nextBeforeId.
+function galleryUrl(userId, projectId = '', cursor = null) {
     const params = new URLSearchParams({ user: userId });
     if (projectId) params.set('project', projectId);
-    if (before) params.set('before', before);
+    if (cursor?.before) params.set('before', cursor.before);
+    if (cursor?.beforeId) params.set('beforeId', cursor.beforeId);
     return `/api/gallery?${params.toString()}`;
 }
 

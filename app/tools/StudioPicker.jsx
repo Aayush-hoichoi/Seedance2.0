@@ -14,12 +14,15 @@ import { Film, X } from 'lucide-react';
 // prompts + presigned URLs, so the old single 200-row response was hundreds
 // of KB and often failed to load before the dialog was dismissed.
 const PAGE = 24;
-const pickerUrl = (creator, before) => {
+// cursor = { before, beforeId } straight from the API's nextBefore/nextBeforeId.
+const pickerUrl = (creator, cursor) => {
     const params = new URLSearchParams(creator === 'mine' ? { mine: '1' } : { user: creator });
     params.set('limit', String(PAGE));
-    if (before) params.set('before', before);
+    if (cursor?.before) params.set('before', cursor.before);
+    if (cursor?.beforeId) params.set('beforeId', cursor.beforeId);
     return `/api/gallery?${params.toString()}`;
 };
+const nextCursor = (d) => (d.nextBefore ? { before: d.nextBefore, beforeId: d.nextBeforeId || null } : null);
 
 export default function StudioPicker({ onClose, onPick }) {
     const [creators, setCreators] = useState([]);
@@ -53,7 +56,7 @@ export default function StudioPicker({ onClose, onPick }) {
             .then((d) => {
                 if (!alive) return;
                 setItems((d.items || []).filter((it) => it.mediaType === 'video' && it.archiveUrl && it.status === 'succeeded'));
-                setNextBefore(d.nextBefore || null);
+                setNextBefore(nextCursor(d));
             })
             .catch((e) => { if (alive) setError(e.message); });
         return () => { alive = false; };
@@ -70,7 +73,7 @@ export default function StudioPicker({ onClose, onPick }) {
             const d = await r.json();
             if (forCreator !== creatorRef.current) return;
             setItems((prev) => [...(prev || []), ...(d.items || []).filter((it) => it.mediaType === 'video' && it.archiveUrl && it.status === 'succeeded')]);
-            setNextBefore(d.nextBefore || null);
+            setNextBefore(nextCursor(d));
         } catch (e) {
             if (forCreator === creatorRef.current) setError(e.message);
         } finally {

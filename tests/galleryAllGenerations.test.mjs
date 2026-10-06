@@ -87,6 +87,47 @@ test('a multi-image job exposes every stored image, not just the first', async (
         ['images/job-1-0.png', 'images/job-1-1.png', 'images/job-1-2.png', 'images/job-1-3.png']);
 });
 
+test('paging never skips rows that share a timestamp (batch ×N)', async () => {
+    const { sql } = await freshDb();
+    const body = JSON.stringify({ category: 'video', prompt: 'batch shot', options: { resolution: '720p' } });
+    // Five jobs, one started_at to the microsecond — exactly what a batch ×5
+    // submit produces. The old cursor (created_at < before, no tiebreaker)
+    // dropped every tied row at a page boundary.
+    for (let i = 0; i < 5; i += 1) {
+        await sql`INSERT INTO jobs (project_id, user_id, model_id, priority, status, request_body, provider_task_id, started_at)
+            VALUES (33, 'u1', 'seedance-2.0', 'batch', 'succeeded', ${body}::jsonb, ${'cgt-tied-' + i}, '2026-10-06T10:00:00Z')`;
+    }
+
+    const seen = [];
+    let before = null;
+    let beforeId = null;
+    for (let page = 0; page < 10; page += 1) {
+        const rows = await queryUserGenerations(sql, { userId: 'u1', limit: 2, before, beforeId });
+        if (!rows.length) break;
+        seen.push(...rows.map((r) => r.task_id));
+        if (rows.length < 2) break;
+        before = rows[rows.length - 1].created_at;
+        beforeId = rows[rows.length - 1].task_id;
+    }
+    assert.deepEqual(seen.sort(), ['cgt-tied-0', 'cgt-tied-1', 'cgt-tied-2', 'cgt-tied-3', 'cgt-tied-4']);
+    assert.equal(new Set(seen).size, 5, 'no row is returned twice either');
+});
+
+test('an image job stored without a TOS key (url-only result) still reaches history', async () => {
+    const { sql } = await freshDb();
+    const body = JSON.stringify({ category: 'image', prompt: 'storage fell back to url', options: { imageSize: '2K' } });
+    // storage.mjs pushes { url } when the TOS PUT fails or ARK creds are
+    // missing — the view used to require a key, hiding the job forever.
+    const result = JSON.stringify({ images: [{ url: 'https://provider.example/img.png' }] });
+    await sql`INSERT INTO jobs (project_id, user_id, model_id, priority, status, request_body, result, started_at)
+        VALUES (33, 'u1', 'nano-banana', 'interactive', 'succeeded', ${body}::jsonb, ${result}::jsonb, now())`;
+
+    const rows = await queryUserGenerations(sql, { userId: 'u1' });
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].category, 'image');
+    assert.equal(rows[0].images[0].url, 'https://provider.example/img.png');
+});
+
 test('a fail-open generation (usage_events only, no jobs row) still reaches history', async () => {
     const { sql } = await freshDb();
     // The gateway path: normal job with a provider task id.
