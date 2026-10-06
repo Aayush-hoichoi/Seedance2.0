@@ -20,7 +20,7 @@ import { enhancePrompt } from '../../lib/seedance/enhance.js';
 import { friendlyError } from '../../lib/seedance/friendlyError.js';
 import { moveItem } from '../../lib/seedance/reorder.mjs';
 import { mediaItemFromUpload } from '../../lib/seedance/mediaItem.mjs';
-import { variantRole, collectVariantItems, itemsForOutput } from '../../lib/seedance/batchVariants.mjs';
+import { variantRole, variantSlotFor, collectVariantItems, itemsForOutput, imageRefsForOutput } from '../../lib/seedance/batchVariants.mjs';
 import { savePromptRecord, fetchPromptRecords, setLikeRecord, setBinRecord, deletePromptRecord } from '../../lib/seedance/promptsClient.js';
 import { uploadToCdn } from '../../lib/seedance/upload.js';
 import { validateMediaFile, greenScreenShare } from '../../lib/seedance/inspectMedia.js';
@@ -1280,18 +1280,24 @@ export default function SeedanceStudio() {
     const onUploadFile = (slot, file, metadata) =>
         registerInto(slot, { name: file.name, initialStatus: 'Uploading', resolveUrl: () => uploadToCdn(file), metadata });
 
-    // Per-output override (batch ×N): a different reference video for output
-    // k+1. Validated like any reference video, then parked under a synthetic
-    // role — flattenMedia ignores it; the generate loop swaps it in for its
-    // output's primary video (same prompt, same settings).
-    const onUploadVariantVideo = async (k, file) => {
-        if (!file.type.startsWith('video/')) { setError(`${file.name}: attach a video file.`); return; }
+    // Per-output override (batch ×N): a different reference for output k+1 —
+    // a video in video-reference modes, the first-frame image in image-driven
+    // modes. Validated like any reference, then parked under a synthetic role —
+    // flattenMedia ignores it; the generate loop swaps it in for its output's
+    // primary reference (same prompt, same settings).
+    const onUploadVariant = async (k, file) => {
+        const slot = variantSlotFor(mode);
+        if (!slot) return;
+        if (!file.type.startsWith(`${slot.kind}/`)) { setError(`${file.name}: attach a ${slot.kind} file.`); return; }
+        const f = slot.kind === 'image' ? await fitImageToLimits(file) : file;
         const effectiveTaskType = mode.id === 'reference' ? (options.taskType || 'auto') : 'auto';
-        const { error: invalid, meta } = await validateMediaFile('video', file, MODELS.find((m) => m.id === options.model)?.kind ?? null, effectiveTaskType);
+        const { error: invalid, meta } = await validateMediaFile(slot.kind, f, MODELS.find((m) => m.id === options.model)?.kind ?? null, effectiveTaskType);
         if (invalid) { setError(invalid); return; }
-        const warn = editClipWarning(selectedModel?.kind, meta?.durationSec, file.name);
-        if (warn) setNotice(warn);
-        onUploadFile({ kind: 'video', role: variantRole(k), max: 1 }, file, meta);
+        if (slot.kind === 'video') {
+            const warn = editClipWarning(selectedModel?.kind, meta?.durationSec, f.name);
+            if (warn) setNotice(warn);
+        }
+        onUploadFile({ kind: slot.kind, role: variantRole(k), max: 1 }, f, meta);
     };
 
     // ONE picker for everything: route each selected file by its MIME type to the
@@ -1469,11 +1475,25 @@ export default function SeedanceStudio() {
     const removeImageRef = (i) => setImageRefs((prev) => prev.filter((_, idx) => idx !== i));
     const reorderImageRefs = (from, to) => setImageRefs((prev) => moveItem(prev, from, to));
 
+    // Image-mode per-output overrides (batch ×N): output k+1's variant replaces
+    // the FIRST reference image for that output only. Same inline-base64 shape
+    // as imageRefs — send-time only, never persisted.
+    const [imageVariants, setImageVariants] = useState({}); // output index → ref
+    const onUploadImageVariant = async (k, file) => {
+        if (!file?.type?.startsWith('image/')) return;
+        try {
+            const ref = await downscaleForInline(file);
+            setImageVariants((prev) => ({ ...prev, [k]: { name: file.name, ...ref } }));
+        } catch { /* unreadable image — skip */ }
+    };
+    const removeImageVariant = (k) => setImageVariants(({ [k]: _, ...rest }) => rest);
+
     const changeMediaType = (t) => {
         setMediaType(t);
         setError(null);
         setNotice(null);
         setImageRefs([]);
+        setImageVariants({});
         if (t === 'image') {
             // Studio always runs on Nano Banana Pro; otherwise keep a valid image
             // model (falling back to the default when arriving from video).
@@ -1625,7 +1645,7 @@ export default function SeedanceStudio() {
                 setEnhancing(false);
                 if (polished) { structured = polished; meta = { userPrompt: raw }; }
             }
-            for (let i = 0; i < batch; i++) launchImageJob(structured, imageRefs, meta);
+            for (let i = 0; i < batch; i++) launchImageJob(structured, imageRefsForOutput(imageRefs, imageVariants, i), meta);
             return;
         }
         // Belt to the picker's suspenders: never submit a reference-based mode
@@ -1637,12 +1657,11 @@ export default function SeedanceStudio() {
         const problem = validate(mode, prompt, mediaByRole, selectedModel?.kind);
         if (problem) { setError(problem); return; }
 
-        // Per-output video overrides ride along for rehydration/registration,
-        // but each OUTPUT's request only carries its own swap — so aggregate
-        // limits (counts, summed durations, body size) check per output, not
-        // the combined pool.
-        const videoRole = mode.media.find((s) => s.kind === 'video')?.role;
-        const variantItems = mode.autoMannequin ? [] : collectVariantItems(mediaByRole, videoRole, batch);
+        // Per-output reference overrides (video, or the first-frame image) ride
+        // along for rehydration/registration, but each OUTPUT's request only
+        // carries its own swap — so aggregate limits (counts, summed durations,
+        // body size) check per output, not the combined pool.
+        const variantItems = collectVariantItems(mediaByRole, variantSlotFor(mode)?.role, batch);
         const mediaItems = [...flattenMedia(mode, mediaByRole), ...variantItems];
         if (mediaItems.some((m) => m.pending)) { setError('Wait for reference assets to finish registering into your library.'); return; }
         for (let i = 0; i < batch; i++) {
@@ -2076,6 +2095,7 @@ export default function SeedanceStudio() {
         setPrompt('');
         setMediaByRole({});
         setImageRefs([]);
+        setImageVariants({});
         setNotice(null);
         setConfirmClear(false);
     };
@@ -2506,7 +2526,7 @@ export default function SeedanceStudio() {
                 setBatch={setBatch}
                 onMediaError={setError}
                 onUploadFiles={onUploadFiles}
-                onUploadVariantVideo={onUploadVariantVideo}
+                onUploadVariant={onUploadVariant}
                 mannequinSources={mannequinSources}
                 onImportMannequin={onImportMannequin}
                 tags={tags}
@@ -2519,6 +2539,9 @@ export default function SeedanceStudio() {
                 onUploadImageRefs={onUploadImageRefs}
                 removeImageRef={removeImageRef}
                 reorderImageRefs={reorderImageRefs}
+                imageVariants={imageVariants}
+                onUploadImageVariant={onUploadImageVariant}
+                removeImageVariant={removeImageVariant}
                 cinematic={cinematic}
                 onOpenCinematic={() => setShowCinematic(true)}
                 workflows={workflows}
