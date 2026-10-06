@@ -47,7 +47,7 @@ import IssueReportModal from './IssueReportModal.jsx';
 import ConfirmDialog from '../../components/ConfirmDialog.jsx';
 import { useExrAccess } from '../components/ExrAccess.jsx';
 import Link from 'next/link';
-import { ArrowLeft, Bug, ChevronDown, ShieldCheck, WalletCards, Wrench } from 'lucide-react';
+import { ArrowLeft, BookOpen, Bug, ChevronDown, ShieldCheck, WalletCards, Wrench } from 'lucide-react';
 import { TOOLS } from '../tools/toolsCatalog.js';
 import AssetsPanel from './AssetsPanel.jsx';
 import CinematicPanel from './CinematicPanel.jsx';
@@ -2340,6 +2340,9 @@ export default function SeedanceStudio() {
                 </div>
                 <div className="flex items-center gap-2">
                     <MySpend project={projects.find((p) => p.id === projectId) ?? null} spendRank={spendRank} />
+                    <Link href="/docs" title="Docs — models, modes, limits and guidelines" className="grid h-7 w-7 place-items-center rounded-md border border-line bg-paper-2 text-ink-2 transition-colors hover:text-ink">
+                        <BookOpen size={14} />
+                    </Link>
                     {/* Hover opens the tool list; clicking "Tools" still goes
                         to the full /tools page (also the touch fallback). */}
                     <div className="group relative">
