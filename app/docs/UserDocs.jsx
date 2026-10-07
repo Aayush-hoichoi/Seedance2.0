@@ -44,7 +44,7 @@ export default function UserDocs() {
                         ['Entering', 'You need to be a member of at least one project. If you see only the projects page, ask an admin or manager to add you to a project.'],
                         ['One generation', 'Pick a mode, pick a model, set your options (ratio, resolution, duration), write a prompt, generate. The prompt bar shows the estimated cost before you click.'],
                         ['Billing', 'The estimate is reserved from your budget when the job starts. When it finishes, the reservation is replaced by the real cost from the provider. Failed jobs that reached the provider may still bill; cancelled and rejected jobs release the reservation.'],
-                        ['Open by default', 'Seedance 2.0 Mini, Seedance 1.5 Pro (video) and Nano Banana 2 (image) work for everyone. Every other model needs an approved access request.'],
+                        ['Open by default', 'Seedance 2.0 Mini, Seedance 1.5 Pro (video) and Nano Banana 2 (image) work for everyone. Every other model needs an approved access request. Note: BytePlus has retired Seedance 1.5 Pro — Seedance 2.0 Mini is its official replacement.'],
                         ['Results', 'Finished media lands in your gallery and in the shared community gallery. Download links are valid for 7 days at a time — the file itself is kept, a fresh link is minted whenever you come back.'],
                     ]} />
                 </DocSection>
@@ -65,7 +65,7 @@ export default function UserDocs() {
                 </DocSection>
 
                 <DocSection id="prompting" title="Prompting Seedance — the official formulas"
-                    lead={<>How the model wants to be talked to, from the official BytePlus ModelArk Seedance documentation (<a href="https://docs.byteplus.com/en/docs/modelark/seedance-2-0" target="_blank" rel="noreferrer" className="text-accent-hi underline underline-offset-2">Seedance 2.0 tutorial</a> and prompt guide).</>}>
+                    lead={<>How the model wants to be talked to, from the official BytePlus ModelArk Seedance documentation (<a href="https://docs.byteplus.com/en/docs/modelark/seedance-2-5" target="_blank" rel="noreferrer" className="text-accent-hi underline underline-offset-2">Seedance 2.5 tutorial</a>, <a href="https://docs.byteplus.com/en/docs/modelark/seedance-2-0" target="_blank" rel="noreferrer" className="text-accent-hi underline underline-offset-2">Seedance 2.0 tutorial</a> and the prompt guides).</>}>
                     <FactList items={[
                         ['Naming your files', 'Refer to attachments as "Image 1", "Video 2", "Audio 1" — numbered by the order you attached them, counting from 1 per type. That is the only way the model knows which file you mean.'],
                         ['Image reference', 'Formula: Reference / extract / combine [the subject] from Image n to generate [your scene], keeping the subject’s characteristics consistent. Images carry character look, visual style and composition.'],
@@ -73,6 +73,8 @@ export default function UserDocs() {
                         ['Audio reference', 'For a voice: [Character] says: "the lines", voice timbre references Audio 1. For music/sound: describe when it should appear + Audio n. Audio carries timbre, melody and dialogue.'],
                         ['Editing a video', 'Adding: describe the element, when it appears and where. Deleting: name what goes AND spell out what must stay unchanged — it works much better. Replacing: just describe the swap ("Replace the cat in Video 1 with the lion from Image 1").'],
                         ['Extending a video', 'Formula: Extend Video 1 forward/backward + what the new part shows. An extension normally contains only the tail of the original — say "…and then end with Video 1" if you want the original included. Stitching: Video 1 + transition + Video 2 + transition + Video 3 (max 3 clips on 2.0).'],
+                        ['Marking sounds', 'Use () for music, <> for sound effects, {} for dialogue and 【】 for subtitles — e.g. {Take a sip of fresh refreshment}. For non-English dialogue, name the language before the line. Seedance 2.5 natively speaks 11 languages: English, Chinese, Spanish, Indonesian, Malay, Thai, Arabic, Portuguese, Vietnamese, Japanese and Korean.'],
+                        ['The prompt formula', 'Order your prompt as: subject + action/event + scene and environment + visual style + camera movement/shot cuts + sound. Drop the parts you don’t need.'],
                         ['First/last frame trick', 'In Multi reference you can ask for an image to be the first or last frame in the prompt — but if the frames must match exactly, use the dedicated Image → Video / First + Last frame modes instead.'],
                     ]} />
                 </DocSection>
@@ -81,8 +83,8 @@ export default function UserDocs() {
                     lead="What the studio accepts as reference material. Files outside these limits are rejected before any money is spent.">
                     <FactList items={[
                         ['Images', 'JPEG, PNG, WebP, BMP, TIFF, GIF, HEIC/HEIF. Max 30 MB each, 300–6000 px per side, aspect ratio between 0.4 and 2.5. Up to 9 reference images on Seedance 2.0, up to 30 on Seedance 2.5.'],
-                        ['Videos', 'MP4 or MOV (H.264/H.265). Max 200 MB each, 300–6000 px per side, 24–60 fps (23.976 is fine). Seedance 2.0: each clip 2–15 s, 15 s combined, max 3 clips. Seedance 2.5: each clip up to 30 s, 30 s combined, max 10 clips.'],
-                        ['Audio', 'WAV or MP3, max 15 MB. Seedance 2.0: 2–15 s each, 15 s combined, max 3 files, and audio can’t be used alone. Seedance 2.5: up to 30 s combined, max 10 files, audio alone is allowed.'],
+                        ['Videos', 'MP4 or MOV (H.264/H.265). Max 200 MB each, 300–6000 px per side, 24–60 fps (23.976 is fine). Seedance 2.0: each clip 2–15 s, 15 s combined, max 3 clips. Seedance 2.5: each clip 2–30 s, 30 s combined, max 10 clips — and a clip you want edited must be 4–30 s.'],
+                        ['Audio', 'WAV or MP3, max 15 MB. Seedance 2.0: 2–15 s each, 15 s combined, max 3 files, and audio can’t be used alone. Seedance 2.5: 2–30 s each, 30 s combined, max 10 files, audio alone is allowed.'],
                         ['Whole request', 'One generation request can carry at most 64 MB in total. For big files, use library assets instead of re-uploading.'],
                         ['Image prompts', 'Prompt text is required for image models, up to 5000 characters. Inline reference images are capped at 4 MB total — that’s why ChatGPT Image models take 8 references here even though the provider advertises more.'],
                         ['Batch size', 'Image generations run 1–4 images per request.'],
@@ -167,7 +169,7 @@ export default function UserDocs() {
                         ['Ratios', 'On Seedance 2.5, video edits and first-frame tasks always inherit the input’s aspect ratio — the ratio picker is ignored for those. Pick "adaptive" when unsure.'],
                         ['Keep sources clean', 'Green-screen modes want a real green-screen plate. Reference videos must be 24–60 fps and inside the size limits above — the studio checks before spending.'],
                         ['Real human faces', 'Seedance officially rejects reference images/videos containing real human faces uploaded directly. Use outputs generated under this platform’s account, digital characters, or properly authorized portrait assets — and if a legitimate production shot still gets flagged, that’s what the Sensitive Content model is for.'],
-                        ['4K playback', '4K output is 10-bit H.265/HEVC. If a 4K clip won’t play, it’s usually the player, not the file: use Safari (macOS) or VLC/mpv; Chrome and Edge need strong hardware decoding.'],
+                        ['10-bit playback', 'Seedance 2.0 4K and Seedance 2.5 1080p output are 10-bit H.265/HEVC. If such a clip won’t play, it’s usually the player, not the file: use Safari (macOS), VLC, mpv or QuickTime Player; Chrome and Edge need strong hardware decoding.'],
                         ['Stretched or jumping frames', 'In Image → Video, stretching/compression jumps mean your input image’s dimensions don’t match the output resolution. Fix: crop the image to a supported size, or set the ratio to "adaptive" and regenerate.'],
                         ['Downloads', 'Download links expire after 7 days but the media is kept — revisit the gallery for a fresh link. The MuAPI-based /studio playground is separate: its output is not archived here.'],
                         ['Watermark', 'Off by default. It’s a per-generation Seedance option and doesn’t change the price.'],
