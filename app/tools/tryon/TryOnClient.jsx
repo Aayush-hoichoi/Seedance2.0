@@ -310,7 +310,7 @@ function modelAllowed(m, modelAccess) {
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-export function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess, onCastChange }) {
+export function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess, onCastChange, onModelChange }) {
     // character: { kind:'image', mimeType, b64, dataUrl }
     const [character, setCharacter] = useState(null);
     const [versions, setVersions] = useState([]); // older character states, newest first
@@ -394,6 +394,10 @@ export function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess, on
         const img = IMAGE_MODELS.find((m) => m.id === imageModel);
         if (img && !modelAllowed(img, modelAccess)) setImageModel(DEFAULT_IMAGE_MODEL_ID);
     }, [modelAccess, imageModel]);
+
+    // Report the selected model upward so the page can show the matching
+    // remaining budget next to the header.
+    useEffect(() => { onModelChange?.(imageModel); }, [imageModel, onModelChange]);
 
     const replaceCharacter = (next) => {
         setVersions((v) => (character ? [character, ...v].slice(0, 8) : v));
