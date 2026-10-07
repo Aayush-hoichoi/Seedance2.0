@@ -11,8 +11,9 @@
 //    model is told to respect, so a cap dropped on the head sits on the head
 //    at that exact spot, blended realistically. Each drop is one generation,
 //    billed like any studio generation.
-// 4. Submit final records the finished look on the canvas into the History
-//    section below — only completed, explicitly submitted results appear.
+// 4. Submit final names the finished character and saves it to the project's
+//    character vault (tryon_characters) — Try-On's whole purpose is producing
+//    consistent, reusable characters — and records the look in History below.
 // Billing/access rides the existing generation pipeline untouched: images go
 // through POST /api/generations (gateway quota + budgets).
 
@@ -593,23 +594,15 @@ export function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess, on
     };
 
     // ------------------------------------------------------------------
-    // Submit final — records the finished look on the canvas into History.
-    // The generations already happened per drop; this is the explicit "this
-    // one is final" step, so only submitted results are listed.
+    // Submit final — Try-On exists to produce consistent, reusable characters,
+    // so submitting IS saving a character: the user names the finished look,
+    // the character vault (project cast) updates automatically, the identity
+    // anchor arms, and History records the look. One upload serves both rows.
 
     const submitFinal = () => run('final', async () => {
-        if (!character) throw new Error('Add a character first.');
-        const items = itemsWorn.join(', ') || 'Final look';
-        const { key } = await uploadToCdn(dataUrlToFile(character.dataUrl, 'tryon-final.jpg'));
-        await recordFinal({ kind: 'image', mediaKey: key, model: IMAGE_MODELS.find((m) => m.id === imageModel)?.name || imageModel, items });
-    });
-
-    // Lock the canvas character into the project cast under a name — from
-    // then on it is the project's shared, protected reference character.
-    const lockCharacter = () => run('final', async () => {
         const name = (lockName || '').trim();
         if (!character) throw new Error('Add a character first.');
-        if (!name) throw new Error('Give the character a name to lock it.');
+        if (!name) throw new Error('Give the character a name to submit.');
         const { key } = await uploadToCdn(dataUrlToFile(character.dataUrl, `${name.replace(/[^\w.-]+/g, '_')}.jpg`));
         const d = await storeFetch('/api/tryon/characters', {
             method: 'POST',
@@ -618,8 +611,9 @@ export function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess, on
         });
         setCast((prev) => [d.item, ...prev]);
         onCastChange?.();
+        await recordFinal({ kind: 'image', mediaKey: key, model: IMAGE_MODELS.find((m) => m.id === imageModel)?.name || imageModel, items: itemsWorn.join(', ') || name });
         setLockName(null);
-        // Locking also arms the identity anchor for this session.
+        // Submitting also arms the identity anchor for this session.
         if (character.kind === 'image' && character.b64) {
             setCastAnchor({ name, mimeType: character.mimeType, b64: character.b64 });
         }
@@ -818,11 +812,7 @@ export function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess, on
                     {character && (
                         <span className="ml-auto inline-flex items-center gap-2">
                             <button type="button" onClick={() => setLockName((v) => (v == null ? '' : null))} disabled={!!busy}
-                                title="Lock this character into the project cast — the whole team can then dress this exact character, and its face stays protected"
-                                className="inline-flex items-center gap-1.5 rounded-md border border-line px-3 py-2 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink disabled:opacity-40">
-                                <Lock size={13} /> Lock
-                            </button>
-                            <button type="button" onClick={submitFinal} disabled={!!busy}
+                                title="Name the finished character and save it — the project's character vault updates automatically and the whole team can tag it with “@Name” in the studio"
                                 className="inline-flex items-center gap-2 rounded-md bg-accent px-4 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-40">
                                 <Wand2 size={14} /> Submit final
                             </button>
@@ -833,12 +823,12 @@ export function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess, on
                 {lockName != null && (
                     <div className={`flex ${canvasW} items-center gap-2`}>
                         <input autoFocus value={lockName} onChange={(e) => setLockName(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') lockCharacter(); if (e.key === 'Escape') setLockName(null); }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') submitFinal(); if (e.key === 'Escape') setLockName(null); }}
                             placeholder="Name this character — e.g. Inspector Rahul"
                             className="min-w-0 flex-1 rounded-md border border-line bg-paper-3 px-3 py-2 text-xs text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent" />
-                        <button type="button" onClick={lockCharacter} disabled={!!busy || !lockName.trim()}
-                            className="rounded-md bg-accent px-3 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-40">
-                            Lock to project
+                        <button type="button" onClick={submitFinal} disabled={!!busy || !lockName.trim()}
+                            className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-40">
+                            <Lock size={12} /> Save character
                         </button>
                     </div>
                 )}
@@ -851,7 +841,7 @@ export function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess, on
 
                 {character && !busy && (
                     <p className={`${canvasW} text-[11px] leading-relaxed text-ink-3`}>
-                        Drop an item anywhere on the character — the AI merges it <strong className="font-semibold text-ink-2">at that exact spot</strong>, properly worn and blended (each drop is one generation). Happy with the look? <strong className="font-semibold text-ink-2">Submit final</strong> saves it to the project’s History below; <strong className="font-semibold text-ink-2">Lock</strong> makes this character the project’s shared reference.
+                        Drop an item anywhere on the character — the AI merges it <strong className="font-semibold text-ink-2">at that exact spot</strong>, properly worn and blended (each drop is one generation). Happy with the look? <strong className="font-semibold text-ink-2">Submit final</strong> asks for a name and saves the character to the project’s vault — the whole team can then tag it with “@Name” in the studio, and its face stays locked.
                     </p>
                 )}
 
@@ -927,7 +917,7 @@ export function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess, on
                         className="rounded-md border border-line bg-paper-3 px-3 py-2 text-xs text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent" />
                 </label>
                 <p className="text-[11px] leading-relaxed text-ink-3">
-                    Drag one item for exact placement, or click to select several and <strong className="font-semibold text-ink-2">Try on selected</strong> — the whole set goes on in one generation, each piece where it belongs. Every generation bills this project like any studio one. <strong className="font-semibold text-ink-2">Submit final</strong> costs nothing; it saves the finished look to History.
+                    Drag one item for exact placement, or click to select several and <strong className="font-semibold text-ink-2">Try on selected</strong> — the whole set goes on in one generation, each piece where it belongs. Every generation bills this project like any studio one. <strong className="font-semibold text-ink-2">Submit final</strong> costs nothing; it names the character and saves it to the project’s vault (plus History below).
                 </p>
             </aside>
         </div>
@@ -941,7 +931,7 @@ export function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess, on
             </div>
             {!history.length ? (
                 <p className="rounded-xl border border-line bg-paper-2 p-5 text-xs text-ink-3">
-                    Nothing here yet. Place an item on a character and press <strong className="font-semibold text-ink-2">Submit final</strong> — the finished result shows up here for the whole project.
+                    Nothing here yet. Place an item on a character and press <strong className="font-semibold text-ink-2">Submit final</strong> — the named character joins the project’s vault and the finished look shows up here for the whole project.
                 </p>
             ) : (
                 <ul className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
