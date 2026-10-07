@@ -11,6 +11,7 @@ import { sanitizeOptions } from '../../lib/seedance/options.mjs';
 import { buildPayload, createTask, pollTask } from '../../lib/seedance/client.js';
 import { validateAggregate, validateRequestSize } from '../../lib/seedance/limits.js';
 import { buildTags, modeSupportsTags, normalizePromptForApi, restorePromptTokens, tagToken, validatePromptReferences } from '../../lib/seedance/tags.js';
+import { bindCastTokens } from '../../lib/seedance/castTags.mjs';
 import { getAsset, isAssetGone, resolveMediaRefs, cleanupOldAssets, registerAssetFromUrl } from '../../lib/seedance/assetsClient.js';
 import { ASSET_TTL_MS } from '../../lib/seedance/assetTtl.mjs';
 import { useEvents } from '../hooks/useEvents.js';
@@ -48,7 +49,7 @@ import IssueReportModal from './IssueReportModal.jsx';
 import ConfirmDialog from '../../components/ConfirmDialog.jsx';
 import { useExrAccess } from '../components/ExrAccess.jsx';
 import Link from 'next/link';
-import { ArrowLeft, BookOpen, Bug, ChevronDown, ShieldCheck, WalletCards, Wrench } from 'lucide-react';
+import { ArrowLeft, BookOpen, Bug, ChevronDown, ShieldCheck, Users, WalletCards, Wrench } from 'lucide-react';
 import { TOOLS } from '../tools/toolsCatalog.js';
 import AssetsPanel from './AssetsPanel.jsx';
 import CinematicPanel from './CinematicPanel.jsx';
@@ -670,6 +671,21 @@ export default function SeedanceStudio() {
         const timer = setInterval(() => cleanupOldAssets().catch(() => {}), ASSET_TTL_MS);
         return () => clearInterval(timer);
     }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // The project cast (Characters tab → tryon_characters): type "@" in the
+    // prompt to tag one — the tag attaches the character's stored reference
+    // image automatically, so nobody re-uploads the approved face.
+    const [castCharacters, setCastCharacters] = useState([]);
+    useEffect(() => {
+        setCastCharacters([]);
+        if (!projectId) return undefined;
+        let alive = true;
+        fetch(`/api/tryon/characters?projectId=${projectId}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => { if (alive && Array.isArray(d?.items)) setCastCharacters(d.items); })
+            .catch(() => { /* the mention menu just shows uploads only */ });
+        return () => { alive = false; };
+    }, [projectId]);
 
     const selectedModel = useMemo(() => MODELS.find((m) => m.id === options.model), [options.model]);
     // Per-model slot caps applied at the single point the mode object is born:
@@ -1477,6 +1493,43 @@ export default function SeedanceStudio() {
     const onReorderImageBatch = (i, from, to) => editImageBatch(i, (g) => moveItem(g, from, to));
     const onRemoveImageBatch = (i) => setExtraImageBatches((prev) => prev.filter((_, j) => j !== i));
 
+    // "@" character tag → attach that character's stored reference, no upload.
+    // Image mode: inline base64 ref (same pipeline as uploaded refs). Video
+    // modes: into the matching reference slot; modes without one (first/last
+    // frame, mannequin) still carry the name + server-side CHARACTER LOCK.
+    const tagCharacter = async (ch) => {
+        try {
+            if (mediaType === 'image') {
+                if (ch.kind === 'video') { setNotice(`${ch.name} is a video character — image mode takes image references only.`); return; }
+                const cap = imageRefMax(options.model);
+                if (imageRefs.some((r) => r.castKey === ch.media_key)) return; // already attached
+                if (imageRefs.length >= cap) { setNotice(`Reference limit reached — ${ch.name}'s image was not attached.`); return; }
+                const blob = await (await fetch(`/api/tryon/file?key=${encodeURIComponent(ch.media_key)}`)).blob();
+                const inline = await downscaleForInline(blob);
+                setImageRefs((prev) => (prev.some((r) => r.castKey === ch.media_key) || prev.length >= cap
+                    ? prev : [...prev, { name: ch.name, castKey: ch.media_key, ...inline }]));
+                return;
+            }
+            const kind = ch.kind === 'video' ? 'video' : 'image';
+            const slot = mode.media.find((s) => s.kind === kind && s.role.startsWith('reference_'));
+            if (!slot) return;
+            const existing = mediaByRole[slot.role] || [];
+            if (existing.some((m) => m.tosKey === ch.media_key)) return;
+            if (existing.length >= slot.max) { setNotice(`Reference slots are full — ${ch.name}'s ${kind} was not attached.`); return; }
+            const res = await fetch(`/api/byteplus/archive?key=${encodeURIComponent(ch.media_key)}`);
+            const d = res.ok ? await res.json() : null;
+            if (!d?.url) throw new Error('could not load the stored reference');
+            const item = { kind, role: slot.role, url: d.url, previewUrl: d.url, tosKey: ch.media_key, name: ch.name, isImage: kind === 'image' };
+            setMediaByRole((prev) => {
+                const items = prev[slot.role] || [];
+                if (items.some((m) => m.tosKey === ch.media_key) || items.length >= slot.max) return prev;
+                return { ...prev, [slot.role]: [...items, item] };
+            });
+        } catch (e) {
+            setNotice(`Could not attach ${ch.name} — ${e.message}.`);
+        }
+    };
+
     const changeMediaType = (t) => {
         setMediaType(t);
         setError(null);
@@ -1605,7 +1658,9 @@ export default function SeedanceStudio() {
         // Cameras setup is active, the enhancer restructures the prompt around the
         // camera settings first (one enhance for the whole batch).
         if (mediaType === 'image') {
-            const raw = prompt.trim();
+            // "@Name" character tags become the bare name: the attached inline
+            // ref carries the face, the gateway's CHARACTER LOCK the description.
+            const raw = bindCastTokens(prompt.trim(), castCharacters);
             if (!raw) { setError('Describe the image you want to create.'); return; }
             let structured = raw;
             let meta = null;
@@ -1689,9 +1744,15 @@ export default function SeedanceStudio() {
             }
         }
 
+        // "@Name" character tags resolve first: the name stays (the gateway's
+        // CHARACTER LOCK matches on it) and, when the character's reference is
+        // attached, "(@Image N)" is appended so Seedance binds words to asset.
+        // With extra batches the positional numbers differ per set, so batched
+        // submits keep the bare name only.
+        const castBound = bindCastTokens(prompt, castCharacters, mediaSets.length === 1 && modeSupportsTags(mode) ? tags : null);
         // @Image1-style chips are auto-corrected to the "Image 1" wording the
         // API expects, then checked against what's actually attached.
-        let apiPrompt = modeSupportsTags(mode) ? normalizePromptForApi(prompt) : prompt;
+        let apiPrompt = modeSupportsTags(mode) ? normalizePromptForApi(castBound) : castBound;
         if (modeSupportsTags(mode)) {
             // The shared prompt's @Image1/@Video1 mentions must resolve in
             // EVERY batch — each output binds them against its own refs.
@@ -2413,6 +2474,10 @@ export default function SeedanceStudio() {
                     <Link href="/docs" title="Docs — models, modes, limits and guidelines" className="grid h-7 w-7 place-items-center rounded-md border border-line bg-paper-2 text-ink-2 transition-colors hover:text-ink">
                         <BookOpen size={14} />
                     </Link>
+                    <Link href="/characters" title="Characters — the project's shared cast: create, describe and tag them with “@” in the prompt" className="flex h-7 items-center gap-1.5 rounded-md border border-line bg-paper-2 px-2 text-xs font-semibold text-ink-2 transition-colors hover:text-ink">
+                        <Users size={14} />
+                        <span className="hidden sm:inline">Characters</span>
+                    </Link>
                     {/* Hover opens the tool list; clicking "Tools" still goes
                         to the full /tools page (also the touch fallback). */}
                     <div className="group relative">
@@ -2547,6 +2612,8 @@ export default function SeedanceStudio() {
                 mannequinSources={mannequinSources}
                 onImportMannequin={onImportMannequin}
                 tags={tags}
+                characters={castCharacters}
+                onTagCharacter={tagCharacter}
                 mediaType={mediaType}
                 onChangeMediaType={changeMediaType}
                 imageModels={IMAGE_MODELS}
@@ -2600,6 +2667,7 @@ export default function SeedanceStudio() {
             {showAssets && (
                 <AssetsPanel
                     jobs={visibleJobs}
+                    characters={castCharacters}
                     binned={binnedJobs}
                     onBin={onBinJob}
                     onRestore={onRestoreJob}
