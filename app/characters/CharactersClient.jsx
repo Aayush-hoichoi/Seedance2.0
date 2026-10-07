@@ -5,7 +5,8 @@
 // Every member of a project sees the same characters: a card per character
 // with its reference image, name, description and creator. Create one by
 // uploading a photo, or build one in the embedded Try-On studio below
-// (generate → dress → "Lock to project cast"). Once saved, a character is
+// (generate → dress → "Submit final", which names and saves the character
+// to this vault automatically). Once saved, a character is
 // taggable in the studio prompt with "@Name" — the tag attaches the stored
 // reference image automatically and the description is injected server-side
 // as a CHARACTER LOCK, so the whole team generates the same person without
@@ -103,7 +104,7 @@ export default function CharactersClient() {
                             <section className="flex flex-col gap-3">
                                 <div>
                                     <h2 className="text-sm font-semibold">Try-On studio</h2>
-                                    <p className="text-xs text-ink-3">Create a character from a prompt or an actor photo, dress them with costumes and props, then “Lock to project cast” to save them above.</p>
+                                    <p className="text-xs text-ink-3">Create a character from a prompt or an actor photo, dress them with costumes and props, then “Submit final” — you name the character and it saves to the cast above automatically.</p>
                                 </div>
                                 <ToolAccessGate toolName="Try-On" status={status} error={statusError} projectId={projectId} onChanged={refresh} needsToolBudget={false}>
                                     <TryOnWorkspace
@@ -207,7 +208,7 @@ function CharacterGrid({ projectId, castVersion }) {
                 <p className="text-xs text-ink-3">
                     {items.length
                         ? `${items.length} character${items.length === 1 ? '' : 's'} — tag one in the studio prompt with “@Name” to use it as the reference, no upload needed.`
-                        : 'No characters yet — add one with a photo, or build one in the Try-On studio below and lock it to the cast.'}
+                        : 'No characters yet — add one with a photo, or build one in the Try-On studio below and press Submit final to name and save it.'}
                 </p>
                 <button type="button" onClick={() => setEditing('new')}
                     className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-accent/40 bg-accent/10 px-2.5 py-1.5 text-[11px] font-semibold text-accent-hi transition-colors hover:bg-accent/20">
