@@ -61,11 +61,11 @@ function AccessBadge({ gated }) {
 // condensed from the ModelArk catalog comments and the official Seedance /
 // Gemini / OpenAI docs.
 const VIDEO_NOTES = {
-    full_2_5: 'Highest tier. Up to 30s per clip, biggest multi-reference caps (30 images / 10 videos / 10 audio, audio can be used alone). Aspect ratio is inherited from your input on edit/extend and first-frame tasks — the picker is ignored there. 4K is not available on this tier.',
+    full_2_5: 'Highest tier. Up to 30s per clip, biggest multi-reference caps (50 assets: 30 images / 10 videos / 10 audio, 30 s combined per type, audio can be used alone). 1080p output is 10-bit H.265/HEVC for professional/HDR work; 480p–720p are 8-bit. The only tier with an optional MOV output. Aspect ratio is inherited from your input on edit/extend and first-frame tasks — the picker is ignored there. 4K is not available on this tier.',
     full: 'The full Seedance 2.0 tier — the only video tier with native 4K. Up to 15s per clip. Official 4K output is 10-bit H.265/HEVC for professional/HDR work; 480p–1080p are 8-bit.',
     fast: 'Faster, cheaper variant of Seedance 2.0. Capped at 720p and 15s.',
     mini: 'The open default — no access request needed. Capped at 720p and 15s.',
-    pro_1_5: 'Open tier for text→video and image→video only: no reference-based modes (Motion Capture, Green Screen, Mannequin, Customized, Multi reference are unavailable).',
+    pro_1_5: 'Open tier for text→video and image→video only: no reference-based modes (Motion Capture, Green Screen, Mannequin, Customized, Multi reference are unavailable). BytePlus has retired this model — Seedance 2.0 Mini is the official replacement, so prefer Mini for new work.',
     full_sensitive: 'Same model and pricing as Seedance 2.0, behind a dedicated endpoint whose moderation accepts production footage (e.g. drama scenes with blood/violence) that the shared endpoints flag. Use it when a normal generation fails with a sensitive-content error.',
 };
 
@@ -88,7 +88,7 @@ const MODE_NOTES = {
     t2v: 'Pure text to video.',
     i2v_first: 'One image becomes the first frame of the clip.',
     first_last: 'Morphs between a start and an end image.',
-    reference: 'The free-form multi-reference mode. Caps are per model — Seedance 2.5 takes 30 images / 10 videos / 10 audio and accepts audio alone; the 2.0 family stops at 9/3/3 and audio can’t be used alone.',
+    reference: 'The free-form multi-reference mode. Caps are per model — Seedance 2.5 takes 30 images / 10 videos / 10 audio (30 s combined per type) and accepts audio alone; the 2.0 family stops at 9/3/3 (15 s combined) and audio can’t be used alone.',
 };
 
 export function VideoModelExplorer() {
@@ -114,7 +114,11 @@ export function VideoModelExplorer() {
                     {m.kind === 'full_2_5' && <div className="mt-1.5 flex items-start gap-1.5 text-xs text-ink-3"><Info size={12} className="mt-0.5 shrink-0" /> On Seedance 2.5, edit/extend tasks and first-frame tasks ignore the ratio picker — the output follows the input video/image.</div>}
                 </Row>
                 <Row label="Output format">
-                    MP4{m.supports4k ? ' — 8-bit color up to 1080p, 10-bit H.265/HEVC at 4K. 4K clips need a capable player: Safari (macOS) or VLC/mpv play them everywhere; Chrome/Edge need strong hardware decoding.' : ' — 8-bit color.'}
+                    {m.kind === 'full_2_5'
+                        ? 'MP4 (default) or MOV. MOV (H.264 + yuv444p + PCM) keeps colors truer for edit/extend work but many players can’t open it. 480p/720p are 8-bit; 1080p is 10-bit H.265/HEVC and needs a capable player: Safari (macOS), VLC/mpv/QuickTime, or strong hardware decoding in Chrome/Edge.'
+                        : m.supports4k
+                            ? 'MP4 — 8-bit color up to 1080p, 10-bit H.265/HEVC at 4K. 4K clips need a capable player: Safari (macOS) or VLC/mpv play them everywhere; Chrome/Edge need strong hardware decoding.'
+                            : 'MP4 — 8-bit color.'}
                 </Row>
                 <Row label="Reference modes">
                     {m.supportsReference !== false
