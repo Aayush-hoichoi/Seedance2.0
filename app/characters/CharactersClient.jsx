@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, Pencil, Plus, Trash2, Upload, Users, X } from 'lucide-react';
+import { ArrowLeft, Loader2, Lock, Pencil, Plus, Trash2, Upload, Users, X } from 'lucide-react';
 import ProjectSelect from '../seedance/ProjectSelect.jsx';
 import ToolAccessGate, { useToolStatus } from '../tools/ToolAccessGate.jsx';
 import { TryOnWorkspace, storeFetch, fileSrc } from '../tools/tryon/TryOnClient.jsx';
@@ -36,8 +36,11 @@ export default function CharactersClient() {
     const [wfAccess, setWfAccess] = useState('none');
     const { status, error: statusError, refresh } = useToolStatus('tryon', projectId);
     // Bumped whenever the embedded studio locks/removes a cast member, so the
-    // grid above refetches without a reload.
+    // vault refetches without a reload.
     const [castVersion, setCastVersion] = useState(0);
+    // The character vault is hidden in normal use — the Vault button slides it
+    // in from the right while the page behind blurs.
+    const [showVault, setShowVault] = useState(false);
 
     useEffect(() => {
         fetch('/api/projects')
@@ -93,6 +96,11 @@ export default function CharactersClient() {
                     <h1 className="inline-flex items-center gap-2 font-display text-xl font-semibold"><Users size={18} /> Characters</h1>
                     <span className="rounded-full border border-line px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-3">shared project cast</span>
                     <div className="ml-auto flex items-center gap-2">
+                        <button type="button" onClick={() => setShowVault(true)} disabled={!projectId}
+                            title="Open the character vault — all of this project's saved characters"
+                            className="inline-flex items-center gap-1.5 rounded-md border border-accent/40 bg-accent/10 px-2.5 py-1.5 text-[11px] font-semibold text-accent-hi transition-colors hover:bg-accent/20 disabled:opacity-40">
+                            <Lock size={12} /> Vault
+                        </button>
                         {projects.length > 0 && <ProjectSelect projects={projects} value={projectId} onChange={pickProject} />}
                     </div>
                 </header>
@@ -100,7 +108,7 @@ export default function CharactersClient() {
                     ? <div className="text-xs text-danger">{projectsError}</div>
                     : (
                         <div className="flex flex-col gap-8">
-                            <CharacterGrid projectId={projectId} castVersion={castVersion} />
+                            <p className="text-xs text-ink-3">The project’s saved characters live in the <strong className="font-semibold text-ink-2">Vault</strong> (top right). Tag them in the studio prompt with “@Name” — the saved reference attaches automatically.</p>
                             <section className="flex flex-col gap-3">
                                 <div>
                                     <h2 className="text-sm font-semibold">Try-On studio</h2>
@@ -119,6 +127,46 @@ export default function CharactersClient() {
                         </div>
                     )}
             </div>
+            {showVault && (
+                <VaultDrawer onClose={() => setShowVault(false)}>
+                    <CharacterGrid projectId={projectId} castVersion={castVersion} />
+                </VaultDrawer>
+            )}
+        </div>
+    );
+}
+
+// The sliding vault: blurred backdrop over the page, panel from the right,
+// characters stacked vertically inside (the grid renders single-column here).
+function VaultDrawer({ children, onClose }) {
+    useEffect(() => {
+        const prev = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', onKey);
+        return () => {
+            document.body.style.overflow = prev;
+            window.removeEventListener('keydown', onKey);
+        };
+    }, [onClose]);
+
+    return (
+        <div className="fixed inset-0 z-[85] flex justify-end">
+            <button type="button" aria-label="Close the vault" onClick={onClose}
+                className="absolute inset-0 cursor-default bg-black/50 backdrop-blur-sm" />
+            <aside className="animate-slide-in-right relative flex h-full w-[26rem] max-w-[92vw] flex-col border-l border-line bg-paper-1 shadow-2xl">
+                <header className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-3">
+                    <Lock size={14} className="text-ink-2" />
+                    <h2 className="text-sm font-semibold">Character vault</h2>
+                    <button type="button" onClick={onClose} aria-label="Close" title="Close"
+                        className="ml-auto grid h-7 w-7 place-items-center rounded-md border border-line bg-paper-2 text-ink-3 transition-colors hover:text-ink">
+                        <X size={13} />
+                    </button>
+                </header>
+                <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-3">
+                    {children}
+                </div>
+            </aside>
         </div>
     );
 }
@@ -217,7 +265,7 @@ function CharacterGrid({ projectId, castVersion }) {
             </div>
             {error && <div className="rounded-md border border-danger/20 bg-danger/10 px-3 py-1.5 text-[11px] text-danger">{error}</div>}
             {items.length > 0 && (
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                <div className="flex flex-col gap-3">
                     {items.map((c) => (
                         <article key={c.id} className="flex gap-3 rounded-xl border border-line bg-paper-2 p-3">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
