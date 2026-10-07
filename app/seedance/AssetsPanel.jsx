@@ -49,7 +49,7 @@ function videoFileName(job, index) {
     return `${base}.mp4`;
 }
 
-export default function AssetsPanel({ jobs, characters = [], binned, onBin, onRestore, onDeleteForever, onPreview, previewOpen = false, onClose }) {
+export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteForever, onPreview, previewOpen = false, onClose }) {
     const [view, setView] = useState('assets'); // 'assets' | 'bin'
     const [selected, setSelected] = useState(() => new Set());
     const [busy, setBusy] = useState(false);
@@ -196,27 +196,6 @@ export default function AssetsPanel({ jobs, characters = [], binned, onBin, onRe
             </p>
 
             <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-5 sm:px-8 py-5 pb-32">
-                {/* The project's saved characters (Characters tab) — shown in the
-                    vault so the shared cast lives next to the generated assets. */}
-                {!isBin && characters.length > 0 && (
-                    <section className="mb-8">
-                        <div className="flex items-center gap-2 mb-3">
-                            <span className="text-sm font-semibold text-white/80">Characters</span>
-                            <span className="text-[11px] text-white/30">· {characters.length} · shared project cast</span>
-                            <a href="/characters" className="text-[11px] text-white/40 underline-offset-2 hover:text-white hover:underline">manage</a>
-                        </div>
-                        <div className="flex gap-3 overflow-x-auto pb-1">
-                            {characters.map((c) => (
-                                <a key={c.id} href="/characters" title={c.description || c.name} className="w-28 shrink-0">
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img src={`/api/tryon/file?key=${encodeURIComponent(c.media_key)}`} alt={c.name} className="h-28 w-28 rounded-lg border border-white/10 object-cover" />
-                                    <div className="mt-1 truncate text-[11px] font-semibold text-white/80">{c.name}</div>
-                                    <div className="truncate text-[10px] text-white/35">by {c.creator_name || 'a teammate'}</div>
-                                </a>
-                            ))}
-                        </div>
-                    </section>
-                )}
                 {source.length === 0 ? (
                     <EmptyState isBin={isBin} />
                 ) : (
