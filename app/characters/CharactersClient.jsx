@@ -17,6 +17,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Loader2, Lock, Pencil, Plus, Trash2, Upload, Users, X } from 'lucide-react';
 import ProjectSelect from '../seedance/ProjectSelect.jsx';
+import BudgetRemaining from '../seedance/BudgetRemaining.jsx';
 import ToolAccessGate, { useToolStatus } from '../tools/ToolAccessGate.jsx';
 import { TryOnWorkspace, storeFetch, fileSrc } from '../tools/tryon/TryOnClient.jsx';
 import ConfirmDialog from '../../components/ConfirmDialog.jsx';
@@ -41,6 +42,9 @@ export default function CharactersClient() {
     // The character vault is hidden in normal use — the Vault button slides it
     // in from the right while the page behind blurs.
     const [showVault, setShowVault] = useState(false);
+    // The image model picked in the Try-On studio below — the header's budget
+    // chip tracks it, so what's shown is the budget the next generation spends.
+    const [selectedModel, setSelectedModel] = useState(null);
 
     useEffect(() => {
         fetch('/api/projects')
@@ -96,6 +100,7 @@ export default function CharactersClient() {
                     <h1 className="inline-flex items-center gap-2 font-display text-xl font-semibold"><Users size={18} /> Characters</h1>
                     <span className="rounded-full border border-line px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-3">shared project cast</span>
                     <div className="ml-auto flex items-center gap-2">
+                        <BudgetRemaining projectId={projectId} modelId={selectedModel} />
                         <button type="button" onClick={() => setShowVault(true)} disabled={!projectId}
                             title="Open the character vault — all of this project's saved characters"
                             className="inline-flex items-center gap-1.5 rounded-md border border-accent/40 bg-accent/10 px-2.5 py-1.5 text-[11px] font-semibold text-accent-hi transition-colors hover:bg-accent/20 disabled:opacity-40">
@@ -121,6 +126,7 @@ export default function CharactersClient() {
                                         workflows={workflows}
                                         wfAccess={wfAccess}
                                         onCastChange={() => setCastVersion((v) => v + 1)}
+                                        onModelChange={setSelectedModel}
                                     />
                                 </ToolAccessGate>
                             </section>
