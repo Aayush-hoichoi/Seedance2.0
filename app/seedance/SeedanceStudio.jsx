@@ -52,7 +52,6 @@ import Link from 'next/link';
 import { ArrowLeft, BookOpen, Bug, ChevronDown, ShieldCheck, Users, WalletCards, Wrench } from 'lucide-react';
 import { TOOLS } from '../tools/toolsCatalog.js';
 import AssetsPanel from './AssetsPanel.jsx';
-import CharacterVault from './CharacterVault.jsx';
 import CinematicPanel from './CinematicPanel.jsx';
 import { cinematicToPayload, sanitizeSetup, DEFAULT_SETUP } from '../../lib/seedance/cinematic.mjs';
 
@@ -193,7 +192,6 @@ export default function SeedanceStudio() {
     const [enhancing, setEnhancing] = useState(false); // the enhancer prompt restructuring in flight
     const [fullscreen, setFullscreen] = useState(null);
     const [showAssets, setShowAssets] = useState(false); // "All assets" overlay
-    const [showVault, setShowVault] = useState(false); // character vault drawer (slides in from the right)
     // The remembered settings have been applied — until they are, saving would
     // overwrite the user's setup with this mount's defaults.
     const [settingsReady, setSettingsReady] = useState(false);
@@ -2476,13 +2474,10 @@ export default function SeedanceStudio() {
                     <Link href="/docs" title="Docs — models, modes, limits and guidelines" className="grid h-7 w-7 place-items-center rounded-md border border-line bg-paper-2 text-ink-2 transition-colors hover:text-ink">
                         <BookOpen size={14} />
                     </Link>
-                    <button type="button" onClick={() => setShowVault(true)}
-                        title="Character vault — the project's shared cast slides in from the right; tag one to use it as the reference"
-                        className="flex h-7 items-center gap-1.5 rounded-md border border-line bg-paper-2 px-2 text-xs font-semibold text-ink-2 transition-colors hover:text-ink">
+                    <Link href="/characters" title="Characters — the project's shared cast and its vault; tag one with “@” in the prompt" className="flex h-7 items-center gap-1.5 rounded-md border border-line bg-paper-2 px-2 text-xs font-semibold text-ink-2 transition-colors hover:text-ink">
                         <Users size={14} />
-                        <span className="hidden sm:inline">Vault</span>
-                        {castCharacters.length > 0 && <span className="text-accent-hi">· {castCharacters.length}</span>}
-                    </button>
+                        <span className="hidden sm:inline">Characters</span>
+                    </Link>
                     {/* Hover opens the tool list; clicking "Tools" still goes
                         to the full /tools page (also the touch fallback). */}
                     <div className="group relative">
@@ -2666,22 +2661,6 @@ export default function SeedanceStudio() {
             />
 
             {fullscreen && <Fullscreen url={fullscreen} onClose={() => setFullscreen(null)} />}
-
-            {/* Hidden in normal use — the header's Vault button slides it in
-                from the right over a blurred backdrop. Tagging from here does
-                exactly what the "@" mention does: @Name into the prompt + the
-                stored reference attached. */}
-            {showVault && (
-                <CharacterVault
-                    characters={castCharacters}
-                    onClose={() => setShowVault(false)}
-                    onTag={(c) => {
-                        setPrompt((p) => (p && !/\s$/.test(p) ? `${p} @${c.name} ` : `${p}@${c.name} `));
-                        tagCharacter(c);
-                        setShowVault(false);
-                    }}
-                />
-            )}
 
             {/* Rendered BEFORE the viewer (same z-index, later DOM wins) so a
                 tile preview opens the full AssetViewer on top of the grid. */}
