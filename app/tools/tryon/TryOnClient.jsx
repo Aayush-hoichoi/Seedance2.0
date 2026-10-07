@@ -266,7 +266,7 @@ async function runImageJob({ projectId, modelId, prompt, refs = [], styleOptions
 // and shared per project (/api/tryon/*). Media objects sit in the studio's own
 // bucket; rows carry only the key.
 
-async function storeFetch(path, init) {
+export async function storeFetch(path, init) {
     const r = await fetch(path, init);
     const d = await r.json().catch(() => null);
     if (!r.ok) throw new Error(d?.error || `Request failed (${r.status}).`);
@@ -276,7 +276,7 @@ async function storeFetch(path, init) {
 // Same-origin byte proxy for a stored object — usable as an <img>/<video> src
 // (History keeps playing finals submitted back when Try-On still made videos)
 // AND fetchable for inline bytes without depending on the bucket's CORS.
-const fileSrc = (key) => `/api/tryon/file?key=${encodeURIComponent(key)}`;
+export const fileSrc = (key) => `/api/tryon/file?key=${encodeURIComponent(key)}`;
 
 // Stored object → { mimeType, b64, dataUrl } for inline delivery to models.
 async function inlineFromKey(key) {
@@ -309,7 +309,7 @@ function modelAllowed(m, modelAccess) {
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
+export function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess, onCastChange }) {
     // character: { kind:'image', mimeType, b64, dataUrl }
     const [character, setCharacter] = useState(null);
     const [versions, setVersions] = useState([]); // older character states, newest first
@@ -617,6 +617,7 @@ function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
             body: JSON.stringify({ projectId, name, mediaKey: key, kind: character.kind }),
         });
         setCast((prev) => [d.item, ...prev]);
+        onCastChange?.();
         setLockName(null);
         // Locking also arms the identity anchor for this session.
         if (character.kind === 'image' && character.b64) {
@@ -637,6 +638,7 @@ function TryOnWorkspace({ projectId, modelAccess, workflows, wfAccess }) {
         try {
             await storeFetch(`/api/tryon/characters?id=${id}&projectId=${projectId}`, { method: 'DELETE' });
             setCast((prev) => prev.filter((m) => m.id !== id));
+            onCastChange?.();
         } catch (e) { setError(e.message); }
     };
 

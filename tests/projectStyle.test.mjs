@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     composeStyledPrompt, applyStyledImagePrompt, applyStyledVideoPrompt, videoPromptOf,
-    styleError, styleSummary,
+    styleError, styleSummary, styleWithCast,
 } from '../lib/gateway/projectStyle.mjs';
 import { GATEWAY_DDL, SCHEMA_VERSION } from '../lib/db/schema.mjs';
 
@@ -225,4 +225,37 @@ test('the client summary carries the look list but never the brief prose', () =>
     assert.equal(styleSummary({ looks: { a: { brief: '  ' } } }), null, 'a style with no usable look reads as no style');
     // Falls back to a real look rather than pointing at a missing default.
     assert.equal(styleSummary({ looks: { a: { brief: 'x' } }, defaultLook: 'ghost' }).defaultLook, 'a');
+});
+
+// ---------------------------------------------------------------------------
+// Characters-tab cast (tryon_characters descriptions) — merged via styleWithCast
+// and injected even when the project has no style bible at all.
+
+test('a cast-only project (no looks) still gets a CHARACTER LOCK for named characters', () => {
+    const style = styleWithCast(null, { Riya: 'tall, silver bob, always in a red raincoat' });
+    const out = composeStyledPrompt('Riya runs through the rain.', style);
+    assert.equal(out.applied, true);
+    assert.equal(out.look, null); // no look fired — cast only
+    assert.match(out.prompt, /CHARACTER LOCK — match the references exactly:/);
+    assert.match(out.prompt, /Riya: tall, silver bob/);
+
+    // A prompt naming nobody stays untouched.
+    const silent = composeStyledPrompt('An elephant in the jungle.', style);
+    assert.equal(silent.applied, false);
+    assert.equal(silent.prompt, 'An elephant in the jungle.');
+});
+
+test('styleWithCast merges without mutating and the Characters tab wins a name collision', () => {
+    const base = { enabled: true, looks: {}, characters: { Riya: 'old console description' } };
+    const merged = styleWithCast(base, { Riya: 'new tab description', Bose: 'stocky, grey beard' });
+    assert.equal(merged.characters.Riya, 'new tab description');
+    assert.equal(merged.characters.Bose, 'stocky, grey beard');
+    assert.equal(base.characters.Riya, 'old console description', 'input must not be mutated');
+    assert.equal(styleWithCast(base, {}), base, 'empty cast is a no-op');
+    assert.equal(styleWithCast(null, null), null);
+});
+
+test('a disabled style keeps the cast off too — enabled:false is the whole opt-out', () => {
+    const style = styleWithCast({ enabled: false, looks: {} }, { Riya: 'desc' });
+    assert.equal(composeStyledPrompt('Riya waves.', style).applied, false);
 });

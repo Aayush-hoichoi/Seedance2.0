@@ -75,7 +75,7 @@ export default function RequestsClient() {
             {tab === 'projects' && <ProjectsTab requests={projects.data?.requests ?? []} mutate={projects.mutate} />}
             {tab === 'exr' && <ExrAccessTab requests={exrPending} mutate={exr.mutate} />}
             {tab === 'tryon' && <ModelAccessTab pending={tryonPending} mutate={access.mutate}
-                emptyTitle="No pending Try-On requests" emptyHint="Users request Try-On access from the /tools/tryon page; approving unlocks the tool for that project — it spends their normal model budgets." />}
+                emptyTitle="No pending Try-On requests" emptyHint="Users request Try-On access from the Characters page (/characters); approving unlocks the embedded Try-On studio for that project — it spends their normal model budgets." />}
             {tab === 'workflows' && <WorkflowAccessTab requests={workflowPending} publishRequests={publishPending} mutate={workflows.mutate} />}
         </div>
     );

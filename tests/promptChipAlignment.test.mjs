@@ -20,7 +20,11 @@ import { readFileSync } from 'node:fs';
 const src = readFileSync(new URL('../app/seedance/PromptBar.jsx', import.meta.url), 'utf8');
 
 test('the chip backdrop ends with a newline sentinel, or it is a line short', () => {
-    assert.match(src, /out\.push\(`\$\{text\.slice\(last\)\}\\n`\)/,
+    // The tail segment runs through the cast-chip pass first, then the bare
+    // sentinel is appended — both pushes must survive any renderChips refactor.
+    assert.match(src, /pushText\(text\.slice\(last\)\);/,
+        'renderChips must emit the tail segment after the last positional token');
+    assert.match(src, /out\.push\('\\n'\)/,
         'renderChips must append \\n — pre-wrap eats it, the textarea does not');
 });
 

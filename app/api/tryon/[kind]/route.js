@@ -25,6 +25,16 @@ const KINDS = {
 // Same shape the archive route accepts — the bucket's four prefixes.
 const KEY_RE = /^(videos|uploads|images|exr)\/[\w.-]+$/;
 const MEDIA_KINDS = new Set(['image', 'video']);
+// Same ceiling as projects.style characters (STYLE_LIMITS.character) — the
+// description is injected into prompts, so an oversized one eats prompt budget.
+const DESCRIPTION_MAX = 1500;
+
+// '' clears a description, undefined leaves it alone, anything else is capped.
+function cleanDescription(value) {
+    if (value === undefined) return undefined;
+    const text = typeof value === 'string' ? value.trim().slice(0, DESCRIPTION_MAX) : '';
+    return text || null;
+}
 
 function bad(message, status = 400) {
     return NextResponse.json({ error: message }, { status });
@@ -73,6 +83,7 @@ export async function POST(request, { params }) {
     const vals = [projectId, ctx.user.userId, mediaKey];
     if (spec.named) { cols.push('name'); vals.push(name); }
     if (spec.media) { cols.push('kind'); vals.push(mediaKind); }
+    if (kind === 'characters') { cols.push('description'); vals.push(cleanDescription(body?.description) ?? null); }
     if (kind === 'finals') {
         cols.push('items', 'model');
         vals.push(String(body?.items || '').slice(0, 500) || null, String(body?.model || '').slice(0, 80) || null);
@@ -83,6 +94,54 @@ export async function POST(request, { params }) {
         vals,
     );
     return NextResponse.json({ item: row }, { status: 201 });
+}
+
+// Edit a character — Characters-tab collaboration: any project member may
+// rename or re-describe a cast member (the tab shows who created it), but the
+// locked identity IMAGE only changes by its creator or an admin, the same
+// guarantee DELETE enforces.
+export async function PATCH(request, { params }) {
+    const { kind } = await params;
+    if (kind !== 'characters') return bad('Only characters can be edited.', 404);
+    const body = await request.json().catch(() => null);
+    const projectId = Number(body?.projectId) || null;
+    const id = Number(body?.id) || null;
+    if (!id) return bad('id is required.');
+    const { ctx, error } = await ctxFor(request, projectId);
+    if (error) return error;
+
+    const sets = [];
+    const vals = [];
+    const add = (col, value) => { vals.push(value); sets.push(`${col} = $${vals.length}`); };
+    if (body?.name !== undefined) {
+        const name = typeof body.name === 'string' ? body.name.trim().slice(0, 120) : '';
+        if (!name) return bad('A name is required.');
+        add('name', name);
+    }
+    if (body?.description !== undefined) add('description', cleanDescription(body.description));
+    if (body?.mediaKey !== undefined) {
+        const mediaKey = typeof body.mediaKey === 'string' ? body.mediaKey.trim() : '';
+        if (!KEY_RE.test(mediaKey)) return bad('mediaKey must be a bucket key (uploads/…, images/…, videos/…).');
+        const isAdmin = ctx.role === 'admin' || ctx.role === 'owner';
+        const [owned] = await ctx.sql.query(
+            'SELECT 1 FROM tryon_characters WHERE id = $1 AND project_id = $2 AND NOT deleted AND ($3 OR created_by = $4)',
+            [id, projectId, isAdmin, ctx.user.userId],
+        );
+        if (!owned) return bad('Only the creator or an admin can replace the locked identity image.', 403);
+        add('media_key', mediaKey);
+        if (MEDIA_KINDS.has(body?.kind)) add('kind', body.kind);
+    }
+    if (!sets.length) return bad('Nothing to update.');
+
+    vals.push(id, projectId);
+    const [row] = await ctx.sql.query(
+        `UPDATE tryon_characters SET ${sets.join(', ')}
+         WHERE id = $${vals.length - 1} AND project_id = $${vals.length} AND NOT deleted
+         RETURNING *`,
+        vals,
+    );
+    if (!row) return bad('Not found.', 404);
+    return NextResponse.json({ item: row });
 }
 
 export async function DELETE(request, { params }) {

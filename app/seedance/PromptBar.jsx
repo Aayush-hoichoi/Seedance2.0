@@ -11,6 +11,7 @@ import { MODES, RATIOS, RESOLUTIONS, IMAGE_RATIOS, IMAGE_STUDIO_ID, modeAllowedF
 import { estimateLabel, unitEstimate } from './estimateLabel.mjs';
 import { summarize as summarizeCinematic } from '../../lib/seedance/cinematic.mjs';
 import { buildTags, filterTags, tagLabelFor, tagToken, TOKEN_RE } from '../../lib/seedance/tags.js';
+import { castTokenRe, filterCast } from '../../lib/seedance/castTags.mjs';
 import { batchIndices, batchMedia, withBatchMedia, nextBatchIndex, MAX_OUTPUTS } from '../../lib/seedance/refBatches.mjs';
 import { friendlyError } from '../../lib/seedance/friendlyError.js';
 import { moveItem } from '../../lib/seedance/reorder.mjs';
@@ -23,15 +24,29 @@ import MicButton from './MicButton.jsx';
 // styling is background-and-color ONLY (no padding/border/font-weight) — any
 // property that changes glyph advance widths desyncs the painted text from
 // the textarea's caret, making typed letters appear in the wrong place.
-function renderChips(text, tags) {
+function renderChips(text, tags, castRe = null) {
     const known = new Set(tags.map((t) => t.label.replace(' ', '').toLowerCase()));
     const re = new RegExp(TOKEN_RE.source, 'gi');
     const out = [];
+    let i = 0;
+    // Plain-text segments get a second pass for "@CharacterName" cast tokens —
+    // same background-and-color-only constraint as the positional chips.
+    const pushText = (seg) => {
+        if (!castRe || !seg) { if (seg) out.push(seg); return; }
+        castRe.lastIndex = 0;
+        let from = 0;
+        let cm;
+        while ((cm = castRe.exec(seg)) !== null) {
+            if (cm.index > from) out.push(seg.slice(from, cm.index));
+            out.push(<span key={`c${i++}`} className="rounded-[4px] bg-primary/25 text-primary">{cm[0]}</span>);
+            from = cm.index + cm[0].length;
+        }
+        if (from < seg.length) out.push(seg.slice(from));
+    };
     let last = 0;
     let m;
-    let i = 0;
     while ((m = re.exec(text)) !== null) {
-        if (m.index > last) out.push(text.slice(last, m.index));
+        if (m.index > last) pushText(text.slice(last, m.index));
         const valid = known.has(`${m[1].toLowerCase()}${m[2]}`);
         out.push(
             <span key={i++} className={`rounded-[4px] ${valid ? 'bg-primary/25 text-primary' : 'bg-white/10 text-white/40'}`}>
@@ -40,11 +55,12 @@ function renderChips(text, tags) {
         );
         last = m.index + m[0].length;
     }
+    pushText(text.slice(last));
     // Trailing "\n": a pre-wrap block drops a segment break at its end, a
     // textarea keeps it as a real empty line. Without the sentinel the backdrop
     // is one line shorter, and scrolled to the bottom of a long prompt the
     // synced scrollTop clamps early and paints the chips a line above the caret.
-    out.push(`${text.slice(last)}\n`);
+    out.push('\n');
     return out;
 }
 
@@ -799,6 +815,7 @@ export default function PromptBar({
     error, notice, setNotice, onClear = null, onGenerate, enhancing = false, batch = 1, setBatch,
     hasBarContent = false,
     onMediaError, onUploadFiles, tags, sidebarLeft = '', barRef,
+    characters = [], onTagCharacter,
     mannequinSources = [], onImportMannequin,
     mediaType = 'video', onChangeMediaType, imageModels = [],
     imageStudio = false, onChangeImageModel,
@@ -981,27 +998,31 @@ export default function PromptBar({
     }, [prompt, docked]);
 
     // @-mention: typing "@" after whitespace opens a menu of the attached assets'
-    // positional tags (Image 1, Video 1, …). Selecting one inserts the literal
-    // "Image 1" text BytePlus expects in the prompt.
+    // positional tags (Image 1, Video 1, …) AND the project's saved characters.
+    // A tag inserts the literal "@Image1" token; a character inserts "@Name" and
+    // attaches its stored reference image (onTagCharacter) — no upload needed.
     const allTags = tags || [];
+    const castRe = characters.length ? castTokenRe(characters.map((c) => c.name)) : null;
     const mentionTags = mention ? filterTags(allTags, mention.query) : [];
-    const showMention = !!mention && mentionTags.length > 0;
+    const mentionCast = mention ? filterCast(characters, mention.query) : [];
+    const mentionCount = mentionTags.length + mentionCast.length;
+    const showMention = !!mention && mentionCount > 0;
 
     const detectMention = (el) => {
         const pos = el.selectionStart ?? el.value.length;
         const m = /(?:^|\s)@(\w*)$/.exec(el.value.slice(0, pos));
-        if (m && allTags.length) setMention({ start: pos - m[1].length - 1, query: m[1] });
+        if (m && (allTags.length || characters.length)) setMention({ start: pos - m[1].length - 1, query: m[1] });
         else setMention(null);
         setMentionIdx(0); // re-typing re-filters; highlight returns to the top row
     };
 
     const onPromptInput = (e) => { onPromptChange(e.target.value); autoGrow(e.target); detectMention(e.target); };
 
-    const insertTag = (tag) => {
+    // Splice a token over the "@query" being typed, restore the caret after it.
+    const insertToken = (token) => {
         const el = taRef.current;
         const pos = el?.selectionStart ?? prompt.length;
         const start = mention ? mention.start : pos;
-        const token = tagToken(tag); // "@Image1"
         const next = `${prompt.slice(0, start)}${token} ${prompt.slice(pos)}`;
         onPromptChange(next);
         setMention(null);
@@ -1012,6 +1033,18 @@ export default function PromptBar({
             el.setSelectionRange(caret, caret);
             autoGrow(el);
         });
+    };
+
+    const insertTag = (tag) => insertToken(tagToken(tag)); // "@Image1"
+    const insertCharacter = (c) => {
+        insertToken(`@${c.name}`);
+        onTagCharacter?.(c); // parent attaches the stored reference image
+    };
+    // The menu is one keyboard-navigable list: positional tags, then characters.
+    const insertMentionAt = (i) => {
+        const idx = Math.min(i, mentionCount - 1);
+        if (idx < mentionTags.length) insertTag(mentionTags[idx]);
+        else insertCharacter(mentionCast[idx - mentionTags.length]);
     };
 
     // Docked: a slim pill that previews the prompt; clicking it scrolls back to
@@ -1057,9 +1090,9 @@ export default function PromptBar({
                 <div className="relative flex items-start gap-2 px-1">
                     {showMention && (
                         <div className="absolute bottom-full left-0 mb-2 z-50 min-w-[190px] max-h-60 overflow-y-auto custom-scrollbar bg-paper-1 rounded-lg p-1.5 shadow-2xl border border-white/[0.08]">
-                            <div className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wide text-white/50">Reference an asset</div>
+                            {mentionTags.length > 0 && <div className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wide text-white/50">Reference an asset</div>}
                             {mentionTags.map((t, i) => {
-                                const active = i === Math.min(mentionIdx, mentionTags.length - 1);
+                                const active = i === Math.min(mentionIdx, mentionCount - 1);
                                 return (
                                     <button
                                         key={t.label}
@@ -1070,6 +1103,24 @@ export default function PromptBar({
                                     >
                                         <span className="font-semibold">{tagToken(t)}</span>
                                         {t.name && <span className="text-[10px] text-white/30 truncate max-w-[100px]">{t.name}</span>}
+                                    </button>
+                                );
+                            })}
+                            {mentionCast.length > 0 && <div className={`px-2 pb-1 text-[10px] font-bold uppercase tracking-wide text-white/50 ${mentionTags.length ? 'pt-1.5 border-t border-white/[0.06] mt-1' : ''}`}>Project characters</div>}
+                            {mentionCast.map((c, i) => {
+                                const idx = mentionTags.length + i;
+                                const active = idx === Math.min(mentionIdx, mentionCount - 1);
+                                return (
+                                    <button
+                                        key={`cast-${c.id}`}
+                                        type="button"
+                                        onMouseDown={(e) => { e.preventDefault(); insertCharacter(c); }}
+                                        onMouseEnter={() => setMentionIdx(idx)}
+                                        title={c.description || c.name}
+                                        className={`w-full text-left px-2.5 py-1.5 rounded-md text-sm flex items-center justify-between gap-3 transition-colors ${active ? 'bg-primary/15 text-primary' : 'text-white/80'}`}
+                                    >
+                                        <span className="font-semibold truncate">@{c.name}</span>
+                                        <span className="text-[10px] text-white/30 truncate max-w-[110px]">{c.creator_name ? `by ${c.creator_name}` : 'character'}</span>
                                     </button>
                                 );
                             })}
@@ -1109,7 +1160,7 @@ export default function PromptBar({
                             aria-hidden
                             className="pointer-events-none absolute inset-0 text-sm pt-2 leading-relaxed whitespace-pre-wrap break-words overflow-y-auto custom-scrollbar [scrollbar-gutter:stable] text-white"
                         >
-                            {renderChips(prompt, allTags)}
+                            {renderChips(prompt, allTags, castRe)}
                         </div>
                         {/* globals.css ::selection sets a colour, which overrides
                             text-transparent and paints the textarea's own text on top
@@ -1124,11 +1175,11 @@ export default function PromptBar({
                                 // (like the real studio): ↑/↓ move the highlight,
                                 // Enter/Tab insert it, Esc closes; caret untouched.
                                 if (showMention) {
-                                    if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIdx((i) => (i + 1) % mentionTags.length); return; }
-                                    if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIdx((i) => (i - 1 + mentionTags.length) % mentionTags.length); return; }
+                                    if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIdx((i) => (i + 1) % mentionCount); return; }
+                                    if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIdx((i) => (i - 1 + mentionCount) % mentionCount); return; }
                                     if (e.key === 'Enter' || e.key === 'Tab') {
                                         e.preventDefault();
-                                        insertTag(mentionTags[Math.min(mentionIdx, mentionTags.length - 1)]);
+                                        insertMentionAt(mentionIdx);
                                         return;
                                     }
                                 }
@@ -1141,7 +1192,7 @@ export default function PromptBar({
                                 const r = e.currentTarget.getBoundingClientRect();
                                 if (e.clientX >= r.right - 18 && e.clientY >= r.bottom - 18) manualResizedRef.current = true;
                             }}
-                            placeholder={isImage ? 'Describe the image you want to create' : allTagsPossible ? 'Describe the video — type “@” to reference an upload (e.g. actions in @Video1, character from @Image1)' : mode.requiresText ? 'Describe the video you want to create' : 'Describe the video (optional)…'}
+                            placeholder={characters.length ? `Describe the ${isImage ? 'image' : 'video'} — type “@” to tag a project character or reference an upload` : isImage ? 'Describe the image you want to create' : allTagsPossible ? 'Describe the video — type “@” to reference an upload (e.g. actions in @Video1, character from @Image1)' : mode.requiresText ? 'Describe the video you want to create' : 'Describe the video (optional)…'}
                             rows={1}
                             title="Drag the bottom-right corner to resize"
                             className="relative block w-full bg-transparent border-none text-transparent [&::selection]:text-transparent caret-white text-sm placeholder:text-white/40 focus:outline-none resize-y pt-2 leading-relaxed min-h-[40px] max-h-[60vh] overflow-y-auto custom-scrollbar [scrollbar-gutter:stable]"
