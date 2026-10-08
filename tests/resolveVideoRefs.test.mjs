@@ -265,3 +265,55 @@ test('an assetId-less register result keeps the raw URL and is reused without re
     assert.equal(again.url, 'https://tos.example/gory.mp4?sig=2');
     assert.equal(calls, 1, 'the cached fallback must not trigger a second registration');
 });
+
+// BytePlus's verification job can itself die transiently: the asset lands
+// Status:Failed with the SAME "service unavailable, try again later" message
+// the API returns during an outage (Shreya's Kaal Bhairav submits, Oct 2026).
+// That's a pipeline hiccup, not a verdict on the media — register again once.
+test('a transiently-failed verification re-registers once, then succeeds', async () => {
+    const { registerAssetFromUrl, uploadGroupName: groupName } = await import('../lib/seedance/assetsClient.js');
+    let creates = 0, deletes = 0;
+    const realFetch = global.fetch;
+    global.fetch = async (url, init) => {
+        const { action } = JSON.parse(init.body);
+        const ok = (body) => ({ ok: true, status: 200, json: async () => body });
+        if (action === 'ListAssetGroups') return ok({ Result: { Items: [{ Id: 'g1', Name: groupName(null) }] } });
+        if (action === 'CreateAsset') return ok({ Result: { Id: `a${++creates}` } });
+        if (action === 'DeleteAsset') { deletes++; return ok({ Result: {} }); }
+        // GetAsset: first registration Failed with the outage message, second Active.
+        const { payload } = JSON.parse(init.body);
+        return payload.Id === 'a1'
+            ? ok({ Result: { Id: 'a1', Status: 'Failed', Error: { Code: 'ServiceUnavailable', Message: 'The current service is unavailable. Please try uploading again later.' } } })
+            : ok({ Result: { Id: payload.Id, Status: 'Active', Name: 'v.mp4' } });
+    };
+    try {
+        const item = await registerAssetFromUrl({ url: 'https://tos.example/v.mp4', kind: 'video' });
+        assert.equal(item.url, 'asset://a2');
+        assert.equal(creates, 2, 'one re-registration after the transient failure');
+        assert.equal(deletes, 1, 'the Failed asset is deleted to free its pool slot');
+    } finally {
+        global.fetch = realFetch;
+    }
+});
+
+test('a real verification rejection (moderation) is NOT re-registered', async () => {
+    const { registerAssetFromUrl, uploadGroupName: groupName } = await import('../lib/seedance/assetsClient.js');
+    let creates = 0;
+    const realFetch = global.fetch;
+    global.fetch = async (url, init) => {
+        const { action } = JSON.parse(init.body);
+        const ok = (body) => ({ ok: true, status: 200, json: async () => body });
+        if (action === 'ListAssetGroups') return ok({ Result: { Items: [{ Id: 'g1', Name: groupName(null) }] } });
+        if (action === 'CreateAsset') return ok({ Result: { Id: `b${++creates}` } });
+        return ok({ Result: { Id: 'b1', Status: 'Failed', Error: { Code: 'InputVideoSensitiveContentDetected', Message: 'The request failed because the input video may contain sensitive information.' } } });
+    };
+    try {
+        await assert.rejects(
+            () => registerAssetFromUrl({ url: 'https://tos.example/gore.mp4', kind: 'video' }),
+            /sensitive information/i,
+        );
+        assert.equal(creates, 1, 'moderation failures must not burn a second registration');
+    } finally {
+        global.fetch = realFetch;
+    }
+});
