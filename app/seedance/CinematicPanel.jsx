@@ -1,5 +1,8 @@
 'use client';
 
+import { Button } from '@/components/ui/button';
+import { CARD, POPOVER, WELL, ITEM, RAISED } from '@/components/ui/surface-styles';
+
 // Cinematic Cameras — centered modal for image mode. Pick a camera body, lens,
 // focal length and aperture (via presets or the manual tiles); on Apply the
 // active setup is lifted to the studio, where the enhancer (style 'cinematic_camera')
@@ -87,7 +90,7 @@ function ReelPicker({ items, getId, activeId, onPick, renderItem }) {
 // A tile = label on top, the reel in the middle, the selected value's name below.
 function ReelTile({ label, name, sub, children }) {
     return (
-        <div className="flex flex-col items-center gap-1 rounded-xl border border-white/[0.08] bg-white/[0.03] px-2 pt-3 pb-3 text-center">
+        <div className={`${CARD} flex flex-col items-center gap-1 px-2 pt-3 pb-3 text-center`}>
             <div className="text-[10px] font-bold uppercase tracking-wider text-white/40">{label}</div>
             {children}
             <div className="mt-1 flex min-h-[2.4rem] flex-col items-center justify-start">
@@ -161,17 +164,17 @@ export default function CinematicPanel({ open, setup, onApply, onClose }) {
             >
             <div
                 onClick={(e) => e.stopPropagation()}
-                className="w-full max-w-3xl overflow-hidden rounded-2xl border border-white/10 bg-paper-1 shadow-2xl"
+                className={`${POPOVER} w-full max-w-3xl overflow-hidden`}
             >
                 {/* header: tabs + close */}
                 <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
-                    <div className="flex items-center gap-1 rounded-full bg-black/30 p-1">
+                    <div className={`${WELL} flex items-center gap-1 p-[3px]`}>
                         {TABS.map((t) => (
                             <button
                                 key={t.id}
                                 type="button"
                                 onClick={() => setTab(t.id)}
-                                className={`rounded-full px-3.5 py-1 text-xs font-semibold transition-colors ${tab === t.id ? 'bg-white text-black' : 'text-white/60 hover:text-white'}`}
+                                className={`${ITEM} px-3.5 py-1.5 text-xs font-medium ${tab === t.id ? `${RAISED} !text-[#f0f0f0]` : ''}`}
                             >
                                 {t.label}
                             </button>
@@ -261,9 +264,9 @@ export default function CinematicPanel({ open, setup, onApply, onClose }) {
                         <button type="button" onClick={() => { onApply(null); onClose(); }} className="rounded-md px-3 py-2 text-sm font-medium text-white/60 hover:text-white">
                             None
                         </button>
-                        <button type="button" onClick={() => { onApply(draft); onClose(); }} className="rounded-md bg-primary px-5 py-2 text-sm font-bold text-black transition-colors hover:bg-primary/90">
+                        <Button type="button" onClick={() => { onApply(draft); onClose(); }} className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto px-5 py-2 text-sm">
                             Apply
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </div>

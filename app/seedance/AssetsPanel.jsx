@@ -1,5 +1,8 @@
 'use client';
 
+import { CARD, WELL, ITEM, RAISED } from '@/components/ui/surface-styles';
+import { Button } from '@/components/ui/button';
+
 // Full-screen overlay with two tabs:
 //   • All assets — every finished generation as a video tile, grouped by day,
 //     multi-select → Download (one → mp4, many → zip).
@@ -163,29 +166,29 @@ export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteFo
                 loading={busy}
             />
             <header className="shrink-0 flex items-center justify-between gap-4 h-16 px-5 sm:px-8 border-b border-white/[0.06]">
-                <div className="flex items-center gap-1">
+                <div className={`${WELL} flex items-center gap-1 p-[3px]`}>
                     <Tab active={!isBin} onClick={() => setView('assets')} label="All assets" count={assets.length} />
                     <Tab active={isBin} onClick={() => setView('bin')} label="Bin" count={binItems.length} />
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                     {source.length > 0 && (
-                        <button
+                        <Button
                             type="button"
                             onClick={toggleAll}
-                            className="px-3 py-1.5 rounded-md text-xs font-semibold text-white/70 border border-white/10 bg-white/[0.04] hover:text-white hover:border-white/25 hover:bg-white/[0.08] transition-colors"
+                            variant="secondary" className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto px-3 py-1.5 text-xs"
                         >
                             {allSelected ? 'Clear selection' : 'Select all'}
-                        </button>
+                        </Button>
                     )}
-                    <button
+                    <Button
                         type="button"
                         onClick={onClose}
                         aria-label="Close"
                         title="Close"
-                        className="p-2 rounded-md text-white/70 border border-white/10 bg-white/[0.04] hover:text-white hover:border-white/25 hover:bg-white/[0.08] transition-colors"
+                        variant="secondary" className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto p-2"
                     >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                    </button>
+                    </Button>
                 </div>
             </header>
 
@@ -238,20 +241,20 @@ export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteFo
             </div>
 
             {selected.size > 0 && (
-                <div className="fixed bottom-6 inset-x-0 mx-auto z-[81] w-fit max-w-[94vw] flex items-center gap-2 px-3 py-2.5 rounded-xl border border-white/10 bg-paper-1/90 backdrop-blur-2xl shadow-2xl animate-fade-in-up">
+                <div className={`${CARD} fixed bottom-6 inset-x-0 mx-auto z-[81] w-fit max-w-[94vw] flex items-center gap-2 px-3 py-2.5 animate-fade-in-up`}>
                     <span className="pl-2 pr-1 text-sm font-semibold whitespace-nowrap tabular-nums">{selected.size} selected</span>
                     {error && <span className="text-xs text-danger max-w-[34vw] truncate" title={error}>{error}</span>}
                     {isBin ? (
                         <>
-                            <button
+                            <Button
                                 type="button"
                                 onClick={() => restoreMany([...selected])}
                                 disabled={busy}
-                                className="flex items-center gap-1.5 rounded-md bg-white/10 px-3.5 py-2 text-sm font-semibold text-white hover:bg-white/20 transition-colors disabled:opacity-60"
+                                variant="secondary" className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto flex items-center px-3.5 py-2 text-sm"
                             >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6" /><path d="M3.51 13a9 9 0 1 0 2.13-9.36L3 7" /></svg>
                                 Restore
-                            </button>
+                            </Button>
                             <button
                                 type="button"
                                 onClick={() => requestDelete('permanent', [...selected])}
@@ -264,11 +267,11 @@ export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteFo
                         </>
                     ) : (
                         <>
-                            <button
+                            <Button
                                 type="button"
                                 onClick={onDownloadSelected}
                                 disabled={busy}
-                                className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-accent-ink hover:bg-accent-hi transition-colors disabled:opacity-60 disabled:cursor-wait"
+                                className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto flex items-center px-4 py-2 text-sm disabled:cursor-wait"
                             >
                                 {busy ? (
                                     <><span className="animate-spin inline-block">◌</span> Zipping…</>
@@ -278,17 +281,17 @@ export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteFo
                                         Download {selected.size > 1 ? 'zip' : ''}
                                     </>
                                 )}
-                            </button>
-                            <button
+                            </Button>
+                            <Button
                                 type="button"
                                 onClick={() => requestDelete('bin', [...selected])}
                                 disabled={busy}
                                 title="Move to bin"
-                                className="flex items-center gap-1.5 rounded-md bg-white/10 px-3.5 py-2 text-sm font-semibold text-white hover:bg-white/20 transition-colors disabled:opacity-60"
+                                variant="secondary" className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto flex items-center px-3.5 py-2 text-sm"
                             >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
                                 Move to bin
-                            </button>
+                            </Button>
                         </>
                     )}
                     <button
@@ -312,7 +315,7 @@ function Tab({ active, onClick, label, count }) {
         <button
             type="button"
             onClick={onClick}
-            className={`px-3 py-1.5 rounded-md text-sm font-bold tracking-tight transition-colors ${active ? 'bg-white/[0.06] text-white' : 'text-white/40 hover:text-white/80'}`}
+            className={`${ITEM} px-3 py-1.5 text-sm font-medium ${active ? `${RAISED} !text-[#f0f0f0]` : ''}`}
         >
             {label}
             {count > 0 && <span className={`ml-1.5 text-xs font-semibold ${active ? 'text-white/40' : 'text-white/25'}`}>{count}</span>}
@@ -335,7 +338,7 @@ function AssetCard({ job, isBin, selected, disabled, onToggle, onPreview, onDown
             onClick={onOpen}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
             title={job.prompt || job.userPrompt || job.meta || ''}
-            className={`group relative aspect-video rounded-xl overflow-hidden border cursor-pointer transition-all ${selected ? 'border-primary ring-2 ring-primary/50' : 'border-white/10 hover:border-white/30'}`}
+            className={`${CARD} group relative aspect-video overflow-hidden cursor-pointer transition-colors duration-150 ${selected ? '!border-primary ring-2 ring-primary/50' : 'hover:border-line-strong'}`}
         >
             {job.videoUrl ? (
                 <video

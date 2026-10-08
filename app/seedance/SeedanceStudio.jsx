@@ -1,5 +1,8 @@
 'use client';
 
+import { Button } from '@/components/ui/button';
+import { CARD, POPOVER, ITEM, RAISED } from '@/components/ui/surface-styles';
+
 // loglineAI Studio — muapi house look: hero headline, a scrollable grid of
 // generation jobs (running + finished, persisted across reloads), and a fixed
 // bottom prompt-bar (PromptBar.jsx). Multiple generations can run in parallel;
@@ -2427,7 +2430,7 @@ export default function SeedanceStudio() {
 
     return (
         <div
-            className="relative min-h-screen w-full bg-app-bg text-white"
+            className={`relative min-h-screen w-full bg-app-bg text-ink`}
             style={{
                 // Keep these values shared by the prompt and everything that
                 // docks around it. Omitting --bar-h until the first measure is
@@ -2443,10 +2446,10 @@ export default function SeedanceStudio() {
                 (see BudgetRemaining / MySpend) so it fits a phone. */}
             <div className="fixed inset-x-3 top-3 z-40 flex items-center justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-2">
-                    <button type="button" onClick={() => setSelectedId(null)} title="Home" className="flex shrink-0 items-center gap-1.5 rounded-md border border-line bg-paper-2 px-2 py-1.5 text-xs font-semibold text-ink-2 sm:px-2.5">
+                    <Button type="button" onClick={() => setSelectedId(null)} title="Home" variant="secondary" className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto flex shrink-0 items-center px-2 py-1.5 text-xs sm:px-2.5">
                         <span className="grid h-4 w-4 place-items-center rounded bg-accent font-display text-[10px] font-bold text-accent-ink">L</span>
                         <span className="hidden sm:inline">LoglineAI</span>{activeCount > 0 && <span className="ml-0.5 text-accent-hi">· {activeCount}</span>}
-                    </button>
+                    </Button>
                     <Link href="/projects" title="Back to projects" className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-line bg-paper-2 text-ink-3 transition-colors hover:text-ink">
                         <ArrowLeft size={14} />
                     </Link>
@@ -2454,10 +2457,10 @@ export default function SeedanceStudio() {
                     <BudgetRemaining projectId={projectId} modelId={options.model} refreshKey={budgetVersion} />
                     {exrAccess?.granted && projectId && <ExrBudgetChip projectId={projectId} />}
                     {!isAdmin && projectId && (
-                        <button type="button" onClick={() => setBudgetRequestOpen(true)} title="Request more budget"
-                            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-line bg-paper-2 px-2.5 text-[11px] font-semibold text-ink-2 transition-colors hover:border-accent/40 hover:text-accent-hi">
+                        <Button type="button" onClick={() => setBudgetRequestOpen(true)} title="Request more budget"
+                            variant="secondary" className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto inline-flex h-7 items-center px-2.5 text-[11px] hover:border-accent/40 hover:text-accent-hi">
                             <WalletCards size={13} /> <span className="hidden sm:inline">Request budget</span>
-                        </button>
+                        </Button>
                     )}
                     {!isAdmin && projectId && exrAccess && (
                         <button
@@ -2494,7 +2497,7 @@ export default function SeedanceStudio() {
                             <ChevronDown size={12} className="hidden text-ink-3 transition-transform group-hover:rotate-180 sm:inline" />
                         </Link>
                         <div className="invisible absolute right-0 top-full z-30 pt-1.5 opacity-0 transition-opacity duration-100 group-hover:visible group-hover:opacity-100">
-                            <div className="w-48 rounded-lg border border-line bg-paper-1 p-1 shadow-2xl">
+                            <div className={`${POPOVER} w-48 p-[3px]`}>
                                 {TOOLS.map((tool) => (
                                     <Link key={tool.id} href={tool.href} title={tool.blurb}
                                         className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink">
@@ -2509,9 +2512,9 @@ export default function SeedanceStudio() {
                             <ShieldCheck size={14} />
                         </Link>
                     )}
-                    <button type="button" onClick={() => setShowAssets(true)} title="Assets" className="rounded-md border border-line bg-paper-2 p-1.5 text-ink-2">
+                    <Button type="button" onClick={() => setShowAssets(true)} title="Assets" variant="secondary" className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto p-1.5">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>
-                    </button>
+                    </Button>
                     <UserButton />
                 </div>
             </div>
@@ -2737,7 +2740,7 @@ function BigStage({ job, onCancel, onFullscreen, onReuse, onRefresh, onReportIss
     if (job.status === 'done' && job.expired) {
         const hasPrompt = !!(job.prompt || job.userPrompt || job.refs?.length);
         const card = (
-            <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-black/40 aspect-video flex flex-col items-center justify-center gap-3 px-8 text-center">
+            <div className={`${CARD} relative overflow-hidden aspect-video flex flex-col items-center justify-center gap-3 px-8 text-center`}>
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-white/25"><path d="M16 16v1a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h2m5.66 0H14a2 2 0 012 2v3.34l1 1L23 7v10" /><line x1="1" y1="1" x2="23" y2="23" /></svg>
                 <p className="text-sm text-white/45 leading-relaxed max-w-sm">This video’s link expired and no archived copy exists — use Reuse to regenerate it.</p>
                 <button
@@ -2772,7 +2775,7 @@ function BigStage({ job, onCancel, onFullscreen, onReuse, onRefresh, onReportIss
                 <div className="flex flex-col lg:flex-row gap-4 justify-center lg:items-start">
                     <div className={`flex-1 min-w-0 mx-auto lg:mx-0 ${mannequinRef ? 'flex flex-col sm:flex-row gap-4 sm:items-start max-w-6xl' : 'max-w-5xl'}`}>
                         {mannequinRef && <MannequinSource r={mannequinRef} />}
-                        <div className="relative flex-1 min-w-0 rounded-2xl overflow-hidden border border-white/10 bg-black shadow-2xl">
+                        <div className={`${CARD} relative flex-1 min-w-0 overflow-hidden`}>
                             <video
                                 key={job.id}
                                 src={job.videoUrl}
@@ -2814,7 +2817,7 @@ function BigStage({ job, onCancel, onFullscreen, onReuse, onRefresh, onReportIss
         // light spinner card, not the full "Rendering…" treatment.
         return (
             <div className="w-full max-w-3xl animate-fade-in-up">
-                <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-black/30 aspect-video flex flex-col items-center justify-center gap-2">
+                <div className={`${CARD} relative overflow-hidden aspect-video flex flex-col items-center justify-center gap-2`}>
                     <span className="animate-spin inline-block text-primary text-xl">◌</span>
                     <span className="text-xs font-semibold text-white/40">Refreshing the video link…</span>
                 </div>
@@ -2844,7 +2847,7 @@ function BigStage({ job, onCancel, onFullscreen, onReuse, onRefresh, onReportIss
                     RIGHT — same layout the finished video uses. */}
                 <div className="flex flex-col lg:flex-row gap-4 justify-center lg:items-start">
                     <div className="flex-1 min-w-0 max-w-5xl mx-auto lg:mx-0">
-                        <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-black/30 aspect-video flex items-center justify-center">
+                        <div className={`${CARD} relative overflow-hidden aspect-video flex items-center justify-center`}>
                             {placeholder}
                         </div>
                     </div>
@@ -2893,7 +2896,7 @@ function PromptTabs({ job, onReuse }) {
     // predate the model field.
     const modelName = job.model ? (MODELS.find((m) => m.id === job.model)?.name ?? IMAGE_MODELS.find((m) => m.id === job.model)?.name ?? job.model) : null;
     return (
-        <div className="w-full lg:w-80 xl:w-96 shrink-0 flex flex-col max-h-[40vh] lg:max-h-[64vh] rounded-2xl border border-white/10 bg-white/[0.02] backdrop-blur-sm overflow-hidden">
+        <div className={`${CARD} w-full lg:w-80 xl:w-96 shrink-0 flex flex-col max-h-[40vh] lg:max-h-[64vh] overflow-hidden`}>
             {(hasText || modelName) && (
                 <>
                     <div className="flex items-center gap-1 p-2 border-b border-white/[0.06] shrink-0">
@@ -2902,7 +2905,7 @@ function PromptTabs({ job, onReuse }) {
                                 key={t.id}
                                 type="button"
                                 onClick={() => setTab(t.id)}
-                                className={`px-3 py-1.5 rounded-md text-[11px] font-semibold transition-colors ${t.id === current.id ? 'bg-primary/15 text-primary' : 'text-white/40 hover:text-white hover:bg-white/[0.06]'}`}
+                                className={`${ITEM} px-3 py-1.5 text-xs font-medium ${t.id === current.id ? `${RAISED} !text-[#f0f0f0]` : ''}`}
                             >{t.label}</button>
                         ))}
                         {modelName && (
@@ -2947,7 +2950,7 @@ function MannequinSource({ r }) {
     }, [r]);
     if (!url) return null;
     return (
-        <div className="relative sm:w-[38%] shrink-0 rounded-2xl overflow-hidden border border-white/10 bg-black shadow-2xl">
+        <div className={`${CARD} relative sm:w-[38%] shrink-0 overflow-hidden`}>
             <video src={url} controls muted loop autoPlay playsInline className="w-full max-h-[82vh] object-contain bg-black" />
             <span className="absolute top-3 left-3 px-2 py-1 rounded-md bg-black/60 border border-white/10 text-[10px] font-bold uppercase tracking-wider text-white/70 backdrop-blur-sm pointer-events-none">Mannequin source</span>
         </div>
@@ -3195,13 +3198,13 @@ function HistoryRail({ jobs, selectedId, onSelect, onRemove, onToggleLike, onRef
                     );
                 })}
                 {visibleCount < jobs.length && (
-                    <button
+                    <Button
                         type="button"
                         onClick={() => setVisibleCount((c) => Math.min(jobs.length, c + 24))}
-                        className="shrink-0 self-center rounded-lg border border-line px-3 py-2 text-[10px] font-semibold text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink-2 sm:self-auto sm:px-0"
+                        variant="outline" className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto shrink-0 self-center px-3 py-2 text-[10px] hover:text-ink-2 sm:self-auto sm:px-0"
                     >
                         Load {Math.min(24, jobs.length - visibleCount)} more
-                    </button>
+                    </Button>
                 )}
             </div>
             <p className="hidden pt-2 px-1 text-[9px] leading-relaxed text-white/20 sm:block">Synced to your account · videos auto-archived to team storage</p>
@@ -3473,15 +3476,15 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                 </div>
 
                 <div className="space-y-2 border-t border-line p-3">
-                    <button
+                    <Button
                         type="button"
                         onClick={() => { onReuse(job, job.refs || []); onClose(); }}
                         title="Load this prompt, references and settings back into the prompt bar"
-                        className="flex w-full items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-2.5 text-xs font-semibold text-accent-ink transition-colors hover:bg-accent-hi"
+                        className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto flex w-full items-center justify-center px-3 py-2.5 text-xs"
                     >
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M1 4v6h6M23 20v-6h-6" /><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15" /></svg>
                         Reuse this setup
-                    </button>
+                    </Button>
                     {job.videoUrl && onGenerateExr && (
                         <div className="space-y-1.5">
                             <button
@@ -3512,29 +3515,29 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                                 </>
                             )}
                             {exrAccess?.granted && job.exrStatus === 'succeeded' && job.exrUrl && (
-                                <button
+                                <Button
                                     type="button"
                                     onClick={() => downloadArchivedAsset(job.exrArchiveKey, job.exrUrl, `${job.taskId || job.id}-16bit.mov`, job.taskId, { raw: true })}
-                                    className="w-full rounded-md border border-line px-3 py-2 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink"
+                                    variant="outline" className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto w-full px-3 py-2 text-xs"
                                 >
                                     Download original 16-bit output
-                                </button>
+                                </Button>
                             )}
                         </div>
                     )}
                     <div className="flex items-center gap-2">
-                        <button
+                        <Button
                             type="button"
                             onClick={() => downloadAsset(job.videoUrl || job.imageUrl, job.taskId || 'generation', job.taskId, {
                                 format: dlFormat === 'prores' ? 'prores' : dlFormat.startsWith('mp4') ? 'mp4' : 'mov',
                                 fps: dlFormat.endsWith('25') ? 25 : null,
                             })}
                             title={job.videoUrl ? `Download (${dlFormat})` : 'Download'}
-                            className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-line px-3 py-2.5 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink"
+                            variant="outline" className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto flex flex-1 items-center justify-center px-3 py-2.5 text-xs"
                         >
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
                             Download
-                        </button>
+                        </Button>
                         {job.videoUrl && (
                             <select
                                 value={dlFormat}
@@ -3551,14 +3554,14 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                             </select>
                         )}
                         {job.videoUrl && (
-                            <button
+                            <Button
                                 type="button"
                                 onClick={() => downloadAsset(job.videoUrl, job.taskId || 'generation', job.taskId, { raw: true })}
                                 title="Exact file as generated, no re-encode (Seedance 2.5 outputs 10-bit H.265 at every resolution; 2.0 uses it at 4k — may not open in Nuke)"
-                                className="rounded-md border border-line px-3 py-2.5 text-xs font-semibold text-ink-3 transition-colors hover:bg-paper-3 hover:text-ink"
+                                variant="outline" className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto px-3 py-2.5 text-xs"
                             >
                                 Original
-                            </button>
+                            </Button>
                         )}
                         {onToggleLike && (
                             <button
@@ -3583,7 +3586,7 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                         role="dialog"
                         aria-modal="true"
                         aria-labelledby="exr-dialog-title"
-                        className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl border border-line bg-paper-1 p-5 shadow-2xl"
+                        className={`${POPOVER} max-h-[90vh] w-full max-w-xl overflow-y-auto p-5`}
                     >
                         <div className="flex items-start justify-between gap-4">
                             <div>
@@ -3623,7 +3626,7 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                         </div>
 
                         <div className="mt-5 space-y-3 text-xs leading-relaxed text-ink-2">
-                            <div className="rounded-lg border border-line bg-paper-2 p-4">
+                            <div className={`${CARD} p-4`}>
                                 <div className="flex items-center justify-between gap-3">
                                     <p className="font-semibold text-ink">Price preview</p>
                                     <span className="rounded-full bg-accent/10 px-2 py-1 text-[10px] font-semibold text-accent">USD</span>
@@ -3657,15 +3660,15 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                         )}
 
                         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                            <button type="button" onClick={() => setShowExrInfo(false)} className="rounded-md border border-line px-4 py-2.5 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink">Cancel</button>
-                            <button
+                            <Button type="button" onClick={() => setShowExrInfo(false)} variant="outline" className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto px-4 py-2.5 text-xs">Cancel</Button>
+                            <Button
                                 type="button"
                                 disabled={job.exrStatus === 'submitting' || job.exrStatus === 'processing'}
                                 onClick={() => { exrConfirming.current = true; onGenerateExr(job, exrOptions, exrDurationSeconds); }}
-                                className="rounded-md bg-accent px-4 py-2.5 text-xs font-semibold text-accent-ink transition-colors hover:bg-accent-hi disabled:cursor-wait disabled:opacity-60"
+                                className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto px-4 py-2.5 text-xs disabled:cursor-wait"
                             >
                                 {job.exrStatus === 'submitting' || job.exrStatus === 'processing' ? 'EXR is processing…' : job.exrStatus === 'failed' ? 'Try again' : 'Confirm and generate EXR'}
-                            </button>
+                            </Button>
                         </div>
                     </section>
                 </div>
