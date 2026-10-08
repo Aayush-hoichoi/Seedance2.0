@@ -8,7 +8,7 @@ import { CARD, WELL, RAISED, POPOVER, CONTROL, ITEM } from '@/components/ui/surf
 
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Lock } from 'lucide-react';
+import { Lock, Sparkles } from 'lucide-react';
 import { MODES, RATIOS, RESOLUTIONS, IMAGE_RATIOS, IMAGE_STUDIO_ID, modeAllowedForModel, resolutionWithinTier, imageRefMax, durationMaxFor, ratioIsInherited, imageResolutionsFor } from '../../lib/seedance/constants.js';
 import { estimateLabel, unitEstimate } from './estimateLabel.mjs';
 import { summarize as summarizeCinematic } from '../../lib/seedance/cinematic.mjs';
@@ -107,7 +107,7 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
     const gated = access !== 'approved'; // one approval unlocks every workflow
     return (
         <div className="relative">
-            <button
+            <button data-liquid-glass="" data-glass-active={!!(open || workflow)}
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : 'workflows'); }}
                 className={`${PILL} ${open || workflow ? PILL_ON : PILL_IDLE}`}
@@ -164,7 +164,7 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
                         {/* Create sits ON TOP, fixed with the polish toggle —
                             only the workflow list below scrolls. */}
                         {!gated && (
-                            <button
+                            <button data-liquid-glass=""
                                 type="button"
                                 onClick={() => { setOpenKey(null); setCreating(true); }}
                                 className="mx-1 mb-2 w-[calc(100%-0.5rem)] shrink-0 rounded-lg border border-dashed border-white/[0.14] px-3 py-2 text-left text-xs font-semibold text-white/55 transition-colors hover:border-primary/40 hover:text-primary"
@@ -173,7 +173,7 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
                         {/* AI prompt polish — an enhancer call per generation, so
                             it is the user's explicit choice, remembered. */}
                         {!gated && (attached?.video || attached?.image) && (
-                            <button
+                            <button data-liquid-glass=""
                                 type="button"
                                 onClick={() => onTogglePolish?.()}
                                 className="mx-1 mb-2 flex w-[calc(100%-0.5rem)] shrink-0 items-center justify-between gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-left transition-colors hover:border-white/[0.14]"
@@ -225,7 +225,7 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
                                                     <svg className="text-white/30" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
                                                 ) : null}
                                                 {(w.mine || (isAdmin && w.creator)) && !gated && (
-                                                    <button
+                                                    <button data-liquid-glass=""
                                                         type="button"
                                                         title="Versions — history, restore, and upgrade from generations"
                                                         aria-label={`Versions of ${w.name}`}
@@ -234,7 +234,7 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
                                                     >⟳</button>
                                                 )}
                                                 {w.mine && !gated && (
-                                                    <button
+                                                    <button data-liquid-glass=""
                                                         type="button"
                                                         title="Edit this workflow"
                                                         aria-label={`Edit ${w.name}`}
@@ -243,7 +243,7 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
                                                     >✎</button>
                                                 )}
                                                 {w.mine && !gated && (
-                                                    <button
+                                                    <button data-liquid-glass="" data-glass-tone="danger"
                                                         type="button"
                                                         title="Delete this workflow"
                                                         aria-label={`Delete ${w.name}`}
@@ -263,13 +263,13 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
                                                 {w.visibility === 'public' ? (
                                                     <>
                                                         <span className="text-[9px] font-bold uppercase tracking-wide text-primary/80">Public</span>
-                                                        <button type="button" onClick={(e) => { e.stopPropagation(); onSetVisibility?.(w.id, 'unpublish'); }}
+                                                        <button data-liquid-glass="" type="button" onClick={(e) => { e.stopPropagation(); onSetVisibility?.(w.id, 'unpublish'); }}
                                                             className="text-[10px] text-white/40 transition-colors hover:text-white">Make private</button>
                                                     </>
                                                 ) : w.visibility === 'pending' ? (
                                                     <span className="text-[9px] font-bold uppercase tracking-wide text-warn">Publish requested — awaiting admin</span>
                                                 ) : (
-                                                    <button type="button" onClick={(e) => { e.stopPropagation(); onSetVisibility?.(w.id, 'request_publish'); }}
+                                                    <button data-liquid-glass="" type="button" onClick={(e) => { e.stopPropagation(); onSetVisibility?.(w.id, 'request_publish'); }}
                                                         className="text-[10px] text-white/40 transition-colors hover:text-primary">Share with everyone…</button>
                                                 )}
                                             </div>
@@ -285,7 +285,7 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
                                     {looks.map((l) => {
                                         const active = (look || workflow.style.defaultLook) === l.key;
                                         return (
-                                            <button
+                                            <button data-liquid-glass="" data-glass-active={!!(active)}
                                                 key={l.key}
                                                 type="button"
                                                 onClick={() => onChangeLook?.(l.key)}
@@ -299,7 +299,7 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
                             </div>
                         )}
                         {(attached?.video || attached?.image) && (
-                            <button
+                            <button data-liquid-glass=""
                                 type="button"
                                 onClick={() => { onDetach?.('all'); setOpenKey(null); }}
                                 className="mx-1 mt-1 w-[calc(100%-0.5rem)] shrink-0 rounded-md px-2 py-2 text-left text-[11px] text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white"
@@ -342,7 +342,7 @@ function PillSelect({ id, openKey, setOpenKey, badge, display, label, note, opti
     const open = openKey === id;
     return (
         <div className="relative">
-            <button
+            <button data-liquid-glass="" data-glass-active={!!(open)}
                 type="button"
                 disabled={disabled}
                 onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : id); }}
@@ -358,7 +358,7 @@ function PillSelect({ id, openKey, setOpenKey, badge, display, label, note, opti
                     {note && <div className="px-2 pb-1.5 max-w-[240px] text-[10px] leading-relaxed text-warn/90">{note}</div>}
                     <div className="flex flex-col gap-0.5">
                         {options.map((opt) => (
-                            <button
+                            <button data-liquid-glass="row" data-glass-active={!!(opt.value === value)}
                                 key={String(opt.value)}
                                 type="button"
                                 disabled={opt.disabled}
@@ -376,7 +376,7 @@ function PillSelect({ id, openKey, setOpenKey, badge, display, label, note, opti
 
 function PillToggle({ label, active, onToggle, disabled, icon }) {
     return (
-        <button type="button" disabled={disabled} aria-pressed={active} onClick={onToggle} className={`${PILL} ${active ? PILL_ON : PILL_IDLE}`}>
+        <button data-liquid-glass="" type="button" disabled={disabled} aria-pressed={active} onClick={onToggle} className={`${PILL} ${active ? PILL_ON : PILL_IDLE}`}>
             <span className={active ? 'text-[#f0f0f0]' : 'text-white/65'}>{icon}</span>
             <span className={`text-xs font-semibold transition-colors ${active ? 'text-[#f0f0f0]' : 'text-[#d4d4d4] group-hover:text-[#f0f0f0]'}`}>{label}</span>
         </button>
@@ -424,13 +424,13 @@ function ImageRefUploader({ refs, onUpload, onRemove, onReorder, maxRefs = 3 }) 
                     className={`relative h-10 w-10 shrink-0 cursor-grab transition-all active:cursor-grabbing ${drag?.index === i ? 'scale-95 opacity-55 ring-2 ring-primary ring-offset-2 ring-offset-black rounded-full' : ''}`}
                 >
                     <img src={r.previewUrl} alt="" draggable={false} className="pointer-events-none h-full w-full select-none rounded-full border border-primary/40 object-cover" />
-                    <button type="button" onClick={() => onRemove(i)} aria-label="Remove" className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-white/20 bg-black text-[10px] leading-none text-white/70 hover:text-white">×</button>
+                    <button data-liquid-glass="" type="button" onClick={() => onRemove(i)} aria-label="Remove" className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-white/20 bg-black text-[10px] leading-none text-white/70 hover:text-white">×</button>
                 </div>
             ))}
             {refs.length < maxRefs && (
                 <>
                     <input ref={inputRef} type="file" hidden accept="image/*" multiple onChange={(e) => { onUpload?.(e.target.files); e.target.value = ''; }} />
-                    <button
+                    <button data-liquid-glass=""
                         type="button"
                         title="Add reference images — Nano Banana edits / combines them with your prompt"
                         onClick={() => inputRef.current?.click()}
@@ -448,7 +448,7 @@ function ImageRefUploader({ refs, onUpload, onRemove, onReorder, maxRefs = 3 }) 
 // generation, Video the Seedance/ModelArk flow. Vertical, like the reference.
 function MediaTypeToggle({ value, onChange }) {
     const opt = (id, label, icon) => (
-        <button
+        <button data-liquid-glass=""
             type="button"
             aria-pressed={value === id}
             onClick={() => onChange?.(id)}
@@ -488,7 +488,7 @@ function DurationControl({ openKey, setOpenKey, duration, setDuration, maxDurati
     if (locked) {
         return (
             <div className="relative">
-                <button type="button" onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : 'dur'); }} className={`${PILL} ${open ? PILL_ON : PILL_IDLE}`}>
+                <button data-liquid-glass="" data-glass-active={!!(open)} type="button" onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : 'dur'); }} className={`${PILL} ${open ? PILL_ON : PILL_IDLE}`}>
                     <span className={open ? 'text-[#f0f0f0]' : 'text-white/65'}><ClockIcon /></span>
                     <span className={`text-xs font-semibold ${open ? 'text-[#f0f0f0]' : 'text-[#d4d4d4] group-hover:text-[#f0f0f0]'}`}>Auto</span>
                     <Lock size={11} className="text-white/45" />
@@ -505,7 +505,7 @@ function DurationControl({ openKey, setOpenKey, duration, setDuration, maxDurati
 
     return (
         <div className="relative">
-            <button type="button" onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : 'dur'); }} className={`${PILL} ${open ? PILL_ON : PILL_IDLE}`}>
+            <button data-liquid-glass="" data-glass-active={!!(open)} type="button" onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : 'dur'); }} className={`${PILL} ${open ? PILL_ON : PILL_IDLE}`}>
                 <span className={open ? 'text-[#f0f0f0]' : 'text-white/65'}><ClockIcon /></span>
                 <span className={`text-xs font-semibold ${open ? 'text-[#f0f0f0]' : 'text-[#d4d4d4] group-hover:text-[#f0f0f0]'}`}>{isAuto ? 'Auto' : `${duration}s`}</span>
                 <Chevron />
@@ -537,7 +537,7 @@ function DurationControl({ openKey, setOpenKey, duration, setDuration, maxDurati
                             />
                             <span className="text-[10px] text-white/40">s</span>
                         </div>
-                        <button type="button" onClick={() => setDuration(-1)} className={`shrink-0 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${isAuto ? 'bg-primary/15 text-primary' : 'bg-white/[0.06] text-white/60 hover:text-primary'}`}>Auto</button>
+                        <button data-liquid-glass="" data-glass-active={!!(isAuto)} type="button" onClick={() => setDuration(-1)} className={`shrink-0 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${isAuto ? 'bg-primary/15 text-primary' : 'bg-white/[0.06] text-white/60 hover:text-primary'}`}>Auto</button>
                     </div>
                 </Popover>
             )}
@@ -551,7 +551,7 @@ function SeedControl({ openKey, setOpenKey, seed, setSeed, disabled }) {
     const isRandom = String(seed) === '-1' || seed === -1;
     return (
         <div className="relative">
-            <button type="button" disabled={disabled} onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : 'seed'); }} className={`${PILL} ${open ? PILL_ON : PILL_IDLE}`}>
+            <button data-liquid-glass="" data-glass-active={!!(open)} type="button" disabled={disabled} onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : 'seed'); }} className={`${PILL} ${open ? PILL_ON : PILL_IDLE}`}>
                 <span className={open ? 'text-[#f0f0f0]' : 'text-white/65'}><DiceIcon /></span>
                 <span className={`text-xs font-semibold ${open ? 'text-[#f0f0f0]' : 'text-[#d4d4d4] group-hover:text-[#f0f0f0]'}`}>{isRandom ? 'Seed' : `Seed · ${seed}`}</span>
             </button>
@@ -566,7 +566,7 @@ function SeedControl({ openKey, setOpenKey, seed, setSeed, disabled }) {
                             onChange={(e) => setSeed(e.target.value)}
                             className="flex-1 min-w-0 bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-white focus:border-primary/50 outline-none"
                         />
-                        <button type="button" onClick={() => { setSeed(-1); if (ref.current) ref.current.value = '-1'; }} className="shrink-0 px-2.5 py-1.5 rounded-md bg-white/[0.06] text-white/70 text-xs font-semibold hover:text-primary transition-colors">Random</button>
+                        <button data-liquid-glass="" type="button" onClick={() => { setSeed(-1); if (ref.current) ref.current.value = '-1'; }} className="shrink-0 px-2.5 py-1.5 rounded-md bg-white/[0.06] text-white/70 text-xs font-semibold hover:text-primary transition-colors">Random</button>
                     </div>
                 </Popover>
             )}
@@ -601,7 +601,7 @@ function Thumb({ item, badge, tag, onRemove, draggable = false, dragging = false
                     <span className="animate-spin inline-block text-sm">◌</span>
                 </div>
                 <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 px-1.5 py-0.5 bg-black/80 text-primary rounded-full text-[8px] font-bold leading-none whitespace-nowrap pointer-events-none">{item.status || '…'}</span>
-                <button type="button" onClick={onRemove} aria-label="Cancel" className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-black border border-white/20 text-white/70 text-[10px] leading-none hover:text-white hover:border-white/40 flex items-center justify-center">×</button>
+                <button data-liquid-glass="" type="button" onClick={onRemove} aria-label="Cancel" className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-black border border-white/20 text-white/70 text-[10px] leading-none hover:text-white hover:border-white/40 flex items-center justify-center">×</button>
             </div>
         );
     }
@@ -637,7 +637,7 @@ function Thumb({ item, badge, tag, onRemove, draggable = false, dragging = false
             {item.fromLibrary && <span className="absolute -bottom-0.5 -left-0.5 w-3.5 h-3.5 bg-primary rounded-full border border-black flex items-center justify-center" title="From your asset library"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="3"><path d="M4 7h16M4 12h16M4 17h10" /></svg></span>}
             {tag && <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 px-1.5 py-0.5 bg-primary text-black rounded-full text-[8px] font-black leading-none whitespace-nowrap pointer-events-none shadow-lg" title={`Reference as "${tag}" in your prompt`}>{tag}</span>}
             {badge && <span className="absolute top-0 left-0 px-1 h-3.5 bg-black/70 rounded-md text-[7px] font-black text-primary leading-none flex items-center justify-center pointer-events-none">{badge}</span>}
-            <button type="button" onClick={onRemove} aria-label="Remove" className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-black border border-white/20 text-white/70 text-[10px] leading-none hover:text-white hover:border-white/40 flex items-center justify-center">×</button>
+            <button data-liquid-glass="" type="button" onClick={onRemove} aria-label="Remove" className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-black border border-white/20 text-white/70 text-[10px] leading-none hover:text-white hover:border-white/40 flex items-center justify-center">×</button>
         </div>
     );
 }
@@ -648,7 +648,7 @@ function MannequinImport({ sources, onImport }) {
     const [open, setOpen] = useState(false);
     return (
         <div className="relative shrink-0">
-            <button
+            <button data-liquid-glass=""
                 type="button"
                 title="Import a mannequin generated by Green Screen → Mannequin as the motion source"
                 onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
@@ -662,7 +662,7 @@ function MannequinImport({ sources, onImport }) {
                     <div className="px-2 pb-1.5 text-[10px] font-bold uppercase tracking-wide text-white/50">Generated mannequins</div>
                     <div className="flex flex-col gap-0.5">
                         {sources.map((j) => (
-                            <button
+                            <button data-liquid-glass="row"
                                 key={j.id}
                                 type="button"
                                 onClick={() => { onImport?.(j); setOpen(false); }}
@@ -750,7 +750,7 @@ function MediaButtons({ mode, mediaByRole, setMediaByRole, disabled, onUploadFil
             {anyRoom && (
                 <>
                     <input ref={inputRef} type="file" hidden accept={accept} multiple={totalMax > 1} onChange={(e) => { onUploadFiles?.(e.target.files); e.target.value = ''; }} />
-                    <button
+                    <button data-liquid-glass=""
                         type="button"
                         disabled={disabled}
                         title={`Add ${kinds.join(' / ')} from your computer → your asset library`}
@@ -773,7 +773,7 @@ function AddBatchButton({ accept, title, onFiles }) {
     return (
         <>
             <input ref={inputRef} type="file" hidden accept={accept} multiple onChange={(e) => { onFiles?.(e.target.files); e.target.value = ''; }} />
-            <button
+            <button data-liquid-glass=""
                 type="button"
                 title={title}
                 onClick={() => inputRef.current?.click()}
@@ -798,7 +798,7 @@ function BatchRow({ n, onRemove, children }) {
                 Batch {n}
             </span>
             {children}
-            <button
+            <button data-liquid-glass="" data-glass-tone="danger"
                 type="button"
                 onClick={onRemove}
                 aria-label={`Remove batch ${n}`}
@@ -1064,7 +1064,7 @@ export default function PromptBar({
             : Object.values(mediaByRole).reduce((n, items) => n + (items?.length || 0), 0);
         return (
             <div className={`fixed bottom-[var(--bar-bottom,1rem)] left-0 right-0 ${sidebarLeft} mx-auto w-[95%] max-w-xl z-40 animate-fade-in-up`}>
-                <button
+                <button data-liquid-glass="row"
                     type="button"
                     onClick={undock}
                     title="Back to the prompt bar"
@@ -1097,7 +1097,7 @@ export default function PromptBar({
                             {mentionTags.map((t, i) => {
                                 const active = i === Math.min(mentionIdx, mentionCount - 1);
                                 return (
-                                    <button
+                                    <button data-liquid-glass="row" data-glass-active={!!(active)}
                                         key={t.label}
                                         type="button"
                                         onMouseDown={(e) => { e.preventDefault(); insertTag(t); }}
@@ -1114,7 +1114,7 @@ export default function PromptBar({
                                 const idx = mentionTags.length + i;
                                 const active = idx === Math.min(mentionIdx, mentionCount - 1);
                                 return (
-                                    <button
+                                    <button data-liquid-glass="row" data-glass-active={!!(active)}
                                         key={`cast-${c.id}`}
                                         type="button"
                                         onMouseDown={(e) => { e.preventDefault(); insertCharacter(c); }}
@@ -1243,7 +1243,7 @@ export default function PromptBar({
                         {/* Dismiss: takes the banner away and leaves the bar
                             alone. Emptying the bar is Clear all's job, which
                             confirms first — one destructive path, not two. */}
-                        <button
+                        <button data-liquid-glass=""
                             type="button"
                             onClick={() => setNotice?.(null)}
                             aria-label="Dismiss"
@@ -1311,7 +1311,7 @@ export default function PromptBar({
                             }}
                         />
                         {imageStudio && (
-                            <button
+                            <button data-liquid-glass="" data-glass-active={!!(cinematic)}
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); onOpenCinematic?.(); }}
                                 className={`${PILL} ${cinematic ? PILL_ON : PILL_IDLE}`}
@@ -1490,7 +1490,7 @@ export default function PromptBar({
                             something to clear, so an empty bar carries no control
                             that would do nothing. */}
                         {onClear && (
-                            <button
+                            <button data-liquid-glass="" data-glass-tone="danger"
                                 type="button"
                                 onClick={onClear}
                                 title="Clear the prompt and all references"
@@ -1526,7 +1526,7 @@ export default function PromptBar({
                         {setBatch && outputCount === 1 && (
                             <div className={`${WELL} flex items-center gap-0.5 shrink-0 self-stretch p-[3px]`} title="How many generations to start per click">
                                 {BATCH_OPTIONS.map((n) => (
-                                    <button
+                                    <button data-liquid-glass=""
                                         key={n}
                                         type="button"
                                         aria-pressed={batch === n}
@@ -1545,7 +1545,7 @@ export default function PromptBar({
                             {enhancing ? (
                                 <><span className="animate-spin inline-block">◌</span> Structuring prompt…</>
                             ) : (
-                                effectiveBatch > 1 ? `Generate ×${effectiveBatch}` : 'Generate'
+                                <><Sparkles size={17} fill="currentColor" strokeWidth={1.2} aria-hidden="true" />{effectiveBatch > 1 ? `Generate ×${effectiveBatch}` : 'Generate'}</>
                             )}
                         </Button>
                     </div>
@@ -1621,7 +1621,7 @@ function CreateWorkflowModal({ onClose, onCreate, onUpdate, initial = null }) {
                 <label className="mt-3 block text-[10px] font-bold uppercase tracking-wider text-white/50">Applies to</label>
                 <div className="mt-1 flex gap-1 rounded-md border border-white/10 bg-white/[0.04] p-1">
                     {[['all', 'Video + Image'], ['video', 'Video only'], ['image', 'Image only']].map(([value, label]) => (
-                        <button
+                        <button data-liquid-glass="" data-glass-active={!!(media === value)}
                             key={value} type="button" onClick={() => setMedia(value)}
                             className={`flex-1 rounded px-2 py-1.5 text-[11px] font-semibold transition-colors ${media === value ? 'bg-primary/15 text-primary' : 'text-white/50 hover:text-white/80'}`}
                         >{label}</button>
@@ -1632,13 +1632,13 @@ function CreateWorkflowModal({ onClose, onCreate, onUpdate, initial = null }) {
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-white/50">Describe the look</label>
                     <span className="flex items-center gap-2">
                         {beforeEnhance != null && !enhancing && (
-                            <button
+                            <button data-liquid-glass=""
                                 type="button"
                                 onClick={() => { setDescription(beforeEnhance); setBeforeEnhance(null); }}
                                 className="text-[10px] text-white/40 transition-colors hover:text-white"
                             >Undo</button>
                         )}
-                        <button
+                        <button data-liquid-glass=""
                             type="button"
                             onClick={enhanceDescription}
                             disabled={enhancing || description.trim().length < 3}
@@ -1656,7 +1656,7 @@ function CreateWorkflowModal({ onClose, onCreate, onUpdate, initial = null }) {
                 <textarea value={example} onChange={(e) => setExample(e.target.value)} rows={2} maxLength={5000} placeholder="Paste a prompt whose output looked exactly right." className={`${field} resize-none custom-scrollbar`} />
                 {error && <p className="mt-2 text-[11px] text-danger">{error}</p>}
                 <div className="mt-4 flex justify-end gap-2">
-                    <button type="button" onClick={onClose} className="rounded-md border border-white/10 px-3 py-2 text-xs font-semibold text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white">Cancel</button>
+                    <button data-liquid-glass="" type="button" onClick={onClose} className="rounded-md border border-white/10 px-3 py-2 text-xs font-semibold text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white">Cancel</button>
                     <Button
                         type="button" onClick={submit}
                         disabled={busy || !name.trim() || description.trim().length < 10}
@@ -1715,7 +1715,7 @@ function WorkflowHistoryModal({ workflow, onClose }) {
                         <h3 className="text-sm font-bold text-white/90">Versions — {workflow.name}</h3>
                         {data?.currentVersion != null && <p className="text-[11px] text-white/40">currently v{data.currentVersion}</p>}
                     </div>
-                    <button type="button" onClick={onClose} aria-label="Close" className="rounded-md p-1.5 text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white">✕</button>
+                    <button data-liquid-glass="" type="button" onClick={onClose} aria-label="Close" className="rounded-md p-1.5 text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white">✕</button>
                 </div>
                 <div className="border-b border-white/[0.06] px-5 py-3">
                     <Button
@@ -1750,7 +1750,7 @@ function WorkflowHistoryModal({ workflow, onClose }) {
                                         </div>
                                     </div>
                                     {i > 0 && (
-                                        <button
+                                        <button data-liquid-glass=""
                                             type="button"
                                             disabled={busy != null}
                                             onClick={() => act({ action: 'restore', auditId: v.id }, v.id, (d) => `Restored as v${d.version}.`)}

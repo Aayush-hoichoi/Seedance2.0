@@ -1,0 +1,103 @@
+/* Web counterpart to the capsule material in Apple's Liquid Glass guidance.
+   Explicit markers include native controls and portalled Studio menus without
+   styling third-party widgets or turning media thumbnails into glass pills. */
+[data-liquid-glass]:not([data-liquid-glass='none']) {
+    --glass-tint: 255 255 255;
+    --glass-opacity: 0.075;
+    border: 1px solid rgb(255 255 255 / 0.22);
+    border-radius: 999px;
+    background-color: rgb(var(--glass-tint) / var(--glass-opacity));
+    background-image:
+        radial-gradient(ellipse at 0% 0%, rgb(255 255 255 / 0.25), transparent 52%),
+        radial-gradient(ellipse at 100% 100%, rgb(255 255 255 / 0.16), transparent 48%),
+        linear-gradient(125deg, transparent 35%, rgb(255 255 255 / 0.055) 47%, transparent 58%);
+    background-clip: padding-box;
+    box-shadow:
+        inset 1px 1px 1px rgb(255 255 255 / 0.65),
+        inset -1px -1px 1px rgb(255 255 255 / 0.38),
+        inset 2px 2px 5px rgb(255 255 255 / 0.09),
+        inset -2px -2px 5px rgb(255 255 255 / 0.06),
+        0 2px 6px rgb(0 0 0 / 0.22);
+    -webkit-backdrop-filter: blur(16px) saturate(135%);
+    backdrop-filter: blur(16px) saturate(135%);
+    color: #f8f8fa;
+    text-shadow: 0 1px 2px rgb(0 0 0 / 0.22);
+    transition: background-color 160ms ease-out, border-color 160ms ease-out, box-shadow 160ms ease-out, opacity 160ms ease-out;
+}
+
+/* Wide menu rows retain their usable rectangular hit areas. */
+[data-liquid-glass='row']:not([data-liquid-glass='none']) { border-radius: 10px; }
+
+[data-liquid-glass][data-glass-tone='danger'],
+[data-liquid-glass][data-listening='true'] {
+    --glass-tint: var(--danger);
+    --glass-opacity: 0.2;
+    color: #ffe2e2;
+}
+
+[data-liquid-glass]:is([aria-pressed='true'], [aria-selected='true'], [data-glass-active='true'], [data-state='open'], [data-state='checked']) {
+    --glass-opacity: 0.21;
+    border-color: rgb(255 255 255 / 0.55);
+}
+
+@media (hover: hover) {
+    [data-liquid-glass]:not(:disabled):not([aria-disabled='true']):hover {
+        background-color: rgb(var(--glass-tint) / 0.18);
+        border-color: rgb(255 255 255 / 0.42);
+        box-shadow: inset 1px 1px 2px rgb(255 255 255 / 0.8), inset -1px -1px 2px rgb(255 255 255 / 0.5), 0 3px 8px rgb(0 0 0 / 0.28);
+    }
+}
+
+[data-liquid-glass]:not(:disabled):not([aria-disabled='true']):active {
+    background-color: rgb(var(--glass-tint) / 0.24);
+    box-shadow: inset 0 1px 5px rgb(0 0 0 / 0.28), inset 0 -1px 1px rgb(255 255 255 / 0.45);
+}
+
+[data-liquid-glass]:not([data-liquid-glass='none']):focus-visible {
+    outline: 2px solid rgb(var(--accent));
+    outline-offset: 3px;
+}
+
+[data-liquid-glass]:is(:disabled, [aria-disabled='true']) {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* Keep labels legible when the browser cannot blur the backdrop. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    [data-liquid-glass]:not([data-liquid-glass='none']) { background-color: #353537; }
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    [data-liquid-glass]:not([data-liquid-glass='none']) {
+        background: #303033;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+        border-color: #b4b4b8;
+        text-shadow: none;
+    }
+    [data-liquid-glass]:is([aria-pressed='true'], [aria-selected='true'], [data-glass-active='true'], [data-state='open'], [data-state='checked']) {
+        background: #55555b;
+        outline: 1px solid #fff;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    [data-liquid-glass]:not([data-liquid-glass='none']) { transition: none; }
+}
+
+@media (forced-colors: active) {
+    [data-liquid-glass]:not([data-liquid-glass='none']) {
+        background: ButtonFace;
+        color: ButtonText;
+        border-color: ButtonText;
+        box-shadow: none;
+        text-shadow: none;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+    }
+    [data-liquid-glass]:is([aria-pressed='true'], [aria-selected='true'], [data-glass-active='true']) {
+        outline: 2px solid Highlight;
+    }
+}

@@ -74,7 +74,7 @@ export default function MediaHoverPreview({ anchor, src, isVideo, tag, name, onM
                     )}
                     {isVideo && dur && <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 bg-black/80 text-white rounded text-[10px] font-bold leading-none tabular-nums">{dur}</span>}
                     {src && (
-                        <button
+                        <button data-liquid-glass=""
                             type="button"
                             title="Download"
                             aria-label="Download"

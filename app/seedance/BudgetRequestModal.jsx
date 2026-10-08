@@ -121,7 +121,7 @@ export default function BudgetRequestModal({ projectId, onClose, onSent, initial
                             <Label>Quality needed</Label>
                             <div className="mt-1.5 flex flex-wrap gap-1.5">
                                 {tiers.map((tier) => (
-                                    <button key={tier} type="button" onClick={() => setQuality(tier)}
+                                    <button data-liquid-glass="" data-glass-active={!!(quality === tier)} key={tier} type="button" onClick={() => setQuality(tier)}
                                         className={`rounded-md border px-2.5 py-1.5 text-xs font-semibold capitalize ${quality === tier
                                             ? 'border-primary/40 bg-primary/10 text-primary'
                                             : 'border-white/10 bg-white/[0.05] text-white/65 hover:bg-white/[0.1]'}`}>
@@ -157,9 +157,9 @@ export default function BudgetRequestModal({ projectId, onClose, onSent, initial
 
                 {error ? <div className="mt-4 rounded-md border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300">{error}</div> : null}
                 <div className="mt-5 flex justify-end gap-2">
-                    <button type="button" disabled={sending} onClick={onClose}
+                    <button data-liquid-glass="" type="button" disabled={sending} onClick={onClose}
                         className="rounded-md border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-semibold text-white/70 hover:bg-white/[0.1] disabled:opacity-40">Cancel</button>
-                    <button type="button" disabled={!context || sending || !(Number(increaseAmount) > 0) || (!quality && !isTool)} onClick={submit}
+                    <button data-liquid-glass="" type="button" disabled={!context || sending || !(Number(increaseAmount) > 0) || (!quality && !isTool)} onClick={submit}
                         className="rounded-md bg-primary px-3 py-1.5 text-xs font-bold text-accent-ink hover:bg-accent-hi disabled:opacity-40">
                         {sending ? 'Sending…' : 'Send request'}
                     </button>

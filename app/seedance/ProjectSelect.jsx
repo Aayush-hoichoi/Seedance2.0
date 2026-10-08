@@ -20,7 +20,7 @@ export default function ProjectSelect({ projects, value, onChange, block }) {
     const selected = projects.find((p) => String(p.id) === String(value));
     return (
         <Select.Root value={value != null ? String(value) : undefined} onValueChange={(v) => onChange(Number(v))}>
-            <Select.Trigger
+            <Select.Trigger data-liquid-glass=""
                 title="Project — model access and budgets are scoped per project"
                 className={`${CONTROL} inline-flex min-w-0 max-w-[40vw] items-center gap-1.5 overflow-hidden px-2.5 py-1.5 text-xs font-medium outline-none data-[state=open]:text-[#f0f0f0] sm:max-w-none ${block ? 'w-full justify-between' : ''}`}
             >

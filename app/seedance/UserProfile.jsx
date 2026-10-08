@@ -66,7 +66,7 @@ export default function UserProfile() {
 
     return (
         <>
-            <button
+            <button data-liquid-glass=""
                 type="button"
                 onClick={() => setOpen(true)}
                 title="Your profile — projects, spend and budgets across every workspace"
@@ -97,7 +97,7 @@ export default function UserProfile() {
                                         </div>
                                     </div>
                                     <span className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${u.role === 'admin' ? 'bg-accent/15 text-accent-hi' : 'bg-paper-3 text-ink-3'}`}>{u.role || 'member'}</span>
-                                    <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="shrink-0 rounded-md p-1.5 text-ink-3 transition-colors hover:bg-paper-3 hover:text-ink">
+                                    <button data-liquid-glass="" type="button" onClick={() => setOpen(false)} aria-label="Close" className="shrink-0 rounded-md p-1.5 text-ink-3 transition-colors hover:bg-paper-3 hover:text-ink">
                                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                                     </button>
                                 </div>
