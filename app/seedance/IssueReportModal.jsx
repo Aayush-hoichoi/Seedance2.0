@@ -88,9 +88,9 @@ export default function IssueReportModal({ job, projectName, userName, userRetri
 
                 {error ? <div className="mt-4 rounded-md border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300">{error}</div> : null}
                 <div className="mt-5 flex justify-end gap-2">
-                    <button data-liquid-glass="" type="button" disabled={sending} onClick={onClose}
+                    <button type="button" disabled={sending} onClick={onClose}
                         className="rounded-md border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-semibold text-white/70 hover:bg-white/[0.1] disabled:opacity-40">Cancel</button>
-                    <button data-liquid-glass="" type="button" disabled={sending} onClick={submit}
+                    <button type="button" disabled={sending} onClick={submit}
                         className="rounded-md bg-primary px-3 py-1.5 text-xs font-bold text-accent-ink hover:bg-accent-hi disabled:opacity-40">
                         {sending ? 'Sending…' : 'Send to admin'}
                     </button>

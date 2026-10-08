@@ -22,7 +22,7 @@ function AssetCard({ asset, disabled, onPick }) {
     const inactive = asset.status !== 'Active';
     const blocked = disabled || inactive;
     return (
-        <button data-liquid-glass=""
+        <button
             type="button"
             disabled={blocked}
             onClick={() => onPick(asset)}
@@ -93,7 +93,7 @@ export default function AssetPicker({ allowedKinds, onPick, onClose }) {
                         <h2 className="text-sm font-bold text-white">Your asset library</h2>
                         <div className="flex gap-1">
                             {GROUP_TYPES.map((t) => (
-                                <button data-liquid-glass="" data-glass-active={!!(groupType === t.id)}
+                                <button
                                     key={t.id}
                                     type="button"
                                     onClick={() => setGroupType(t.id)}
@@ -102,7 +102,7 @@ export default function AssetPicker({ allowedKinds, onPick, onClose }) {
                             ))}
                         </div>
                     </div>
-                    <button data-liquid-glass="" type="button" onClick={onClose} aria-label="Close" className="p-1.5 rounded-md text-white/50 hover:text-white hover:bg-white/[0.06]">
+                    <button type="button" onClick={onClose} aria-label="Close" className="p-1.5 rounded-md text-white/50 hover:text-white hover:bg-white/[0.06]">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                     </button>
                 </div>
@@ -119,7 +119,7 @@ export default function AssetPicker({ allowedKinds, onPick, onClose }) {
                         ) : groups.length === 0 ? (
                             <p className="px-2 py-3 text-xs text-white/30">No {groupType === 'AIGC' ? 'virtual' : 'real-human'} groups yet.</p>
                         ) : groups.map((g) => (
-                            <button data-liquid-glass="row" data-glass-active={!!(activeGroup?.id === g.id)}
+                            <button
                                 key={g.id}
                                 type="button"
                                 onClick={() => setActiveGroup(g)}

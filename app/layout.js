@@ -1,5 +1,4 @@
 import './globals.css';
-import './liquid-glass.css';
 import { Bricolage_Grotesque, Hanken_Grotesk, JetBrains_Mono } from "next/font/google";
 import { ClerkProvider } from '@clerk/nextjs';
 

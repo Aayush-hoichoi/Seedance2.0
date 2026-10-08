@@ -2450,7 +2450,7 @@ export default function SeedanceStudio() {
                         <span className="grid h-4 w-4 place-items-center rounded bg-accent font-display text-[10px] font-bold text-accent-ink">L</span>
                         <span className="hidden sm:inline">LoglineAI</span>{activeCount > 0 && <span className="ml-0.5 text-accent-hi">· {activeCount}</span>}
                     </Button>
-                    <Link data-liquid-glass="" href="/projects" title="Back to projects" className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-line bg-paper-2 text-ink-3 transition-colors hover:text-ink">
+                    <Link href="/projects" title="Back to projects" className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-line bg-paper-2 text-ink-3 transition-colors hover:text-ink">
                         <ArrowLeft size={14} />
                     </Link>
                     {projects.length > 0 && <ProjectSelect projects={projects} value={projectId} onChange={selectProject} />}
@@ -2463,7 +2463,7 @@ export default function SeedanceStudio() {
                         </Button>
                     )}
                     {!isAdmin && projectId && exrAccess && (
-                        <button data-liquid-glass=""
+                        <button
                             type="button"
                             disabled={exrAccess.granted || exrAccess.status === 'pending' || exrAccessRequesting}
                             onClick={askForExrAccess}
@@ -2481,17 +2481,17 @@ export default function SeedanceStudio() {
                 </div>
                 <div className="flex items-center gap-2">
                     <MySpend project={projects.find((p) => p.id === projectId) ?? null} spendRank={spendRank} />
-                    <Link data-liquid-glass="" href="/docs" title="Docs — models, modes, limits and guidelines" className="grid h-7 w-7 place-items-center rounded-md border border-line bg-paper-2 text-ink-2 transition-colors hover:text-ink">
+                    <Link href="/docs" title="Docs — models, modes, limits and guidelines" className="grid h-7 w-7 place-items-center rounded-md border border-line bg-paper-2 text-ink-2 transition-colors hover:text-ink">
                         <BookOpen size={14} />
                     </Link>
-                    <Link data-liquid-glass="" href="/characters" title="Characters — the project's shared cast and its vault; tag one with “@” in the prompt" className="flex h-7 items-center gap-1.5 rounded-md border border-line bg-paper-2 px-2 text-xs font-semibold text-ink-2 transition-colors hover:text-ink">
+                    <Link href="/characters" title="Characters — the project's shared cast and its vault; tag one with “@” in the prompt" className="flex h-7 items-center gap-1.5 rounded-md border border-line bg-paper-2 px-2 text-xs font-semibold text-ink-2 transition-colors hover:text-ink">
                         <Users size={14} />
                         <span className="hidden sm:inline">Characters</span>
                     </Link>
                     {/* Hover opens the tool list; clicking "Tools" still goes
                         to the full /tools page (also the touch fallback). */}
                     <div className="group relative">
-                        <Link data-liquid-glass="" href="/tools" title="Tools" className="flex h-7 items-center gap-1.5 rounded-md border border-line bg-paper-2 px-2 text-xs font-semibold text-ink-2 transition-colors hover:text-ink">
+                        <Link href="/tools" title="Tools" className="flex h-7 items-center gap-1.5 rounded-md border border-line bg-paper-2 px-2 text-xs font-semibold text-ink-2 transition-colors hover:text-ink">
                             <Wrench size={14} />
                             <span className="hidden sm:inline">Tools</span>
                             <ChevronDown size={12} className="hidden text-ink-3 transition-transform group-hover:rotate-180 sm:inline" />
@@ -2499,7 +2499,7 @@ export default function SeedanceStudio() {
                         <div className="invisible absolute right-0 top-full z-30 pt-1.5 opacity-0 transition-opacity duration-100 group-hover:visible group-hover:opacity-100">
                             <div className={`${POPOVER} w-48 p-[3px]`}>
                                 {TOOLS.map((tool) => (
-                                    <Link data-liquid-glass="" key={tool.id} href={tool.href} title={tool.blurb}
+                                    <Link key={tool.id} href={tool.href} title={tool.blurb}
                                         className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink">
                                         <tool.icon size={14} className="text-ink-3" /> {tool.name}
                                     </Link>
@@ -2508,7 +2508,7 @@ export default function SeedanceStudio() {
                         </div>
                     </div>
                     {isAdmin && (
-                        <Link data-liquid-glass="" href="/console" title="Console" className="grid h-7 w-7 place-items-center rounded-md border border-line bg-paper-2 text-warn/80 transition-colors hover:text-warn">
+                        <Link href="/console" title="Console" className="grid h-7 w-7 place-items-center rounded-md border border-line bg-paper-2 text-warn/80 transition-colors hover:text-warn">
                             <ShieldCheck size={14} />
                         </Link>
                     )}
@@ -2743,7 +2743,7 @@ function BigStage({ job, onCancel, onFullscreen, onReuse, onRefresh, onReportIss
             <div className={`${CARD} relative overflow-hidden aspect-video flex flex-col items-center justify-center gap-3 px-8 text-center`}>
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-white/25"><path d="M16 16v1a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h2m5.66 0H14a2 2 0 012 2v3.34l1 1L23 7v10" /><line x1="1" y1="1" x2="23" y2="23" /></svg>
                 <p className="text-sm text-white/45 leading-relaxed max-w-sm">This video’s link expired and no archived copy exists — use Reuse to regenerate it.</p>
-                <button data-liquid-glass=""
+                <button
                     type="button"
                     onClick={() => onReuse(job, job.refs || [])}
                     title="Load this prompt, references and settings back into the prompt bar"
@@ -2797,10 +2797,10 @@ function BigStage({ job, onCancel, onFullscreen, onReuse, onRefresh, onReportIss
                             />
                             {job.styleApplied && <div className="absolute top-3 left-3"><StyleTag styleApplied={job.styleApplied} /></div>}
                             <div className="absolute top-3 right-3 flex gap-2">
-                                <button data-liquid-glass="" type="button" onClick={onFullscreen} title="Fullscreen" className="p-2 rounded-full bg-black/60 border border-white/10 text-white/80 hover:text-white hover:bg-black/80 transition-colors backdrop-blur-sm">
+                                <button type="button" onClick={onFullscreen} title="Fullscreen" className="p-2 rounded-full bg-black/60 border border-white/10 text-white/80 hover:text-white hover:bg-black/80 transition-colors backdrop-blur-sm">
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 3H5a2 2 0 00-2 2v3M16 3h3a2 2 0 012 2v3M16 21h3a2 2 0 002-2v-3M8 21H5a2 2 0 01-2-2v-3" /></svg>
                                 </button>
-                                <button data-liquid-glass="" type="button" onClick={() => downloadAsset(job.videoUrl, job.taskId || 'video', job.taskId)} title="Download" aria-label="Download" className="p-2 rounded-full bg-black/60 border border-white/10 text-white/80 hover:text-primary hover:bg-black/80 transition-colors backdrop-blur-sm">
+                                <button type="button" onClick={() => downloadAsset(job.videoUrl, job.taskId || 'video', job.taskId)} title="Download" aria-label="Download" className="p-2 rounded-full bg-black/60 border border-white/10 text-white/80 hover:text-primary hover:bg-black/80 transition-colors backdrop-blur-sm">
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
                                 </button>
                             </div>
@@ -2837,7 +2837,7 @@ function BigStage({ job, onCancel, onFullscreen, onReuse, onRefresh, onReportIss
                     Usually 1–5 minutes. It keeps rendering even if you reload — watch it land in the rail on the right.
                 </p>
                 {job.taskId && <p className="mt-3 text-[11px] font-mono text-white/20 break-all max-w-md">task {job.taskId}</p>}
-                <button data-liquid-glass="" type="button" onClick={onCancel} className="mt-5 px-3 py-2 rounded-md text-xs font-semibold text-white/60 hover:text-white border border-white/10 hover:border-white/25 transition-colors">Cancel</button>
+                <button type="button" onClick={onCancel} className="mt-5 px-3 py-2 rounded-md text-xs font-semibold text-white/60 hover:text-white border border-white/10 hover:border-white/25 transition-colors">Cancel</button>
             </div>
         );
         if (!hasPrompt) return <div className="animate-fade-in-up">{placeholder}</div>;
@@ -2863,7 +2863,7 @@ function BigStage({ job, onCancel, onFullscreen, onReuse, onRefresh, onReportIss
                 click selects an older failure onto this stage, so five-minute-old
                 failures are reportable from here too — no button on the tiles. */}
             {onReportIssue && (
-                <button data-liquid-glass="" data-glass-tone="danger" type="button" onClick={onReportIssue}
+                <button type="button" onClick={onReportIssue}
                     className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-semibold text-white/70 transition-colors hover:border-danger/40 hover:text-danger">
                     <Bug size={13} /> Report issue
                 </button>
@@ -2901,7 +2901,7 @@ function PromptTabs({ job, onReuse }) {
                 <>
                     <div className="flex items-center gap-1 p-2 border-b border-white/[0.06] shrink-0">
                         {hasText && tabs.map((t) => (
-                            <button data-liquid-glass="" data-glass-active={!!(t.id === current.id)}
+                            <button
                                 key={t.id}
                                 type="button"
                                 onClick={() => setTab(t.id)}
@@ -2997,7 +2997,7 @@ function RefAssets({ refs, onReuse }) {
             <div className="flex items-center justify-between pb-2">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-white/40">References · {labeled.length}</span>
                 {onReuse && (
-                    <button data-liquid-glass=""
+                    <button
                         type="button"
                         onClick={() => onReuse(items)}
                         title="Load these reference assets back into the prompt bar"
@@ -3175,7 +3175,7 @@ function HistoryRail({ jobs, selectedId, onSelect, onRemove, onToggleLike, onRef
                             )}
                             {/* Like mark — top-left, opposite the remove cross. Stays
                                 lit once liked; otherwise reveals on hover like the X. */}
-                            <button data-liquid-glass=""
+                            <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); onToggleLike(job.id); }}
                                 title={job.liked ? 'Liked' : 'Like'}
@@ -3185,7 +3185,7 @@ function HistoryRail({ jobs, selectedId, onSelect, onRemove, onToggleLike, onRef
                             >
                                 <svg width="10" height="10" viewBox="0 0 24 24" fill={job.liked ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" /></svg>
                             </button>
-                            <button data-liquid-glass=""
+                            <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); onRemove(job.id); }}
                                 title="Move to bin"
@@ -3381,7 +3381,7 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                         className="max-h-full max-w-full object-contain"
                     />
                 )}
-                <button data-liquid-glass=""
+                <button
                     type="button"
                     onClick={onClose}
                     aria-label="Close preview"
@@ -3390,12 +3390,12 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                 </button>
                 {onPrev && (
-                    <button data-liquid-glass="" type="button" onClick={onPrev} aria-label="Previous" className="absolute left-3 sm:left-5 top-1/2 -translate-y-1/2 z-10 rounded-full border border-white/10 bg-black/60 p-2.5 text-white/80 backdrop-blur-sm transition-colors hover:bg-black/80 hover:text-white">
+                    <button type="button" onClick={onPrev} aria-label="Previous" className="absolute left-3 sm:left-5 top-1/2 -translate-y-1/2 z-10 rounded-full border border-white/10 bg-black/60 p-2.5 text-white/80 backdrop-blur-sm transition-colors hover:bg-black/80 hover:text-white">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
                     </button>
                 )}
                 {onNext && (
-                    <button data-liquid-glass="" type="button" onClick={onNext} aria-label="Next" className="absolute right-3 sm:right-5 top-1/2 -translate-y-1/2 z-10 rounded-full border border-white/10 bg-black/60 p-2.5 text-white/80 backdrop-blur-sm transition-colors hover:bg-black/80 hover:text-white">
+                    <button type="button" onClick={onNext} aria-label="Next" className="absolute right-3 sm:right-5 top-1/2 -translate-y-1/2 z-10 rounded-full border border-white/10 bg-black/60 p-2.5 text-white/80 backdrop-blur-sm transition-colors hover:bg-black/80 hover:text-white">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
                     </button>
                 )}
@@ -3411,7 +3411,7 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                             <div className="text-[11px] text-ink-3">{job.mediaType === 'image' ? (modelName || 'Nano Banana') : 'Seedance 2.0'}</div>
                         </div>
                     </div>
-                    <button data-liquid-glass="" type="button" onClick={onClose} aria-label="Close preview" className="rounded-md p-1.5 text-ink-3 transition-colors hover:bg-paper-3 hover:text-ink">
+                    <button type="button" onClick={onClose} aria-label="Close preview" className="rounded-md p-1.5 text-ink-3 transition-colors hover:bg-paper-3 hover:text-ink">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                     </button>
                 </div>
@@ -3422,7 +3422,7 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                             {enhancedPrompt ? (
                                 <div className="flex items-center gap-1">
                                     {[['yours', 'Your prompt'], ['enhanced', 'Enhanced prompt']].map(([id, label]) => (
-                                        <button data-liquid-glass="" data-glass-active={!!(promptTab === id)}
+                                        <button
                                             key={id} type="button" onClick={() => setPromptTab(id)}
                                             className={`rounded-md px-2 py-1 text-[11px] font-semibold transition-colors ${promptTab === id ? 'bg-accent/15 text-accent-hi' : 'text-ink-3 hover:text-ink'}`}
                                         >{label}</button>
@@ -3432,7 +3432,7 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                                 <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-3">Prompt</span>
                             )}
                             {shownPrompt && (
-                                <button data-liquid-glass="" type="button" onClick={() => navigator.clipboard?.writeText(shownPrompt)} className="text-[11px] font-medium text-ink-3 transition-colors hover:text-ink">Copy</button>
+                                <button type="button" onClick={() => navigator.clipboard?.writeText(shownPrompt)} className="text-[11px] font-medium text-ink-3 transition-colors hover:text-ink">Copy</button>
                             )}
                         </div>
                         {shownPrompt
@@ -3487,7 +3487,7 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                     </Button>
                     {job.videoUrl && onGenerateExr && (
                         <div className="space-y-1.5">
-                            <button data-liquid-glass="" data-glass-active={!!(exrAccess?.granted)}
+                            <button
                                 type="button"
                                 disabled={exrAccessRequesting}
                                 onClick={() => exrAccess?.granted ? setShowExrInfo(true) : onRequestExrAccess?.()}
@@ -3507,7 +3507,7 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                                 <>
                                     <p className="text-[11px] leading-relaxed text-danger">{job.exrError}</p>
                                     {['NO_BUDGET', 'QUOTA_EXCEEDED'].includes(job.exrErrorCode) && (
-                                        <button data-liquid-glass="" type="button" onClick={() => onRequestExrBudget?.()}
+                                        <button type="button" onClick={() => onRequestExrBudget?.()}
                                             className="w-full rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs font-semibold text-warn transition-colors hover:bg-warn/20">
                                             Request EXR budget
                                         </button>
@@ -3564,7 +3564,7 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                             </Button>
                         )}
                         {onToggleLike && (
-                            <button data-liquid-glass=""
+                            <button
                                 type="button"
                                 onClick={() => onToggleLike(job.id)}
                                 title={job.liked ? 'Unlike' : 'Like'}
@@ -3593,7 +3593,7 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                                 <p className="text-[11px] font-semibold uppercase tracking-wider text-accent">BytePlus VOD MediaKit</p>
                                 <h2 id="exr-dialog-title" className="mt-1 text-xl font-semibold text-ink">EXR output details</h2>
                             </div>
-                            <button data-liquid-glass="" type="button" onClick={() => setShowExrInfo(false)} aria-label="Close EXR details" className="rounded-md p-1.5 text-ink-3 transition-colors hover:bg-paper-3 hover:text-ink">
+                            <button type="button" onClick={() => setShowExrInfo(false)} aria-label="Close EXR details" className="rounded-md p-1.5 text-ink-3 transition-colors hover:bg-paper-3 hover:text-ink">
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                             </button>
                         </div>
@@ -3648,7 +3648,7 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                             <div className="mt-4 space-y-2">
                                 <p className="rounded-md border border-danger/25 bg-danger/10 px-3 py-2 text-xs text-danger">{job.exrError}</p>
                                 {['NO_BUDGET', 'QUOTA_EXCEEDED'].includes(job.exrErrorCode) && (
-                                    <button data-liquid-glass="" type="button" onClick={() => onRequestExrBudget?.()}
+                                    <button type="button" onClick={() => onRequestExrBudget?.()}
                                         className="w-full rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs font-semibold text-warn transition-colors hover:bg-warn/20">
                                         Request EXR budget
                                     </button>
@@ -3704,7 +3704,7 @@ function ExrSelect({ label, value, onChange, children }) {
 function Fullscreen({ url, onClose }) {
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 backdrop-blur-sm animate-fade-in-up" onClick={onClose}>
-            <button data-liquid-glass="" type="button" onClick={onClose} aria-label="Close" className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 rounded-full border border-white/10 text-white transition-colors">
+            <button type="button" onClick={onClose} aria-label="Close" className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 rounded-full border border-white/10 text-white transition-colors">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
             </button>
             <video src={url} controls autoPlay loop className="max-w-[95vw] max-h-[95vh] rounded-2xl shadow-2xl object-contain" onClick={(e) => e.stopPropagation()} />

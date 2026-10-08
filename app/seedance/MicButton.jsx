@@ -49,7 +49,7 @@ export default function MicButton({ onText, disabled, className = '' }) {
     };
 
     return (
-        <button data-liquid-glass=""
+        <button
             type="button"
             onClick={toggle}
             disabled={disabled}

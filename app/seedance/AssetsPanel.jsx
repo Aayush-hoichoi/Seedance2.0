@@ -207,7 +207,7 @@ export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteFo
                         const groupAll = ids.every((id) => selected.has(id));
                         return (
                             <section key={g.key} className="mb-8">
-                                <button data-liquid-glass=""
+                                <button
                                     type="button"
                                     onClick={() => setMany(ids, !groupAll)}
                                     className="group flex items-center gap-2 mb-3"
@@ -255,7 +255,7 @@ export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteFo
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6" /><path d="M3.51 13a9 9 0 1 0 2.13-9.36L3 7" /></svg>
                                 Restore
                             </Button>
-                            <button data-liquid-glass="" data-glass-tone="danger"
+                            <button
                                 type="button"
                                 onClick={() => requestDelete('permanent', [...selected])}
                                 disabled={busy}
@@ -294,7 +294,7 @@ export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteFo
                             </Button>
                         </>
                     )}
-                    <button data-liquid-glass=""
+                    <button
                         type="button"
                         onClick={() => setSelected(new Set())}
                         disabled={busy}
@@ -312,7 +312,7 @@ export default function AssetsPanel({ jobs, binned, onBin, onRestore, onDeleteFo
 
 function Tab({ active, onClick, label, count }) {
     return (
-        <button data-liquid-glass="" data-glass-active={!!(active)}
+        <button
             type="button"
             onClick={onClick}
             className={`${ITEM} px-3 py-1.5 text-sm font-medium ${active ? `${RAISED} !text-[#f0f0f0]` : ''}`}
@@ -358,7 +358,7 @@ function AssetCard({ job, isBin, selected, disabled, onToggle, onPreview, onDown
             )}
             <div className={`absolute inset-0 pointer-events-none transition-colors ${selected ? 'bg-primary/10' : 'bg-transparent'}`} />
 
-            <button data-liquid-glass=""
+            <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); onToggle(); }}
                 aria-label={selected ? 'Deselect' : 'Select'}
@@ -371,7 +371,7 @@ function AssetCard({ job, isBin, selected, disabled, onToggle, onPreview, onDown
             <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 {isBin ? (
                     <>
-                        <button data-liquid-glass=""
+                        <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); if (!disabled) onRestore(); }}
                             disabled={disabled}
@@ -381,7 +381,7 @@ function AssetCard({ job, isBin, selected, disabled, onToggle, onPreview, onDown
                         >
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6" /><path d="M3.51 13a9 9 0 1 0 2.13-9.36L3 7" /></svg>
                         </button>
-                        <button data-liquid-glass="" data-glass-tone="danger"
+                        <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); if (!disabled) onDelete(); }}
                             disabled={disabled}
@@ -394,7 +394,7 @@ function AssetCard({ job, isBin, selected, disabled, onToggle, onPreview, onDown
                     </>
                 ) : (
                     <>
-                        <button data-liquid-glass=""
+                        <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); if (!disabled && job.videoUrl) onDownload(); }}
                             disabled={disabled || !job.videoUrl}
@@ -404,7 +404,7 @@ function AssetCard({ job, isBin, selected, disabled, onToggle, onPreview, onDown
                         >
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
                         </button>
-                        <button data-liquid-glass="" data-glass-tone="danger"
+                        <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); if (!disabled) onBin(); }}
                             disabled={disabled}
