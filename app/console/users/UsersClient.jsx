@@ -28,7 +28,7 @@ export function PendingRequest({ r, onApprove, onDeny }) {
     const [quality, setQuality] = useState(r.pending_max_resolution || r.max_resolution || tiers[tiers.length - 1] || '');
     const preset = (days) => setUntil(toLocalInput(new Date(Date.now() + days * 86400000)));
     return (
-        <li className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line px-3 py-2 text-sm">
+        <li className="flex flex-wrap items-center justify-between gap-2 rounded border border-line px-3 py-2 text-sm">
             <span className="text-ink-2">
                 {r.user_email} → <code className="font-mono text-xs text-ink-2">{r.model_id}</code>
                 {upgrade

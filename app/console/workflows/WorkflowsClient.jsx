@@ -136,7 +136,7 @@ function WorkflowDetailModal({ workflow, onClose }) {
     const w = workflow;
     return (
         <Modal open onOpenChange={(open) => { if (!open) onClose(); }} title={w.name} className="sm:max-w-[560px]">
-            <div className="space-y-2 rounded-lg border border-line bg-paper-2 p-3">
+            <div className="space-y-2 rounded border border-line bg-paper-2 p-3">
                 <DetailRow label="Type">{w.official ? 'Project Style (official)' : 'Custom'}</DetailRow>
                 <DetailRow label="Media"><Badge tone={MEDIA_TONE[w.media] || 'zinc'}>{w.media}</Badge></DetailRow>
                 <DetailRow label="Visibility"><Badge tone={VISIBILITY_TONE[w.visibility] || 'zinc'}>{w.visibility}</Badge></DetailRow>
@@ -158,7 +158,7 @@ function WorkflowDetailModal({ workflow, onClose }) {
                 </div>
                 <div className="space-y-2">
                     {w.looks.map((look) => (
-                        <div key={look.key} className="rounded-lg border border-line bg-paper-2 p-3">
+                        <div key={look.key} className="rounded border border-line bg-paper-2 p-3">
                             <div className="mb-1 flex items-center gap-2">
                                 <span className="text-sm font-medium text-ink">{look.name}</span>
                                 {look.key === w.defaultLook && <Badge tone="blue">default</Badge>}

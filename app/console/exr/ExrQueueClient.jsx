@@ -119,7 +119,7 @@ export default function ExrQueueClient() {
                             <div><div className="text-ink-3">Provider request</div><div className="mt-1 break-all font-mono text-ink-2">{selected.provider_request_id || '—'}</div></div>
                         </div>
                         <div><div className="text-ink-3">Source URL</div><div className="mt-1 max-h-20 overflow-auto break-all rounded-md bg-paper-3 p-2 font-mono text-[10px] leading-relaxed text-ink-2">{selected.source_url}</div></div>
-                        <div className="rounded-md border border-line bg-paper-2 p-3">
+                        <div className="rounded border border-line bg-paper-2 p-3">
                             <div className="font-semibold text-ink">Billing details</div>
                             {billing ? (
                                 <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 lg:grid-cols-4">

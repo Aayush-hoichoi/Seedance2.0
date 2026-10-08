@@ -296,7 +296,7 @@ export default function LedgerClient() {
                     <button
                         key={w.id}
                         onClick={() => pick(w.id)}
-                        className={`flex items-start gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors ${
+                        className={`flex items-start gap-2.5 rounded border px-3 py-2 text-left transition-colors ${
                             workbook === w.id
                                 ? 'border-accent/40 bg-paper-2'
                                 : 'border-line hover:bg-paper-2'
@@ -442,7 +442,7 @@ export default function LedgerClient() {
                 <LedgerAnalytics analytics={analytics} total={total} days={data?.days ?? []} />
             ) : (
                 <>
-                    <div className="overflow-x-auto rounded-lg border border-line">
+                    <div className="overflow-x-auto rounded border border-line">
                         <table className="min-w-full text-sm">
                             <thead className="bg-paper-2 text-[11px] uppercase tracking-[0.1em] text-ink-3">
                                 <tr>

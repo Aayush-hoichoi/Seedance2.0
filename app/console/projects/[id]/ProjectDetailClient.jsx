@@ -1132,7 +1132,7 @@ function BudgetProgressBar({ quota }) {
             <div
                 id={tooltipId}
                 role="tooltip"
-                className="pointer-events-none invisible absolute bottom-full left-1/2 z-50 mb-2 w-72 -translate-x-1/2 rounded-lg border border-line bg-paper-1 p-3 opacity-0 shadow-xl transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+                className="pointer-events-none invisible absolute bottom-full left-1/2 z-50 mb-2 w-72 -translate-x-1/2 rounded border border-line bg-paper-1 p-3 opacity-0 shadow-xl transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
             >
                 <div className="mb-2 text-xs font-medium text-ink">Spent by model · {quota.window}</div>
                 {rows.length ? (
