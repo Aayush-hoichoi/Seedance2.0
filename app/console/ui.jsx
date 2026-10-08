@@ -43,7 +43,10 @@ export function PageHeader({ title, subtitle, children }) {
 }
 
 export function Card({ className, children }) {
-    return <UICard className={cn('rounded border-line bg-paper-2 p-4 shadow-none', className)}>{children}</UICard>;
+    // Same surface as the Segmented thumb/dropdowns (WELL + the raised top
+    // highlight), scaled up to card size. WELL is declared below — fine, the
+    // className evaluates at render time.
+    return <UICard className={cn('p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_1px_2px_rgba(0,0,0,0.4)]', WELL, className)}>{children}</UICard>;
 }
 
 export function StatCard({ label, value, hint, tone = 'zinc' }) {
@@ -298,7 +301,7 @@ export function Field({ label, children }) {
 
 export function EmptyState({ icon: Icon, title, hint, children }) {
     return (
-        <div className="flex flex-col items-center justify-center rounded border border-dashed border-line py-14 text-center">
+        <div className="flex flex-col items-center justify-center rounded-[13px] border border-dashed border-line py-14 text-center">
             {Icon ? <Icon size={22} className="mb-2 text-ink-3" /> : null}
             <div className="font-display text-lg font-medium tracking-wide text-ink">{title}</div>
             {hint ? <div className="mt-1 max-w-sm text-xs text-ink-3">{hint}</div> : null}
@@ -340,7 +343,7 @@ export function DataTable({ columns, data, searchable = true, pageSize = 12, emp
                     <Input className="pl-8" placeholder="Filter…" value={globalFilter} onChange={(e) => setGlobalFilter(e.target.value)} />
                 </div>
             ) : null}
-            <div className="overflow-x-auto rounded border border-line">
+            <div className="overflow-x-auto rounded-[13px] border border-white/[0.05]">
                 <Table className="text-sm">
                     <TableHeader className="bg-paper-2 text-[11px] uppercase tracking-[0.1em] text-ink-3">
                         {table.getHeaderGroups().map((hg) => (
