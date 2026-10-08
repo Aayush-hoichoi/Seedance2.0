@@ -8,12 +8,15 @@
 /* ── Design tokens (see design.md) ──────────────────────────────────────
    sRGB channel triples so Tailwind can inject alpha: rgb(var(--x) / <a>). */
 :root {
-  --paper-0: 12 12 16;
-  --paper-1: 19 19 24;
-  --paper-2: 26 26 33;
-  --paper-3: 34 34 43;
-  --line: 42 42 52;
-  --line-strong: 58 58 71;
+  /* Neutral ramp anchored on the reference recording's surfaces: paper-2 IS
+     the dropdown/Segmented well (#141414), paper-3 IS the raised thumb
+     (#222222); the page sits on the darker side of the same grey. */
+  --paper-0: 10 10 10;
+  --paper-1: 15 15 15;
+  --paper-2: 20 20 20;
+  --paper-3: 34 34 34;
+  --line: 38 38 38;
+  --line-strong: 56 56 56;
   --ink: 244 243 247;
   --ink-2: 180 178 192;
   --ink-3: 124 122 136;
