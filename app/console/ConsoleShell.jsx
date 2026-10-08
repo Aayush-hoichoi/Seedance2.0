@@ -123,7 +123,7 @@ export default function ConsoleShell({ children }) {
             )}>
                 <div className="flex items-center gap-2.5 px-3 py-4">
                     <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-accent font-display text-sm font-bold text-accent-ink">L</div>
-                    {!collapsed && <div className="font-display text-sm font-semibold tracking-tight text-ink">loglineAI Studio</div>}
+                    {!collapsed && <div className="font-display text-base font-semibold tracking-wide text-ink">loglineAI Studio</div>}
                 </div>
                 <nav className="flex-1 space-y-0.5 px-2">
                     {nav.map(({ href, label, icon: Icon, exact }) => {
