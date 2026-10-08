@@ -70,7 +70,7 @@ function ReelPicker({ items, getId, activeId, onPick, renderItem }) {
                 {items.map((it) => {
                     const active = getId(it) === activeId;
                     return (
-                        <button
+                        <button data-liquid-glass=""
                             key={getId(it)}
                             type="button"
                             onClick={() => onPick(getId(it))}
@@ -170,7 +170,7 @@ export default function CinematicPanel({ open, setup, onApply, onClose }) {
                 <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
                     <div className={`${WELL} flex items-center gap-1 p-[3px]`}>
                         {TABS.map((t) => (
-                            <button
+                            <button data-liquid-glass="" data-glass-active={!!(tab === t.id)}
                                 key={t.id}
                                 type="button"
                                 onClick={() => setTab(t.id)}
@@ -182,7 +182,7 @@ export default function CinematicPanel({ open, setup, onApply, onClose }) {
                     </div>
                     <div className="flex items-center gap-3">
                         <span className="hidden text-xs text-white/40 sm:inline">{summarize(draft)}</span>
-                        <button type="button" onClick={onClose} className="rounded-full p-1.5 text-white/50 hover:bg-white/10 hover:text-white" aria-label="Close">
+                        <button data-liquid-glass="" type="button" onClick={onClose} className="rounded-full p-1.5 text-white/50 hover:bg-white/10 hover:text-white" aria-label="Close">
                             <CloseIcon />
                         </button>
                     </div>
@@ -227,7 +227,7 @@ export default function CinematicPanel({ open, setup, onApply, onClose }) {
                         {presetList.map((p) => {
                             const active = draft.presetId === p.id;
                             return (
-                                <button
+                                <button data-liquid-glass="" data-glass-active={!!(active)}
                                     key={p.id}
                                     type="button"
                                     onClick={() => applyPreset(p)}
@@ -252,7 +252,7 @@ export default function CinematicPanel({ open, setup, onApply, onClose }) {
 
                 {/* footer */}
                 <div className="flex items-center justify-between gap-2 border-t border-white/[0.06] px-4 py-3">
-                    <button
+                    <button data-liquid-glass=""
                         type="button"
                         onClick={saveSetup}
                         className="inline-flex items-center gap-1.5 rounded-md border border-white/10 px-3 py-2 text-sm font-medium text-white/80 hover:border-white/20 hover:text-white"
@@ -261,7 +261,7 @@ export default function CinematicPanel({ open, setup, onApply, onClose }) {
                         Save setup
                     </button>
                     <div className="flex items-center gap-2">
-                        <button type="button" onClick={() => { onApply(null); onClose(); }} className="rounded-md px-3 py-2 text-sm font-medium text-white/60 hover:text-white">
+                        <button data-liquid-glass="" type="button" onClick={() => { onApply(null); onClose(); }} className="rounded-md px-3 py-2 text-sm font-medium text-white/60 hover:text-white">
                             None
                         </button>
                         <Button type="button" onClick={() => { onApply(draft); onClose(); }} className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto px-5 py-2 text-sm">

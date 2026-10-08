@@ -57,7 +57,7 @@ export default function AccessRequestModal({ modelId, modelName, defaultResoluti
                         <div className="text-[11px] font-medium uppercase tracking-wide text-white/40">Quality needed</div>
                         <div className="mt-1.5 flex flex-wrap gap-1.5">
                             {tiers.map((t) => (
-                                <button
+                                <button data-liquid-glass="" data-glass-active={!!(t === tier)}
                                     key={t} type="button" onClick={() => setTier(t)}
                                     className={`rounded-md border px-2.5 py-1.5 text-xs font-semibold transition-all ${t === tier
                                         ? 'border-primary/40 bg-primary/10 text-primary'
@@ -81,11 +81,11 @@ export default function AccessRequestModal({ modelId, modelName, defaultResoluti
                 </div>
 
                 <div className="mt-5 flex justify-end gap-2">
-                    <button
+                    <button data-liquid-glass=""
                         type="button" onClick={onClose}
                         className="rounded-md border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-semibold text-white/70 transition-colors hover:bg-white/[0.1]"
                     >Cancel</button>
-                    <button
+                    <button data-liquid-glass=""
                         type="button" disabled={sending} onClick={submit}
                         className="rounded-md bg-primary px-3 py-1.5 text-xs font-bold text-accent-ink transition-colors hover:bg-accent-hi disabled:opacity-40"
                     >{sending ? 'Requesting…' : (upgrade ? 'Request upgrade' : 'Request access')}</button>

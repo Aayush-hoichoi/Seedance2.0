@@ -38,6 +38,8 @@ const Button = React.forwardRef(({ className, variant, size, asChild = false, ..
   const Comp = asChild ? Slot : "button"
   return (
     <Comp
+      data-liquid-glass={variant === 'link' ? undefined : ''}
+      data-glass-tone={variant === 'destructive' ? 'danger' : undefined}
       className={cn(buttonVariants({ variant, size, className }))}
       ref={ref}
       {...props} />
