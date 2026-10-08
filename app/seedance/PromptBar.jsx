@@ -1,8 +1,10 @@
 'use client';
 
-// Floating bottom prompt-bar — matches the muapi Image/Video Studio house style:
-// round media buttons + transparent auto-grow textarea on top, a row of compact
-// control pills + a cyan Generate button below. Wired to the Seedance modes/options.
+import { Button } from '@/components/ui/button';
+import { CARD, WELL, RAISED, POPOVER, CONTROL, ITEM } from '@/components/ui/surface-styles';
+
+// Floating prompt bar using the console's shared surfaces and button primitives.
+// Wired to the Seedance modes/options.
 
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -68,9 +70,9 @@ function renderChips(text, tags, castRe = null) {
 const ACCEPT = { image: 'image/*', video: 'video/*', audio: 'audio/*' };
 
 // py-2 below sm keeps the pills a thumb-sized tap target on phones.
-const PILL = 'flex items-center gap-1.5 px-2.5 py-2 sm:py-1.5 rounded-md border transition-all whitespace-nowrap group disabled:opacity-40';
-const PILL_IDLE = 'bg-white/[0.06] hover:bg-white/[0.1] border-white/[0.1]';
-const PILL_ON = 'bg-primary/10 border-primary/30';
+const PILL = `${CONTROL} flex items-center gap-1.5 px-2.5 py-2 sm:py-1.5 whitespace-nowrap group`;
+const PILL_IDLE = '';
+const PILL_ON = `${RAISED} hover:bg-[#222222]`;
 
 /* ── tiny inline icons (single stroke voice, 14px) ──────────────────────── */
 const ic = { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 };
@@ -111,7 +113,7 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
                 className={`${PILL} ${open || workflow ? PILL_ON : PILL_IDLE}`}
             >
                 <span className={workflow ? 'text-primary' : 'text-white/65'}><WorkflowIcon /></span>
-                <span className={`text-xs font-semibold transition-colors ${open || workflow ? 'text-primary' : 'text-white/90 group-hover:text-primary'}`}>
+                <span className={`text-xs font-semibold transition-colors ${open || workflow ? 'text-[#f0f0f0]' : 'text-[#d4d4d4] group-hover:text-[#f0f0f0]'}`}>
                     {workflow ? workflow.name : 'Workflows'}
                 </span>
                 <Chevron />
@@ -150,11 +152,11 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
                                                 ? 'Your request was declined. You can ask again.'
                                                 : 'Workflows need a one-time admin approval — one request unlocks all of them.'}
                                         </div>
-                                        <button
+                                        <Button
                                             type="button"
                                             onClick={() => onRequest?.()}
-                                            className="w-full rounded-md bg-primary py-2 text-xs font-bold text-black transition-colors hover:bg-primary/90"
-                                        >{access === 'denied' ? 'Request again' : 'Request access'}</button>
+                                            className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto w-full py-2 text-xs"
+                                        >{access === 'denied' ? 'Request again' : 'Request access'}</Button>
                                     </>
                                 )}
                             </div>
@@ -329,7 +331,7 @@ function Popover({ children }) {
     return (
         <div
             onClick={(e) => e.stopPropagation()}
-            className="absolute bottom-[calc(100%+12px)] left-0 z-50 min-w-[170px] max-w-[calc(100vw-3rem)] max-h-[min(60vh,22rem)] overflow-y-auto custom-scrollbar bg-paper-1 rounded-lg p-2 shadow-2xl border border-white/[0.05]"
+            className={`${POPOVER} absolute bottom-[calc(100%+12px)] left-0 z-50 min-w-[170px] max-w-[calc(100vw-3rem)] max-h-[min(60vh,22rem)] overflow-y-auto custom-scrollbar p-[3px]`}
         >
             {children}
         </div>
@@ -347,7 +349,7 @@ function PillSelect({ id, openKey, setOpenKey, badge, display, label, note, opti
                 className={`${PILL} ${open ? PILL_ON : PILL_IDLE}`}
             >
                 {badge}
-                <span className={`text-xs font-semibold transition-colors ${open ? 'text-primary' : 'text-white/90 group-hover:text-primary'}`}>{display}</span>
+                <span className={`text-xs font-semibold transition-colors ${open ? 'text-[#f0f0f0]' : 'text-[#d4d4d4] group-hover:text-[#f0f0f0]'}`}>{display}</span>
                 <Chevron />
             </button>
             {open && (
@@ -362,7 +364,7 @@ function PillSelect({ id, openKey, setOpenKey, badge, display, label, note, opti
                                 disabled={opt.disabled}
                                 title={opt.disabled && opt.disabledTitle ? opt.disabledTitle : undefined}
                                 onClick={() => { if (opt.disabled) return; onSelect(opt.value); setOpenKey(null); }}
-                                className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${opt.disabled ? 'text-white/25 cursor-not-allowed' : opt.value === value ? 'bg-primary/15 text-primary font-semibold' : 'text-white/70 hover:bg-white/[0.06] hover:text-white'}`}
+                                className={`${ITEM} w-full text-left px-3 py-2 text-sm disabled:pointer-events-none disabled:opacity-40 ${opt.value === value ? `${RAISED} !text-[#f0f0f0] font-medium` : ''}`}
                             >{opt.label}</button>
                         ))}
                     </div>
@@ -374,9 +376,9 @@ function PillSelect({ id, openKey, setOpenKey, badge, display, label, note, opti
 
 function PillToggle({ label, active, onToggle, disabled, icon }) {
     return (
-        <button type="button" disabled={disabled} onClick={onToggle} className={`${PILL} ${active ? PILL_ON : PILL_IDLE}`}>
-            <span className={active ? 'text-primary' : 'text-white/65'}>{icon}</span>
-            <span className={`text-xs font-semibold transition-colors ${active ? 'text-primary' : 'text-white/90 group-hover:text-primary'}`}>{label}</span>
+        <button type="button" disabled={disabled} aria-pressed={active} onClick={onToggle} className={`${PILL} ${active ? PILL_ON : PILL_IDLE}`}>
+            <span className={active ? 'text-[#f0f0f0]' : 'text-white/65'}>{icon}</span>
+            <span className={`text-xs font-semibold transition-colors ${active ? 'text-[#f0f0f0]' : 'text-[#d4d4d4] group-hover:text-[#f0f0f0]'}`}>{label}</span>
         </button>
     );
 }
@@ -448,15 +450,16 @@ function MediaTypeToggle({ value, onChange }) {
     const opt = (id, label, icon) => (
         <button
             type="button"
+            aria-pressed={value === id}
             onClick={() => onChange?.(id)}
-            className={`flex w-full flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-2 text-[10px] font-bold transition-colors sm:px-3 ${value === id ? 'bg-primary/15 text-primary' : 'text-white/45 hover:text-white/80'}`}
+            className={`${ITEM} flex w-full flex-1 flex-col items-center justify-center gap-0.5 px-2 py-2 text-[11px] font-medium sm:px-3 ${value === id ? `${RAISED} !text-[#f0f0f0]` : ''}`}
         >
             {icon}
             {label}
         </button>
     );
     return (
-        <div className="flex shrink-0 flex-col gap-1 self-stretch rounded-xl border border-white/10 bg-black/30 p-1">
+        <div className={`${WELL} flex shrink-0 flex-col gap-1 self-stretch p-[3px]`}>
             {opt('image', 'Image', <ImageIcon />)}
             {opt('video', 'Video', <FilmIcon />)}
         </div>
@@ -486,8 +489,8 @@ function DurationControl({ openKey, setOpenKey, duration, setDuration, maxDurati
         return (
             <div className="relative">
                 <button type="button" onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : 'dur'); }} className={`${PILL} ${open ? PILL_ON : PILL_IDLE}`}>
-                    <span className={open ? 'text-primary' : 'text-white/65'}><ClockIcon /></span>
-                    <span className={`text-xs font-semibold ${open ? 'text-primary' : 'text-white/90 group-hover:text-primary'}`}>Auto</span>
+                    <span className={open ? 'text-[#f0f0f0]' : 'text-white/65'}><ClockIcon /></span>
+                    <span className={`text-xs font-semibold ${open ? 'text-[#f0f0f0]' : 'text-[#d4d4d4] group-hover:text-[#f0f0f0]'}`}>Auto</span>
                     <Lock size={11} className="text-white/45" />
                 </button>
                 {open && (
@@ -503,8 +506,8 @@ function DurationControl({ openKey, setOpenKey, duration, setDuration, maxDurati
     return (
         <div className="relative">
             <button type="button" onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : 'dur'); }} className={`${PILL} ${open ? PILL_ON : PILL_IDLE}`}>
-                <span className={open ? 'text-primary' : 'text-white/65'}><ClockIcon /></span>
-                <span className={`text-xs font-semibold ${open ? 'text-primary' : 'text-white/90 group-hover:text-primary'}`}>{isAuto ? 'Auto' : `${duration}s`}</span>
+                <span className={open ? 'text-[#f0f0f0]' : 'text-white/65'}><ClockIcon /></span>
+                <span className={`text-xs font-semibold ${open ? 'text-[#f0f0f0]' : 'text-[#d4d4d4] group-hover:text-[#f0f0f0]'}`}>{isAuto ? 'Auto' : `${duration}s`}</span>
                 <Chevron />
             </button>
             {open && (
@@ -549,8 +552,8 @@ function SeedControl({ openKey, setOpenKey, seed, setSeed, disabled }) {
     return (
         <div className="relative">
             <button type="button" disabled={disabled} onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : 'seed'); }} className={`${PILL} ${open ? PILL_ON : PILL_IDLE}`}>
-                <span className={open ? 'text-primary' : 'text-white/65'}><DiceIcon /></span>
-                <span className={`text-xs font-semibold ${open ? 'text-primary' : 'text-white/90 group-hover:text-primary'}`}>{isRandom ? 'Seed' : `Seed · ${seed}`}</span>
+                <span className={open ? 'text-[#f0f0f0]' : 'text-white/65'}><DiceIcon /></span>
+                <span className={`text-xs font-semibold ${open ? 'text-[#f0f0f0]' : 'text-[#d4d4d4] group-hover:text-[#f0f0f0]'}`}>{isRandom ? 'Seed' : `Seed · ${seed}`}</span>
             </button>
             {open && (
                 <Popover>
@@ -1065,7 +1068,7 @@ export default function PromptBar({
                     type="button"
                     onClick={undock}
                     title="Back to the prompt bar"
-                    className="w-full bg-paper-1/80 backdrop-blur-3xl rounded-full border border-white/10 pl-4 pr-3 py-2.5 flex items-center gap-3 shadow-2xl text-left hover:border-primary/40 transition-colors group"
+                    className={`${CARD} w-full pl-4 pr-3 py-2.5 flex items-center gap-3 text-left hover:border-line-strong transition-colors duration-150 group`}
                 >
                     <span className="w-4 h-4 shrink-0 bg-primary rounded flex items-center justify-center"><span className="text-[9px] font-bold text-black">S</span></span>
                     <span className={`flex-1 min-w-0 truncate text-sm ${prompt ? 'text-white/80' : 'text-white/40'}`}>
@@ -1085,11 +1088,11 @@ export default function PromptBar({
             {/* Image/Video switch sits to the LEFT of the bar, matching its height. */}
             <div className="flex items-stretch gap-1.5 sm:gap-2">
             <MediaTypeToggle value={mediaType} onChange={onChangeMediaType} />
-            <div className="min-w-0 flex-1 bg-paper-1/80 backdrop-blur-3xl rounded-2xl border border-white/10 p-3 sm:p-4 flex flex-col gap-2 shadow-2xl">
+            <div className={`${CARD} min-w-0 flex-1 p-3 sm:p-4 flex flex-col gap-2`}>
                 {/* media + prompt */}
                 <div className="relative flex items-start gap-2 px-1">
                     {showMention && (
-                        <div className="absolute bottom-full left-0 mb-2 z-50 min-w-[190px] max-h-60 overflow-y-auto custom-scrollbar bg-paper-1 rounded-lg p-1.5 shadow-2xl border border-white/[0.08]">
+                        <div className={`${POPOVER} absolute bottom-full left-0 mb-2 z-50 min-w-[190px] max-h-60 overflow-y-auto custom-scrollbar p-[3px]`}>
                             {mentionTags.length > 0 && <div className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wide text-white/50">Reference an asset</div>}
                             {mentionTags.map((t, i) => {
                                 const active = i === Math.min(mentionIdx, mentionCount - 1);
@@ -1315,7 +1318,7 @@ export default function PromptBar({
                                 title="Cinematic camera, lens, focal length and aperture — the enhancer structures your prompt around them"
                             >
                                 <span className={cinematic ? 'text-primary' : 'text-white/65'}><FilmIcon /></span>
-                                <span className={`text-xs font-semibold transition-colors ${cinematic ? 'text-primary' : 'text-white/90 group-hover:text-primary'}`}>
+                                <span className={`text-xs font-semibold transition-colors ${cinematic ? 'text-primary' : 'text-[#d4d4d4] group-hover:text-[#f0f0f0]'}`}>
                                     {cinematic ? summarizeCinematic(cinematic) : 'Cinematic Cameras'}
                                 </span>
                             </button>
@@ -1521,29 +1524,30 @@ export default function PromptBar({
                             With reference batches attached the row count IS the
                             generation count, so the selector steps aside. */}
                         {setBatch && outputCount === 1 && (
-                            <div className="flex items-center shrink-0 self-stretch rounded-md border border-white/[0.06] overflow-hidden" title="How many generations to start per click">
+                            <div className={`${WELL} flex items-center gap-0.5 shrink-0 self-stretch p-[3px]`} title="How many generations to start per click">
                                 {BATCH_OPTIONS.map((n) => (
                                     <button
                                         key={n}
                                         type="button"
+                                        aria-pressed={batch === n}
                                         onClick={() => setBatch(n)}
-                                        className={`h-full px-3 text-xs font-bold transition-colors ${batch === n ? 'bg-primary/15 text-primary' : 'text-white/65 hover:text-white hover:bg-white/[0.08]'}`}
+                                        className={`${ITEM} h-full px-3 py-1.5 text-xs font-medium ${batch === n ? `${RAISED} !text-[#f0f0f0]` : ''}`}
                                     >×{n}</button>
                                 ))}
                             </div>
                         )}
-                        <button
+                        <Button
                             type="button"
                             onClick={onGenerate}
                             disabled={enhancing}
-                            className="bg-primary text-accent-ink px-5 py-2.5 rounded-md font-semibold text-sm hover:bg-accent-hi transition-colors flex items-center justify-center gap-2 w-full sm:w-auto disabled:opacity-60"
+                            className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto px-5 py-2.5 text-sm flex items-center justify-center gap-2 w-full sm:w-auto"
                         >
                             {enhancing ? (
                                 <><span className="animate-spin inline-block">◌</span> Structuring prompt…</>
                             ) : (
                                 effectiveBatch > 1 ? `Generate ×${effectiveBatch}` : 'Generate'
                             )}
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </div>
@@ -1607,7 +1611,7 @@ function CreateWorkflowModal({ onClose, onCreate, onUpdate, initial = null }) {
     };
     return (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
-            <div className="w-full max-w-md rounded-xl border border-white/10 bg-paper-1 p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className={`${POPOVER} w-full max-w-md p-5`} onClick={(e) => e.stopPropagation()}>
                 <h3 className="text-sm font-bold text-white/90">{initial ? 'Edit workflow' : 'Create a workflow'}</h3>
                 <p className="mt-1 text-[11px] leading-relaxed text-white/45">
                     Describe the look in your own words — it becomes a full style guide applied to every generation while attached, and it keeps improving from the generations you like. Only you can see it.
@@ -1653,11 +1657,11 @@ function CreateWorkflowModal({ onClose, onCreate, onUpdate, initial = null }) {
                 {error && <p className="mt-2 text-[11px] text-danger">{error}</p>}
                 <div className="mt-4 flex justify-end gap-2">
                     <button type="button" onClick={onClose} className="rounded-md border border-white/10 px-3 py-2 text-xs font-semibold text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white">Cancel</button>
-                    <button
+                    <Button
                         type="button" onClick={submit}
                         disabled={busy || !name.trim() || description.trim().length < 10}
-                        className="rounded-md bg-primary px-4 py-2 text-xs font-bold text-black transition-colors hover:bg-primary/90 disabled:opacity-40"
-                    >{busy ? (initial ? 'Saving…' : 'Creating…') : (initial ? 'Save changes' : 'Create & attach')}</button>
+                        className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto px-4 py-2 text-xs"
+                    >{busy ? (initial ? 'Saving…' : 'Creating…') : (initial ? 'Save changes' : 'Create & attach')}</Button>
                 </div>
             </div>
         </div>
@@ -1705,7 +1709,7 @@ function WorkflowHistoryModal({ workflow, onClose }) {
     };
     return (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
-            <div className="flex max-h-[80vh] w-full max-w-md flex-col overflow-hidden rounded-xl border border-white/10 bg-paper-1 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className={`${POPOVER} flex max-h-[80vh] w-full max-w-md flex-col overflow-hidden`} onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-3">
                     <div>
                         <h3 className="text-sm font-bold text-white/90">Versions — {workflow.name}</h3>
@@ -1714,12 +1718,12 @@ function WorkflowHistoryModal({ workflow, onClose }) {
                     <button type="button" onClick={onClose} aria-label="Close" className="rounded-md p-1.5 text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white">✕</button>
                 </div>
                 <div className="border-b border-white/[0.06] px-5 py-3">
-                    <button
+                    <Button
                         type="button"
                         disabled={busy != null}
                         onClick={() => act({ action: 'upgrade' }, 'upgrade', (d) => `Upgraded to v${d.version} from ${d.analyzed} generations (${d.liked} liked, prioritized).`)}
-                        className="w-full rounded-md bg-primary py-2 text-xs font-bold text-black transition-colors hover:bg-primary/90 disabled:opacity-50"
-                    >{busy === 'upgrade' ? 'Analyzing generations…' : '⬆ Upgrade from generations'}</button>
+                        className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto w-full py-2 text-xs disabled:opacity-50"
+                    >{busy === 'upgrade' ? 'Analyzing generations…' : '⬆ Upgrade from generations'}</Button>
                     <p className="mt-1.5 text-[10px] leading-relaxed text-white/40">
                         Analyzes every generation made with this workflow — liked ones weigh most — and folds what consistently worked into a new, generalized version.
                     </p>

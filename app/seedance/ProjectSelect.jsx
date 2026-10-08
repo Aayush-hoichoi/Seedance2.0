@@ -1,5 +1,7 @@
 'use client';
 
+import { CONTROL, POPOVER, ITEM } from '@/components/ui/surface-styles';
+
 import * as Select from '@radix-ui/react-select';
 import { ChevronDown, Check } from 'lucide-react';
 import { usd } from '../../lib/seedance/money.mjs';
@@ -20,7 +22,7 @@ export default function ProjectSelect({ projects, value, onChange, block }) {
         <Select.Root value={value != null ? String(value) : undefined} onValueChange={(v) => onChange(Number(v))}>
             <Select.Trigger
                 title="Project — model access and budgets are scoped per project"
-                className={`inline-flex min-w-0 max-w-[40vw] items-center gap-1.5 overflow-hidden rounded-md border border-line bg-paper-3 px-2.5 py-1.5 text-xs font-semibold text-ink-2 outline-none transition-colors hover:border-line-strong hover:text-ink focus-visible:ring-2 focus-visible:ring-accent data-[state=open]:border-accent sm:max-w-none ${block ? 'w-full justify-between' : ''}`}
+                className={`${CONTROL} inline-flex min-w-0 max-w-[40vw] items-center gap-1.5 overflow-hidden px-2.5 py-1.5 text-xs font-medium outline-none data-[state=open]:text-[#f0f0f0] sm:max-w-none ${block ? 'w-full justify-between' : ''}`}
             >
                 {/* Children override Radix's default (the selected ItemText) so
                     the spend can sit beside the name. Falls through to the
@@ -41,14 +43,14 @@ export default function ProjectSelect({ projects, value, onChange, block }) {
                 <Select.Content
                     position="popper"
                     sideOffset={6}
-                    className="z-50 min-w-[9rem] overflow-hidden rounded-md border border-line bg-paper-1 p-1 shadow-2 animate-fade-in-up"
+                    className={`${POPOVER} z-50 min-w-[9rem] overflow-hidden p-[3px]`}
                 >
                     <Select.Viewport>
                         {projects.map((p) => (
                             <Select.Item
                                 key={p.id}
                                 value={String(p.id)}
-                                className="relative flex cursor-pointer select-none items-center justify-between gap-6 rounded-[5px] py-1.5 pl-7 pr-3 text-xs font-medium text-ink-2 outline-none data-[highlighted]:bg-paper-3 data-[highlighted]:text-ink data-[state=checked]:text-ink"
+                                className={`${ITEM} relative flex cursor-pointer select-none items-center justify-between gap-6 py-1.5 pl-7 pr-3 text-xs font-medium outline-none data-[highlighted]:bg-[#222222] data-[highlighted]:text-[#f0f0f0] data-[highlighted]:shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_1px_2px_rgba(0,0,0,0.4)] data-[state=checked]:text-[#f0f0f0]`}
                             >
                                 <Select.ItemIndicator className="absolute left-2 inline-flex items-center">
                                     <Check size={13} className="text-accent" />

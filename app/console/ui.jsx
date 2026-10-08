@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Card as UICard } from '@/components/ui/card';
+import { CARD, WELL, RAISED } from '@/components/ui/surface-styles';
 import { Badge as UIBadge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
@@ -43,10 +44,7 @@ export function PageHeader({ title, subtitle, children }) {
 }
 
 export function Card({ className, children }) {
-    // Same surface as the Segmented thumb/dropdowns (WELL + the raised top
-    // highlight), scaled up to card size. WELL is declared below — fine, the
-    // className evaluates at render time.
-    return <UICard className={cn('p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_1px_2px_rgba(0,0,0,0.4)]', WELL, className)}>{children}</UICard>;
+    return <UICard className={cn('p-4', CARD, className)}>{children}</UICard>;
 }
 
 export function StatCard({ label, value, hint, tone = 'zinc' }) {
@@ -103,8 +101,6 @@ export function Button({ variant = 'default', size = 'sm', className, loading, c
 // The reference recording's surface language, shared by Segmented and every
 // dropdown below: a #141414 well with a hairline border, raised #222222
 // active surfaces with a 1px top highlight, 150ms ease-out motion.
-const WELL = 'rounded-[13px] border border-white/[0.05] bg-[#141414]';
-const RAISED = 'bg-[#222222] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_1px_2px_rgba(0,0,0,0.4)]';
 
 // Segmented — sliding-thumb tab switcher, matched to the reference recording
 // (2026-10-08): #141414 well, raised #222 thumb with a 1px top highlight that
