@@ -1203,7 +1203,7 @@ export default function PromptBar({
                     </div>
                     <MicButton
                         onText={(t) => onPromptChange(prompt ? `${prompt.replace(/\s+$/, '')} ${t}` : t)}
-                        className="shrink-0 self-start mt-1.5 p-1.5 rounded-lg text-white/40 hover:text-white transition-colors"
+                        className="self-start mt-0.5"
                     />
                 </div>
 

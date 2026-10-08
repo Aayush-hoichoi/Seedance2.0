@@ -7,7 +7,8 @@
 // nothing is recorded or sent to our servers.
 
 import { useEffect, useRef, useState } from 'react';
-import { Mic } from 'lucide-react';
+import Image from 'next/image';
+import styles from './MicButton.module.css';
 
 export default function MicButton({ onText, disabled, className = '' }) {
     // Support is detected in an effect (not at render) so SSR and the client's
@@ -55,9 +56,19 @@ export default function MicButton({ onText, disabled, className = '' }) {
             aria-pressed={listening}
             aria-label={listening ? 'Stop voice input' : 'Speak your prompt'}
             title={listening ? 'Listening — click to stop' : 'Speak your prompt'}
-            className={`${className} ${listening ? 'text-danger' : ''}`}
+            className={`${styles.button} ${className}`}
+            data-listening={listening}
         >
-            <Mic size={15} className={listening ? 'animate-pulse' : ''} />
+            <Image
+                src="/assets/studio/liquid-glass-microphone.png"
+                alt=""
+                width={36}
+                height={36}
+                sizes="36px"
+                draggable={false}
+                className={styles.microphone}
+            />
+            {listening && <span aria-hidden="true" className={styles.recordingDot} />}
         </button>
     );
 }

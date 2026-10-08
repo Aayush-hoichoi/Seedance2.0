@@ -1,0 +1,104 @@
+.button {
+    position: relative;
+    isolation: isolate;
+    display: inline-grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    padding: 3px;
+    border: 1px solid rgb(255 255 255 / 0.22);
+    border-radius: 50%;
+    background:
+        radial-gradient(ellipse at 28% 12%, rgb(255 255 255 / 0.24), transparent 52%),
+        radial-gradient(ellipse at 85% 85%, rgb(172 206 255 / 0.12), transparent 55%),
+        linear-gradient(145deg, rgb(255 255 255 / 0.08), rgb(255 255 255 / 0.02) 55%, rgb(255 255 255 / 0.09));
+    box-shadow:
+        inset 0 1px 1px rgb(255 255 255 / 0.35),
+        inset 0 -1px 2px rgb(255 255 255 / 0.1),
+        0 2px 6px rgb(0 0 0 / 0.3);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    cursor: pointer;
+    transition: border-color 160ms ease-out, background-color 160ms ease-out, box-shadow 160ms ease-out;
+}
+
+/* A thin refractive rim, with the same silver/rainbow edge as the glass mic. */
+.button::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    background: conic-gradient(from 30deg,
+        rgb(255 255 255 / 0.75), rgb(181 226 255 / 0.22) 18%,
+        rgb(228 180 255 / 0.6) 32%, rgb(255 255 255 / 0.12) 46%,
+        rgb(160 236 255 / 0.65) 62%, rgb(255 220 244 / 0.55) 78%,
+        rgb(255 255 255 / 0.75));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+}
+
+.button::after {
+    content: '';
+    position: absolute;
+    inset: 3px;
+    border-radius: inherit;
+    border-top: 1px solid rgb(255 255 255 / 0.2);
+    border-bottom: 1px solid rgb(255 255 255 / 0.06);
+    pointer-events: none;
+}
+
+.button:hover:not(:disabled) {
+    background-color: rgb(255 255 255 / 0.07);
+    box-shadow: inset 0 1px 2px rgb(255 255 255 / 0.5), inset 0 -1px 2px rgb(255 255 255 / 0.16), 0 3px 8px rgb(0 0 0 / 0.35);
+}
+
+.button:active:not(:disabled) {
+    box-shadow: inset 0 1px 4px rgb(0 0 0 / 0.3);
+}
+
+.button:focus-visible {
+    outline: 2px solid rgb(var(--accent));
+    outline-offset: 3px;
+}
+
+.button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.button[data-listening='true'] {
+    border-color: rgb(var(--danger));
+    background-color: rgb(var(--danger) / 0.12);
+}
+
+.microphone {
+    position: relative;
+    z-index: 1;
+    display: block;
+    width: 36px;
+    height: 36px;
+    object-fit: contain;
+    pointer-events: none;
+    user-select: none;
+}
+
+.recordingDot {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    z-index: 2;
+    width: 8px;
+    height: 8px;
+    border: 2px solid rgb(var(--paper-2));
+    border-radius: 50%;
+    background: rgb(var(--danger));
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .button { transition: none; }
+}
