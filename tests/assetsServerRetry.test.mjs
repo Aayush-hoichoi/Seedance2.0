@@ -34,6 +34,35 @@ test('server callAsset retries through BytePlus QPS throttling, then succeeds', 
     }
 });
 
+test('server callAsset retries transient "service is unavailable" outages', async () => {
+    const prevAk = process.env.ARK_AK;
+    const prevSk = process.env.ARK_SK;
+    process.env.ARK_AK = 'test-ak';
+    process.env.ARK_SK = 'test-sk';
+    const { callAsset } = await import('../lib/byteplus/assetsServer.js');
+    const responses = [
+        // The exact outage users hit: BytePlus asks for a retry in the message.
+        { ok: true, status: 200, body: { ResponseMetadata: { Error: { Code: 'ServiceUnavailable', Message: 'The current service is unavailable. Please try uploading again later.' } } } },
+        { ok: false, status: 503, body: null },
+        { ok: true, status: 200, body: { Result: { Id: 'a1', Status: 'Active' } } },
+    ];
+    let calls = 0;
+    const realFetch = global.fetch;
+    global.fetch = async () => {
+        const r = responses[Math.min(calls++, responses.length - 1)];
+        return { ok: r.ok, status: r.status, json: async () => r.body };
+    };
+    try {
+        const data = await callAsset('GetAsset', { Id: 'a1' });
+        assert.equal(data.Result.Id, 'a1');
+        assert.equal(calls, 3); // outage body → 503 → success
+    } finally {
+        global.fetch = realFetch;
+        process.env.ARK_AK = prevAk;
+        process.env.ARK_SK = prevSk;
+    }
+});
+
 test('server callAsset: non-throttle errors still fail immediately', async () => {
     const prevAk = process.env.ARK_AK;
     const prevSk = process.env.ARK_SK;
