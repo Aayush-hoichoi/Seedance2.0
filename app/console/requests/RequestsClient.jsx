@@ -13,7 +13,7 @@
 import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { Badge, Button, Card, EmptyState, PageHeader } from '../ui.jsx';
+import { Badge, Button, Card, EmptyState, PageHeader, Segmented } from '../ui.jsx';
 import { useApi, sendJson, timeAgo } from '../lib.js';
 import BudgetRequestsClient from '../budget-requests/BudgetRequestsClient.jsx';
 import { PendingRequest } from '../users/UsersClient.jsx';
@@ -60,15 +60,11 @@ export default function RequestsClient() {
         <div>
             <PageHeader title="Requests" subtitle="Everything waiting on an admin decision — access, budgets, projects and EXR" />
 
-            <div className="mb-5 flex flex-wrap gap-1 rounded-lg border border-line bg-paper-1 p-1 w-fit" role="tablist">
-                {TABS.map((t) => (
-                    <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}
-                        className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors ${tab === t.id ? 'bg-paper-3 font-medium text-ink' : 'text-ink-3 hover:text-ink-2'}`}>
-                        {t.label}
-                        {t.count > 0 && <span className="grid min-w-5 place-items-center rounded-full bg-warn/15 px-1 text-[10px] font-semibold text-warn">{t.count > 99 ? '99+' : t.count}</span>}
-                    </button>
-                ))}
-            </div>
+            <Segmented className="mb-5" value={tab} onChange={setTab}
+                options={TABS.map((t) => ({
+                    id: t.id, label: t.label,
+                    badge: t.count > 0 ? <span className="grid min-w-5 place-items-center rounded-full bg-warn/15 px-1 text-[10px] font-semibold text-warn">{t.count > 99 ? '99+' : t.count}</span> : null,
+                }))} />
 
             {tab === 'access' && <ModelAccessTab pending={accessPending} mutate={access.mutate} />}
             {tab === 'budgets' && <BudgetRequestsClient embedded />}

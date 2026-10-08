@@ -9,7 +9,7 @@
 import { useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Workflow as WorkflowIcon } from 'lucide-react';
-import { PageHeader, DataTable, Badge, Modal, EmptyState, Button } from '../ui.jsx';
+import { PageHeader, DataTable, Badge, Modal, EmptyState, Button, Segmented } from '../ui.jsx';
 import { useApi, sendJson, fmtDate } from '../lib.js';
 
 const MEDIA_TONE = { all: 'zinc', video: 'blue', image: 'violet' };
@@ -102,15 +102,11 @@ export default function WorkflowsClient() {
     return (
         <div>
             <PageHeader title="Workflows" subtitle="Every reusable style in the workspace — official project styles and user-created customs." />
-            <div className="mb-5 flex w-fit flex-wrap gap-1 rounded-lg border border-line bg-paper-1 p-1" role="tablist">
-                {TABS.map((t) => (
-                    <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}
-                        className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors ${tab === t.id ? 'bg-paper-3 font-medium text-ink' : 'text-ink-3 hover:text-ink-2'}`}>
-                        {t.label}
-                        <span className="grid min-w-5 place-items-center rounded-full bg-paper-3 px-1 text-[10px] font-semibold text-ink-3">{t.count}</span>
-                    </button>
-                ))}
-            </div>
+            <Segmented className="mb-5" value={tab} onChange={setTab}
+                options={TABS.map((t) => ({
+                    id: t.id, label: t.label,
+                    badge: <span className="grid min-w-5 place-items-center rounded-full bg-white/[0.07] px-1 text-[10px] font-semibold text-ink-3">{t.count}</span>,
+                }))} />
             {!isLoading && !rows.length ? (
                 <EmptyState icon={WorkflowIcon} title={tab === 'official' ? 'No project style workflows yet.' : 'No custom workflows yet.'}
                     hint={tab === 'official' ? 'Official workflows are seeded by the platform.' : 'Users create customs from the studio picker.'} />

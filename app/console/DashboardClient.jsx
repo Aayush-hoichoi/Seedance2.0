@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import { useState } from 'react';
-import { Card, StatCard, PageHeader, Badge, ProgressBar, EmptyState, DateRangePicker, Select } from './ui.jsx';
+import { Card, StatCard, PageHeader, Badge, ProgressBar, EmptyState, DateRangePicker, Select, Segmented } from './ui.jsx';
 import { useApi, fmtUsd, fmtInt, istDate, istInstant, timeAgo } from './lib.js';
 import { buildUserSpendSeries } from './spendSeries.mjs';
 import { useEvents } from '../hooks/useEvents.js';
@@ -83,15 +83,8 @@ export default function DashboardClient() {
     return (
         <div>
             <PageHeader title="Dashboard" subtitle="Org-wide spend, budgets and live governance activity">
-                <div className="flex items-center gap-1 rounded-lg border border-line bg-paper-2 p-1" role="tablist">
-                    {['user', 'model', 'project'].map((d) => (
-                        <button key={d} type="button" role="tab" aria-selected={dim === d}
-                            onClick={() => { setDim(d); setSeriesFilter(''); }}
-                            className={`rounded-md px-2.5 py-1.5 text-xs font-semibold capitalize transition-colors ${dim === d ? 'bg-paper-3 text-ink' : 'text-ink-3 hover:text-ink-2'}`}>
-                            {d}
-                        </button>
-                    ))}
-                </div>
+                <Segmented size="xs" value={dim} onChange={(d) => { setDim(d); setSeriesFilter(''); }}
+                    options={['user', 'model', 'project'].map((d) => ({ id: d, label: d }))} />
                 <Select title={`Focus the by-day charts on one ${dim}`} value={seriesFilter}
                     onChange={(e) => setSeriesFilter(e.target.value)} disabled={!allSeries.length}>
                     <option value="">All {dim}s</option>

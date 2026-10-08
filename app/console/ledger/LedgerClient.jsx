@@ -11,7 +11,7 @@ import dynamic from 'next/dynamic';
 import { useMemo, useState } from 'react';
 import { Images, Video, Download, Layers, FileSpreadsheet, BarChart3, Table2 } from 'lucide-react';
 import { useApi, fmtInt } from '../lib.js';
-import { PageHeader, Card, Button, Input, Select, Badge, EmptyState, StatCard, DateRangePicker } from '../ui.jsx';
+import { PageHeader, Card, Button, Input, Select, Badge, EmptyState, StatCard, DateRangePicker, Segmented } from '../ui.jsx';
 import { buildLedgerStatusAnalytics, buildLedgerStatusAnalyticsFromCounts } from './ledgerAnalytics.mjs';
 import EnhanceLedger from './EnhanceLedger.jsx';
 
@@ -275,19 +275,8 @@ export default function LedgerClient() {
                 </div>}
             </PageHeader>
 
-            <div className="flex gap-1 rounded-lg border border-line bg-paper-1 p-1 w-fit" role="tablist">
-                {SOURCES.map((s) => (
-                    <button
-                        key={s.id} type="button" role="tab" aria-selected={source === s.id}
-                        onClick={() => { setSource(s.id); setPage(0); }}
-                        className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
-                            source === s.id ? 'bg-paper-3 font-medium text-ink' : 'text-ink-3 hover:text-ink-2'
-                        }`}
-                    >
-                        {s.label}
-                    </button>
-                ))}
-            </div>
+            <Segmented value={source} onChange={(id) => { setSource(id); setPage(0); }}
+                options={SOURCES.map((s) => ({ id: s.id, label: s.label }))} />
 
             {!isGenerations ? <EnhanceLedger kind={source} /> : <>
 
