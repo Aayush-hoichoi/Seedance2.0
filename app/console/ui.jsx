@@ -97,6 +97,12 @@ export function Button({ variant = 'default', size = 'sm', className, loading, c
     );
 }
 
+// The reference recording's surface language, shared by Segmented and every
+// dropdown below: a #141414 well with a hairline border, raised #222222
+// active surfaces with a 1px top highlight, 150ms ease-out motion.
+const WELL = 'rounded-[13px] border border-white/[0.05] bg-[#141414]';
+const RAISED = 'bg-[#222222] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_1px_2px_rgba(0,0,0,0.4)]';
+
 // Segmented — sliding-thumb tab switcher, matched to the reference recording
 // (2026-10-08): #141414 well, raised #222 thumb with a 1px top highlight that
 // GLIDES between segments (~150ms, resizing to each segment's width), labels
@@ -123,9 +129,9 @@ export function Segmented({ value, onChange, options, size = 'sm', className }) 
     const pad = size === 'xs' ? 'px-2.5 py-1.5 text-xs' : 'px-3 py-1.5 text-sm';
     return (
         <div ref={wrapRef} role="tablist"
-            className={cn('relative flex w-fit flex-wrap items-center rounded-[13px] border border-white/[0.05] bg-[#141414] p-[3px]', className)}>
+            className={cn('relative flex w-fit flex-wrap items-center p-[3px]', WELL, className)}>
             {thumb && (
-                <span aria-hidden className="absolute top-[3px] bottom-[3px] rounded-[10px] bg-[#222222] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_1px_2px_rgba(0,0,0,0.4)] transition-[left,width] duration-150 ease-out motion-reduce:transition-none"
+                <span aria-hidden className={cn('absolute top-[3px] bottom-[3px] rounded-[10px] transition-[left,width] duration-150 ease-out motion-reduce:transition-none', RAISED)}
                     style={{ left: thumb.left, width: thumb.width }} />
             )}
             {options.map((o) => (
@@ -176,12 +182,13 @@ export function Select({ className, children, value, onChange, title, disabled }
             onValueChange={(v) => onChange?.({ target: { value: v === EMPTY_VALUE ? '' : v } })}
             disabled={disabled}
         >
-            <SelectTrigger title={title} className={cn('h-8 w-auto gap-1.5 bg-paper-3 px-2 text-sm shadow-none', className)}>
+            <SelectTrigger title={title} className={cn('h-8 w-auto gap-1.5 px-2.5 text-sm shadow-none text-[#d4d4d4] transition-colors duration-150 hover:text-[#f0f0f0] focus:ring-0 data-[state=open]:text-[#f0f0f0]', WELL, className)}>
                 <SelectValue />
             </SelectTrigger>
-            <SelectContent className="border-line bg-paper-1">
+            <SelectContent className={cn('p-[3px] shadow-[0_8px_24px_rgba(0,0,0,0.55)] duration-150 ease-out', WELL)}>
                 {options.map((o, i) => (
-                    <SelectItem key={`${o.value}-${i}`} value={o.value === '' ? EMPTY_VALUE : o.value} disabled={o.disabled}>
+                    <SelectItem key={`${o.value}-${i}`} value={o.value === '' ? EMPTY_VALUE : o.value} disabled={o.disabled}
+                        className="rounded-[10px] text-[#9a9a9a] transition-colors duration-150 focus:bg-[#222222] focus:text-[#f0f0f0] data-[state=checked]:text-[#f0f0f0] focus-visible:!outline-none">
                         {o.label}
                     </SelectItem>
                 ))}
@@ -221,14 +228,14 @@ export function DateRangePicker({ from, to, onChange, className }) {
     return (
         <Popover>
             <PopoverTrigger asChild>
-                <Button variant="outline" className={cn('h-8 justify-start gap-2 px-3 text-xs font-normal', className)}>
+                <Button variant="outline" className={cn('h-8 justify-start gap-2 px-3 text-xs font-normal text-[#d4d4d4] transition-colors duration-150 hover:bg-[#191919] hover:text-[#f0f0f0]', WELL, className)}>
                     <CalendarDays size={14} className="text-ink-3" />
                     {range.from
                         ? `${fmtDay(range.from)} – ${range.to ? fmtDay(range.to) : 'now'}`
                         : 'Pick a date range'}
                 </Button>
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-auto border-line bg-paper-1 p-0">
+            <PopoverContent align="end" className={cn('w-auto overflow-hidden p-0 shadow-[0_8px_24px_rgba(0,0,0,0.55)] duration-150 ease-out', WELL)}>
                 <Calendar
                     mode="range"
                     numberOfMonths={2}
@@ -257,12 +264,12 @@ export function DateTimePicker({ value, onChange, placeholder = 'No expiry', cla
         <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
                 <Button variant="outline" disabled={disabled}
-                    className={cn('h-8 w-full justify-start gap-2 px-2.5 text-xs font-normal', !day && 'text-ink-3', className)}>
+                    className={cn('h-8 w-full justify-start gap-2 px-2.5 text-xs font-normal text-[#d4d4d4] transition-colors duration-150 hover:bg-[#191919] hover:text-[#f0f0f0]', WELL, !day && 'text-ink-3', className)}>
                     <CalendarDays size={14} className="shrink-0 text-ink-3" />
                     {day ? `${fmtDay(day)}, ${time || DEFAULT_TIME}` : placeholder}
                 </Button>
             </PopoverTrigger>
-            <PopoverContent align="start" className="w-auto border-line bg-paper-1 p-0">
+            <PopoverContent align="start" className={cn('w-auto overflow-hidden p-0 shadow-[0_8px_24px_rgba(0,0,0,0.55)] duration-150 ease-out', WELL)}>
                 <Calendar
                     mode="single"
                     defaultMonth={day}
