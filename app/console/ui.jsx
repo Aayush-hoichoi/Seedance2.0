@@ -97,6 +97,51 @@ export function Button({ variant = 'default', size = 'sm', className, loading, c
     );
 }
 
+// Segmented — sliding-thumb tab switcher, matched to the reference recording
+// (2026-10-08): #141414 well, raised #222 thumb with a 1px top highlight that
+// GLIDES between segments (~150ms, resizing to each segment's width), labels
+// crossfading #9a9a9a → #f0f0f0. The thumb is measured from the active
+// button's offsetLeft/offsetWidth so unequal labels and count badges work.
+// options: [{ id, label, badge? }] — badge is any node, rendered after label.
+export function Segmented({ value, onChange, options, size = 'sm', className }) {
+    const btnRefs = React.useRef({});
+    const [thumb, setThumb] = useState(null);
+    const measure = React.useCallback(() => {
+        const el = btnRefs.current[value];
+        if (el) setThumb({ left: el.offsetLeft, width: el.offsetWidth });
+    }, [value]);
+    // Re-measure on selection, option/badge changes (counts load async), and
+    // container resizes (fonts, flex-wrap).
+    React.useLayoutEffect(measure, [measure, options.map((o) => `${o.id}:${o.label}:${String(o.badge ?? '')}`).join('|')]);
+    const wrapRef = React.useRef(null);
+    React.useEffect(() => {
+        if (!wrapRef.current || typeof ResizeObserver === 'undefined') return undefined;
+        const ro = new ResizeObserver(measure);
+        ro.observe(wrapRef.current);
+        return () => ro.disconnect();
+    }, [measure]);
+    const pad = size === 'xs' ? 'px-2.5 py-1.5 text-xs' : 'px-3 py-1.5 text-sm';
+    return (
+        <div ref={wrapRef} role="tablist"
+            className={cn('relative flex w-fit flex-wrap items-center rounded-[13px] border border-white/[0.05] bg-[#141414] p-[3px]', className)}>
+            {thumb && (
+                <span aria-hidden className="absolute top-[3px] bottom-[3px] rounded-[10px] bg-[#222222] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_1px_2px_rgba(0,0,0,0.4)] transition-[left,width] duration-150 ease-out motion-reduce:transition-none"
+                    style={{ left: thumb.left, width: thumb.width }} />
+            )}
+            {options.map((o) => (
+                <button key={o.id} type="button" role="tab" aria-selected={value === o.id}
+                    ref={(el) => { btnRefs.current[o.id] = el; }}
+                    onClick={() => onChange(o.id)}
+                    className={cn('relative z-10 flex items-center gap-2 rounded-[10px] font-medium capitalize transition-colors duration-150', pad,
+                        value === o.id ? 'text-[#f0f0f0]' : 'text-[#9a9a9a] hover:text-[#d4d4d4] hover:bg-white/[0.04]')}>
+                    {o.label}
+                    {o.badge}
+                </button>
+            ))}
+        </div>
+    );
+}
+
 export function Input({ className, ...props }) {
     return <UIInput className={cn('h-8 bg-paper-3 px-2.5 shadow-none', className)} {...props} />;
 }

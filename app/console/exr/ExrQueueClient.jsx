@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import toast from 'react-hot-toast';
-import { Badge, Button, DataTable, EmptyState, Modal, PageHeader, Select, StatCard } from '../ui.jsx';
+import { Badge, Button, DataTable, EmptyState, Modal, PageHeader, Segmented, Select, StatCard } from '../ui.jsx';
 import { useApi, sendJson, fmtDate, timeAgo } from '../lib.js';
 import { exrProgress } from '../../../lib/byteplus/exrProgress.mjs';
 import { FileOutput } from 'lucide-react';
@@ -59,17 +59,8 @@ export default function ExrQueueClient() {
     return (
         <div>
             <PageHeader title="Enhance Queue" subtitle="BytePlus MediaKit jobs — EXR and Tools → Upscale — and worker state">
-                <div className="flex items-center gap-1 rounded-lg border border-line bg-paper-2 p-1" role="tablist">
-                    {['exr', 'upscale'].map((tab) => (
-                        <button
-                            key={tab} type="button" role="tab" aria-selected={kind === tab}
-                            onClick={() => setKind(tab)}
-                            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${kind === tab ? 'bg-paper-3 text-ink' : 'text-ink-3 hover:text-ink-2'}`}
-                        >
-                            {tab === 'exr' ? 'EXR' : 'Upscale'}
-                        </button>
-                    ))}
-                </div>
+                <Segmented size="xs" value={kind} onChange={setKind}
+                    options={[{ id: 'exr', label: 'EXR' }, { id: 'upscale', label: 'Upscale' }]} />
                 <Select value={status} onChange={(e) => setStatus(e.target.value)} title={`Filter ${kindLabel} jobs by status`}>
                     <option value="">All jobs</option>
                     <option value="queued">Queued</option>
