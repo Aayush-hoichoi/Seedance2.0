@@ -1728,6 +1728,13 @@ export default function SeedanceStudio() {
         const declaredTask = selectedModel?.kind === 'full_2_5' && mode.id === 'reference' && options.taskType !== 'auto'
             ? options.taskType : null;
         if (declaredTask) {
+            // Task=Reference + "first frame" phrasing is the exact mismatch the
+            // provider rejects post-submit (pe_classification: it reads such
+            // prompts as first-frame-to-video, contradicting the declared type).
+            if (declaredTask === 'reference' && /first\s*frame/i.test(prompt)) {
+                setError('Your prompt says “first frame”, so Seedance will treat this as a first-frame task — but the Task pill is set to Reference, and that mismatch gets rejected. Set Task to Auto, or drop the “first frame” wording.');
+                return;
+            }
             for (const [i, items] of itemSets.entries()) {
                 const vids = items.filter((m) => m.kind === 'video');
                 if ((declaredTask === 'edit' || declaredTask === 'extend') && vids.length === 0) {

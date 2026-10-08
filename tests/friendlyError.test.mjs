@@ -97,3 +97,12 @@ test('only genuine capacity exhaustion mentions deleting assets', () => {
             `${name}: advice to delete assets must appear only for a full pool`);
     }
 });
+
+// Declared Task pill vs Seedance's own prompt classification (Shreya, Kaal
+// Bhairav, Oct 2026): Task=Reference + "as the first frame" in the prompt.
+test('a task-type classification mismatch tells the user to fix the Task pill', () => {
+    const raw = 'The parameter inner_generation_options.pe_classification specified in the request is not valid: You requested the reference generation task type, but Seedance classified your task as first-frame-to-video based on your prompt and input.';
+    const msg = friendlyError(raw);
+    assert.match(msg, /Task pill to Auto/i);
+    assert.match(msg, /reword the prompt/i);
+});
