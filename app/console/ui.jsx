@@ -34,7 +34,7 @@ export function PageHeader({ title, subtitle, children }) {
     return (
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
             <div>
-                <h1 className="font-display text-2xl font-semibold tracking-tight text-ink">{title}</h1>
+                <h1 className="font-display text-3xl font-semibold tracking-wide text-ink">{title}</h1>
                 {subtitle ? <p className="mt-1 text-sm text-ink-3">{subtitle}</p> : null}
             </div>
             <div className="flex items-center gap-2">{children}</div>
@@ -150,7 +150,7 @@ export function Modal({ open, onOpenChange, title, children, footer, className }
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className={cn('max-h-[85dvh] w-[min(94vw,480px)] overflow-y-auto rounded-xl border-line bg-paper-1 p-4 sm:max-w-[480px] sm:p-5', className)}>
                 <DialogHeader>
-                    <DialogTitle className="font-display text-base font-semibold text-ink">{title}</DialogTitle>
+                    <DialogTitle className="font-display text-lg font-semibold tracking-wide text-ink">{title}</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-3">{children}</div>
                 {footer ? <DialogFooter className="mt-2 gap-2 sm:gap-2">{footer}</DialogFooter> : null}
@@ -248,7 +248,7 @@ export function EmptyState({ icon: Icon, title, hint, children }) {
     return (
         <div className="flex flex-col items-center justify-center rounded border border-dashed border-line py-14 text-center">
             {Icon ? <Icon size={22} className="mb-2 text-ink-3" /> : null}
-            <div className="font-display text-base font-medium text-ink">{title}</div>
+            <div className="font-display text-lg font-medium tracking-wide text-ink">{title}</div>
             {hint ? <div className="mt-1 max-w-sm text-xs text-ink-3">{hint}</div> : null}
             {children ? <div className="mt-3">{children}</div> : null}
         </div>

@@ -143,7 +143,7 @@ function RequestCard({ item, children }) {
         <Card className={item.status === 'pending' ? 'border-warn/25' : ''}>
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                    <div className="font-display text-base font-semibold text-ink">{item.projectName}</div>
+                    <div className="font-display text-lg font-semibold tracking-wide text-ink">{item.projectName}</div>
                     <div className="mt-0.5 text-xs text-ink-3">{item.userName}{item.userEmail && item.userEmail !== item.userName ? ` · ${item.userEmail}` : ''}</div>
                 </div>
                 <Badge tone={statusTone}>{item.status}</Badge>
