@@ -207,6 +207,28 @@ test('asset calls retry through BytePlus QPS throttling, then succeed', async ()
     }
 });
 
+test('asset calls retry transient "service is unavailable" outages', async () => {
+    const { getAsset } = await import('../lib/seedance/assetsClient.js');
+    const responses = [
+        { ok: true, status: 200, body: { ResponseMetadata: { Error: { Code: 'ServiceUnavailable', Message: 'The current service is unavailable. Please try uploading again later.' } } } },
+        { ok: false, status: 503, body: null },
+        { ok: true, status: 200, body: { Result: { Id: 'a1', Status: 'Active' } } },
+    ];
+    let calls = 0;
+    const realFetch = global.fetch;
+    global.fetch = async () => {
+        const r = responses[Math.min(calls++, responses.length - 1)];
+        return { ok: r.ok, status: r.status, json: async () => r.body };
+    };
+    try {
+        const asset = await getAsset('a1');
+        assert.equal(asset.id, 'a1');
+        assert.equal(calls, 3); // outage body → 503 → success
+    } finally {
+        global.fetch = realFetch;
+    }
+});
+
 test('non-throttle asset errors still fail immediately', async () => {
     const { getAsset } = await import('../lib/seedance/assetsClient.js');
     let calls = 0;
