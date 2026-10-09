@@ -1,7 +1,6 @@
 'use client';
 
-import { POPOVER, ITEM } from '@/components/ui/surface-styles';
-import { compactButtonVariants } from '@/components/ui/button';
+import { CONTROL, POPOVER, ITEM } from '@/components/ui/surface-styles';
 
 import * as Select from '@radix-ui/react-select';
 import { ChevronDown, Check } from 'lucide-react';
@@ -23,7 +22,7 @@ export default function ProjectSelect({ projects, value, onChange, block }) {
         <Select.Root value={value != null ? String(value) : undefined} onValueChange={(v) => onChange(Number(v))}>
             <Select.Trigger
                 title="Project — model access and budgets are scoped per project"
-                className={compactButtonVariants({ className: `min-w-0 max-w-[40vw] overflow-hidden data-[state=open]:ring-1 data-[state=open]:ring-inset data-[state=open]:ring-line-strong sm:max-w-none ${block ? 'w-full justify-between' : ''}` })}
+                className={`${CONTROL} inline-flex min-w-0 max-w-[40vw] items-center gap-1.5 overflow-hidden px-2.5 py-1.5 text-xs font-medium outline-none data-[state=open]:text-[#f0f0f0] sm:max-w-none ${block ? 'w-full justify-between' : ''}`}
             >
                 {/* Children override Radix's default (the selected ItemText) so
                     the spend can sit beside the name. Falls through to the

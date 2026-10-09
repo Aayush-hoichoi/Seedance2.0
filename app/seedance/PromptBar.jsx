@@ -1,7 +1,7 @@
 'use client';
 
-import { Button, compactButtonVariants } from '@/components/ui/button';
-import { CARD, WELL, RAISED, POPOVER, ITEM } from '@/components/ui/surface-styles';
+import { Button } from '@/components/ui/button';
+import { CARD, WELL, RAISED, POPOVER, CONTROL, ITEM } from '@/components/ui/surface-styles';
 
 // Floating prompt bar using the console's shared surfaces and button primitives.
 // Wired to the Seedance modes/options.
@@ -69,10 +69,10 @@ function renderChips(text, tags, castRe = null) {
 // File-input accept by media kind.
 const ACCEPT = { image: 'image/*', video: 'video/*', audio: 'audio/*' };
 
-// Same secondary button classes, dimensions, and states as the console.
-const PILL = compactButtonVariants({ className: 'group' });
+// py-2 below sm keeps the pills a thumb-sized tap target on phones.
+const PILL = `${CONTROL} flex items-center gap-1.5 px-2.5 py-2 sm:py-1.5 whitespace-nowrap group`;
 const PILL_IDLE = '';
-const PILL_ON = 'ring-1 ring-inset ring-line-strong';
+const PILL_ON = `${RAISED} hover:bg-[#222222]`;
 
 /* ── tiny inline icons (single stroke voice, 14px) ──────────────────────── */
 const ic = { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 };
@@ -107,13 +107,13 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
     const gated = access !== 'approved'; // one approval unlocks every workflow
     return (
         <div className="relative">
-            <button aria-expanded={open}
+            <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : 'workflows'); }}
                 className={`${PILL} ${open || workflow ? PILL_ON : PILL_IDLE}`}
             >
-                <span className="text-inherit"><WorkflowIcon /></span>
-                <span className="text-inherit">
+                <span className={workflow ? 'text-primary' : 'text-white/65'}><WorkflowIcon /></span>
+                <span className={`text-xs font-semibold transition-colors ${open || workflow ? 'text-[#f0f0f0]' : 'text-[#d4d4d4] group-hover:text-[#f0f0f0]'}`}>
                     {workflow ? workflow.name : 'Workflows'}
                 </span>
                 <Chevron />
@@ -288,9 +288,10 @@ function WorkflowsPill({ openKey, setOpenKey, workflows, workflow, attached, acc
                                             <button
                                                 key={l.key}
                                                 type="button"
-                                                aria-pressed={active}
                                                 onClick={() => onChangeLook?.(l.key)}
-                                                className={`${PILL} ${active ? PILL_ON : PILL_IDLE}`}
+                                                className={`rounded-md border px-2 py-1 text-[11px] transition-colors ${active
+                                                    ? 'border-primary/40 bg-primary/15 font-semibold text-primary'
+                                                    : 'border-white/[0.08] text-white/60 hover:bg-white/[0.06] hover:text-white'}`}
                                             >{l.name}</button>
                                         );
                                     })}
@@ -341,14 +342,14 @@ function PillSelect({ id, openKey, setOpenKey, badge, display, label, note, opti
     const open = openKey === id;
     return (
         <div className="relative">
-            <button aria-expanded={open}
+            <button
                 type="button"
                 disabled={disabled}
                 onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : id); }}
                 className={`${PILL} ${open ? PILL_ON : PILL_IDLE}`}
             >
                 {badge}
-                <span className="text-inherit">{display}</span>
+                <span className={`text-xs font-semibold transition-colors ${open ? 'text-[#f0f0f0]' : 'text-[#d4d4d4] group-hover:text-[#f0f0f0]'}`}>{display}</span>
                 <Chevron />
             </button>
             {open && (
@@ -376,8 +377,8 @@ function PillSelect({ id, openKey, setOpenKey, badge, display, label, note, opti
 function PillToggle({ label, active, onToggle, disabled, icon }) {
     return (
         <button type="button" disabled={disabled} aria-pressed={active} onClick={onToggle} className={`${PILL} ${active ? PILL_ON : PILL_IDLE}`}>
-            <span className="text-inherit">{icon}</span>
-            <span className="text-inherit">{label}</span>
+            <span className={active ? 'text-[#f0f0f0]' : 'text-white/65'}>{icon}</span>
+            <span className={`text-xs font-semibold transition-colors ${active ? 'text-[#f0f0f0]' : 'text-[#d4d4d4] group-hover:text-[#f0f0f0]'}`}>{label}</span>
         </button>
     );
 }
@@ -451,7 +452,7 @@ function MediaTypeToggle({ value, onChange }) {
             type="button"
             aria-pressed={value === id}
             onClick={() => onChange?.(id)}
-            className={`${compactButtonVariants({ className: 'h-auto w-full flex-1 flex-col gap-0.5 px-2 py-2 sm:px-3' })} ${value === id ? PILL_ON : PILL_IDLE}`}
+            className={`${ITEM} flex w-full flex-1 flex-col items-center justify-center gap-0.5 px-2 py-2 text-[11px] font-medium sm:px-3 ${value === id ? `${RAISED} !text-[#f0f0f0]` : ''}`}
         >
             {icon}
             {label}
@@ -487,9 +488,9 @@ function DurationControl({ openKey, setOpenKey, duration, setDuration, maxDurati
     if (locked) {
         return (
             <div className="relative">
-                <button aria-expanded={open} type="button" onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : 'dur'); }} className={`${PILL} ${open ? PILL_ON : PILL_IDLE}`}>
-                    <span className="text-inherit"><ClockIcon /></span>
-                    <span className="text-inherit">Auto</span>
+                <button type="button" onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : 'dur'); }} className={`${PILL} ${open ? PILL_ON : PILL_IDLE}`}>
+                    <span className={open ? 'text-[#f0f0f0]' : 'text-white/65'}><ClockIcon /></span>
+                    <span className={`text-xs font-semibold ${open ? 'text-[#f0f0f0]' : 'text-[#d4d4d4] group-hover:text-[#f0f0f0]'}`}>Auto</span>
                     <Lock size={11} className="text-white/45" />
                 </button>
                 {open && (
@@ -504,9 +505,9 @@ function DurationControl({ openKey, setOpenKey, duration, setDuration, maxDurati
 
     return (
         <div className="relative">
-            <button aria-expanded={open} type="button" onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : 'dur'); }} className={`${PILL} ${open ? PILL_ON : PILL_IDLE}`}>
-                <span className="text-inherit"><ClockIcon /></span>
-                <span className="text-inherit">{isAuto ? 'Auto' : `${duration}s`}</span>
+            <button type="button" onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : 'dur'); }} className={`${PILL} ${open ? PILL_ON : PILL_IDLE}`}>
+                <span className={open ? 'text-[#f0f0f0]' : 'text-white/65'}><ClockIcon /></span>
+                <span className={`text-xs font-semibold ${open ? 'text-[#f0f0f0]' : 'text-[#d4d4d4] group-hover:text-[#f0f0f0]'}`}>{isAuto ? 'Auto' : `${duration}s`}</span>
                 <Chevron />
             </button>
             {open && (
@@ -536,7 +537,7 @@ function DurationControl({ openKey, setOpenKey, duration, setDuration, maxDurati
                             />
                             <span className="text-[10px] text-white/40">s</span>
                         </div>
-                        <button type="button" aria-pressed={isAuto} onClick={() => setDuration(-1)} className={`${PILL} shrink-0 ${isAuto ? PILL_ON : PILL_IDLE}`}>Auto</button>
+                        <button type="button" onClick={() => setDuration(-1)} className={`shrink-0 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${isAuto ? 'bg-primary/15 text-primary' : 'bg-white/[0.06] text-white/60 hover:text-primary'}`}>Auto</button>
                     </div>
                 </Popover>
             )}
@@ -550,9 +551,9 @@ function SeedControl({ openKey, setOpenKey, seed, setSeed, disabled }) {
     const isRandom = String(seed) === '-1' || seed === -1;
     return (
         <div className="relative">
-            <button aria-expanded={open} type="button" disabled={disabled} onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : 'seed'); }} className={`${PILL} ${open ? PILL_ON : PILL_IDLE}`}>
-                <span className="text-inherit"><DiceIcon /></span>
-                <span className="text-inherit">{isRandom ? 'Seed' : `Seed · ${seed}`}</span>
+            <button type="button" disabled={disabled} onClick={(e) => { e.stopPropagation(); setOpenKey(open ? null : 'seed'); }} className={`${PILL} ${open ? PILL_ON : PILL_IDLE}`}>
+                <span className={open ? 'text-[#f0f0f0]' : 'text-white/65'}><DiceIcon /></span>
+                <span className={`text-xs font-semibold ${open ? 'text-[#f0f0f0]' : 'text-[#d4d4d4] group-hover:text-[#f0f0f0]'}`}>{isRandom ? 'Seed' : `Seed · ${seed}`}</span>
             </button>
             {open && (
                 <Popover>
@@ -565,7 +566,7 @@ function SeedControl({ openKey, setOpenKey, seed, setSeed, disabled }) {
                             onChange={(e) => setSeed(e.target.value)}
                             className="flex-1 min-w-0 bg-black/40 border border-white/10 rounded-md px-2.5 py-1.5 text-xs text-white focus:border-primary/50 outline-none"
                         />
-                        <button type="button" onClick={() => { setSeed(-1); if (ref.current) ref.current.value = '-1'; }} className={`${PILL} shrink-0`}>Random</button>
+                        <button type="button" onClick={() => { setSeed(-1); if (ref.current) ref.current.value = '-1'; }} className="shrink-0 px-2.5 py-1.5 rounded-md bg-white/[0.06] text-white/70 text-xs font-semibold hover:text-primary transition-colors">Random</button>
                     </div>
                 </Popover>
             )}
@@ -1316,8 +1317,8 @@ export default function PromptBar({
                                 className={`${PILL} ${cinematic ? PILL_ON : PILL_IDLE}`}
                                 title="Cinematic camera, lens, focal length and aperture — the enhancer structures your prompt around them"
                             >
-                                <span className="text-inherit"><FilmIcon /></span>
-                                <span className="text-inherit">
+                                <span className={cinematic ? 'text-primary' : 'text-white/65'}><FilmIcon /></span>
+                                <span className={`text-xs font-semibold transition-colors ${cinematic ? 'text-primary' : 'text-[#d4d4d4] group-hover:text-[#f0f0f0]'}`}>
                                     {cinematic ? summarizeCinematic(cinematic) : 'Cinematic Cameras'}
                                 </span>
                             </button>
@@ -1530,17 +1531,16 @@ export default function PromptBar({
                                         type="button"
                                         aria-pressed={batch === n}
                                         onClick={() => setBatch(n)}
-                                        className={`${PILL} ${batch === n ? PILL_ON : PILL_IDLE}`}
+                                        className={`${ITEM} h-full px-3 py-1.5 text-xs font-medium ${batch === n ? `${RAISED} !text-[#f0f0f0]` : ''}`}
                                     >×{n}</button>
                                 ))}
                             </div>
                         )}
                         <Button
                             type="button"
-                            size="sm"
                             onClick={onGenerate}
                             disabled={enhancing}
-                            className={compactButtonVariants({ variant: 'default', className: 'w-full sm:w-auto' })}
+                            className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto px-5 py-2.5 text-sm flex items-center justify-center gap-2 w-full sm:w-auto"
                         >
                             {enhancing ? (
                                 <><span className="animate-spin inline-block">◌</span> Structuring prompt…</>
@@ -1622,8 +1622,8 @@ function CreateWorkflowModal({ onClose, onCreate, onUpdate, initial = null }) {
                 <div className="mt-1 flex gap-1 rounded-md border border-white/10 bg-white/[0.04] p-1">
                     {[['all', 'Video + Image'], ['video', 'Video only'], ['image', 'Image only']].map(([value, label]) => (
                         <button
-                            key={value} type="button" aria-pressed={media === value} onClick={() => setMedia(value)}
-                            className={`${PILL} flex-1 ${media === value ? PILL_ON : PILL_IDLE}`}
+                            key={value} type="button" onClick={() => setMedia(value)}
+                            className={`flex-1 rounded px-2 py-1.5 text-[11px] font-semibold transition-colors ${media === value ? 'bg-primary/15 text-primary' : 'text-white/50 hover:text-white/80'}`}
                         >{label}</button>
                     ))}
                 </div>
