@@ -1,5 +1,6 @@
 'use client';
 
+import heroStyles from './Hero.module.css';
 import { Button } from '@/components/ui/button';
 import { CARD, POPOVER, ITEM, TOGGLE, RAISED, CONTROL } from '@/components/ui/surface-styles';
 
@@ -3235,7 +3236,7 @@ function Hero() {
         <div className="flex flex-col items-center justify-center animate-fade-in-up">
             <IconTile />
             <h1 className="text-2xl sm:text-5xl md:text-6xl font-extrabold font-display text-white tracking-tight mb-3 sm:mb-4 text-center px-4 leading-[1.05]">
-                <span className="text-white/40 font-medium">START CREATING WITH</span><br />
+                <span className={`${heroStyles.intro} text-white/40 font-normal tracking-normal`}>START CREATING WITH</span><br />
                 <span className="text-white">LOGLINEAI STUDIO</span>
             </h1>
             {/* Decorative copy only — on a phone the prompt bar and the history
