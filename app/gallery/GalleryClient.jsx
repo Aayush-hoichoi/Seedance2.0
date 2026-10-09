@@ -25,8 +25,14 @@ export default function GalleryClient() {
     const [loadingMore, setLoadingMore] = useState(false);
     const [lightbox, setLightbox] = useState(null); // item
     const [error, setError] = useState(null);
+    const [creatorsError, setCreatorsError] = useState(null);
+    const [itemsError, setItemsError] = useState(null);
+    const [moreError, setMoreError] = useState(null);
+    const [creatorsAttempt, setCreatorsAttempt] = useState(0);
+    const [itemsAttempt, setItemsAttempt] = useState(0);
     const [query, setQuery] = useState('');
-    const requestKeyRef = useRef('');
+    const requestEpochRef = useRef(0);
+    const moreRequestRef = useRef(null);
     const { access: exrAccess, requesting: exrAccessRequesting, request: requestExrAccess } = useExrAccess();
 
     const askForExrAccess = async () => {
@@ -36,8 +42,9 @@ export default function GalleryClient() {
 
     useEffect(() => {
         let alive = true;
-        fetch('/api/gallery')
-            .then((r) => (r.ok ? r.json() : Promise.reject(new Error('Could not load the gallery.'))))
+        const controller = new AbortController();
+        setCreatorsError(null);
+        fetchGallery('/api/gallery', controller.signal, 'Could not load the gallery.')
             .then((d) => {
                 if (!alive) return;
                 setCreators(d.creators || []);
@@ -48,32 +55,41 @@ export default function GalleryClient() {
                 const first = (d.creators || []).find((c) => c.generations > 0) || (d.creators || [])[0];
                 if (first) setSelected(first.id);
             })
-            .catch((e) => { if (alive) { setError(e.message); setCreators([]); } });
-        return () => { alive = false; };
-    }, []);
+            .catch((e) => { if (alive) setCreatorsError(e.message); });
+        return () => { alive = false; controller.abort(); };
+    }, [creatorsAttempt]);
 
     useEffect(() => {
         if (!selected) return;
         let alive = true;
-        const requestKey = `${selected}:${projectId}`;
-        requestKeyRef.current = requestKey;
+        // A creator/project can be selected again before an old page finishes.
+        // An epoch distinguishes those visits even when their URLs are equal.
+        const epoch = ++requestEpochRef.current;
+        const controller = new AbortController();
         setItems(null);
         setError(null);
+        setItemsError(null);
+        setMoreError(null);
         setNextBefore(null);
         setLoadingMore(false);
         setLightbox(null);
-        fetch(galleryUrl(selected, projectId))
-            .then((r) => (r.ok ? r.json() : Promise.reject(new Error('Could not load this creator’s work.'))))
+        fetchGallery(galleryUrl(selected, projectId), controller.signal, 'Could not load this creator’s work.')
             .then((d) => {
-                if (!alive || requestKeyRef.current !== requestKey) return;
+                if (!alive || requestEpochRef.current !== epoch) return;
                 setItems(d.items || []);
                 setProjects(d.projects || []);
                 setTotal(Number(d.total) || 0);
                 setNextBefore(d.nextBefore ? { before: d.nextBefore, beforeId: d.nextBeforeId || null } : null);
             })
-            .catch((e) => { if (alive) { setError(e.message); setItems([]); } });
-        return () => { alive = false; };
-    }, [selected, projectId]);
+            .catch((e) => { if (alive) { setItemsError(e.message); setItems([]); } });
+        return () => {
+            alive = false;
+            requestEpochRef.current += 1;
+            controller.abort();
+            moreRequestRef.current?.abort();
+            moreRequestRef.current = null;
+        };
+    }, [selected, projectId, itemsAttempt]);
 
     const creator = useMemo(() => creators?.find((c) => c.id === selected) || null, [creators, selected]);
 
@@ -113,21 +129,25 @@ export default function GalleryClient() {
     };
 
     const loadMore = async () => {
-        if (!selected || !nextBefore || loadingMore) return;
-        const requestKey = requestKeyRef.current;
+        if (!selected || !nextBefore || moreRequestRef.current) return;
+        const epoch = requestEpochRef.current;
+        const controller = new AbortController();
+        moreRequestRef.current = controller;
         setLoadingMore(true);
-        setError(null);
+        setMoreError(null);
         try {
-            const response = await fetch(galleryUrl(selected, projectId, nextBefore));
-            if (!response.ok) throw new Error('Could not load older generations.');
-            const data = await response.json();
-            if (requestKeyRef.current !== requestKey) return;
-            setItems((current) => [...(current || []), ...(data.items || [])]);
+            const data = await fetchGallery(galleryUrl(selected, projectId, nextBefore), controller.signal, 'Could not load older generations.');
+            if (requestEpochRef.current !== epoch || controller.signal.aborted) return;
+            setItems((current) => {
+                const known = new Set((current || []).map((item) => item.taskId));
+                return [...(current || []), ...(data.items || []).filter((item) => !known.has(item.taskId))];
+            });
             setNextBefore(data.nextBefore ? { before: data.nextBefore, beforeId: data.nextBeforeId || null } : null);
         } catch (e) {
-            if (requestKeyRef.current === requestKey) setError(e.message);
+            if (requestEpochRef.current === epoch && !controller.signal.aborted) setMoreError(e.message);
         } finally {
-            if (requestKeyRef.current === requestKey) setLoadingMore(false);
+            if (moreRequestRef.current === controller) moreRequestRef.current = null;
+            if (requestEpochRef.current === epoch) setLoadingMore(false);
         }
     };
 
@@ -175,14 +195,14 @@ export default function GalleryClient() {
                         aria-label="Search creators by name or email"
                         className="mb-2 w-full px-2.5 py-1.5 rounded-lg border border-white/10 bg-white/[0.03] text-xs text-white placeholder:text-white/25 outline-none focus:border-primary/50 focus:bg-white/[0.05] transition-colors"
                     />
-                    {creators === null && [...Array(5)].map((_, i) => (
+                    {creators === null && !creatorsError && [...Array(5)].map((_, i) => (
                         <div key={i} className="h-14 rounded-xl bg-white/[0.03] animate-pulse" />
                     ))}
                     {shown?.map((c) => (
                         <CreatorCard key={c.id} c={c} me={me} selected={c.id === selected} onClick={() => chooseCreator(c.id)} />
                     ))}
-                    {shown?.length === 0 && (
-                        <p className="px-2 text-xs text-white/35">{query.trim() ? 'No creator matches that.' : 'No creators yet.'}</p>
+                    {shown?.length === 0 && query.trim() && (
+                        <p className="px-2 text-xs text-white/35">No creator matches that.</p>
                     )}
                 </aside>
 
@@ -211,6 +231,10 @@ export default function GalleryClient() {
                             </button>
                         ))}
                     </div>
+
+                    {creators === null && !creatorsError && <GalleryLoading>Loading creators…</GalleryLoading>}
+                    {creatorsError && <GalleryLoadError message={creatorsError} onRetry={() => setCreatorsAttempt((attempt) => attempt + 1)} />}
+                    {creators?.length === 0 && !creatorsError && <p className="py-12 text-center text-sm text-white/45">No creators yet.</p>}
 
                     {creator && (
                         <div className="flex items-center gap-3 pb-4">
@@ -247,20 +271,24 @@ export default function GalleryClient() {
                                 {mediaTotals.images} image{mediaTotals.images === 1 ? '' : 's'} · {mediaTotals.videos} video{mediaTotals.videos === 1 ? '' : 's'}
                             </span>
                             <span className="ml-auto text-[11px] text-white/35">
-                                {items === null ? 'Loading…' : `Showing ${items.length} of ${total}`}
+                                {itemsError ? 'Not loaded' : items === null ? 'Loading…' : `Showing ${items.length} of ${total}`}
                             </span>
                         </div>
                     )}
 
                     {error && <p className="mb-4 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-300">{error}</p>}
+                    {itemsError && <GalleryLoadError message={itemsError} onRetry={() => setItemsAttempt((attempt) => attempt + 1)} />}
 
                     {items === null && selected && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                            {[...Array(8)].map((_, i) => <div key={i} className="aspect-video rounded-2xl bg-white/[0.03] animate-pulse" />)}
-                        </div>
+                        <>
+                            <GalleryLoading>Loading generations…</GalleryLoading>
+                            <div aria-hidden="true" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                                {[...Array(8)].map((_, i) => <div key={i} className="aspect-video rounded-2xl bg-white/[0.03] animate-pulse" />)}
+                            </div>
+                        </>
                     )}
 
-                    {items?.length === 0 && !error && (
+                    {items?.length === 0 && !itemsError && (
                         <div className="flex flex-col items-center justify-center py-24 text-center">
                             <div className="w-14 h-14 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center mb-4 text-white/25">
                                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" /></svg>
@@ -279,15 +307,17 @@ export default function GalleryClient() {
                                         : <VideoCard key={item.taskId} item={item} exrAccess={exrAccess} onOpen={() => setLightbox(item)} />
                                 ))}
                             </div>
+                            {moreError && <div className="mt-4"><GalleryLoadError message={moreError} onRetry={loadMore} /></div>}
                             {nextBefore && (
                                 <div className="flex justify-center py-8">
                                     <button
                                         type="button"
                                         onClick={loadMore}
                                         disabled={loadingMore}
+                                        aria-busy={loadingMore}
                                         className="rounded-lg border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold text-white/65 transition-colors hover:border-white/25 hover:bg-white/[0.08] hover:text-white disabled:cursor-wait disabled:opacity-50"
                                     >
-                                        {loadingMore ? 'Loading…' : `Load older${total > items.length ? ` · ${total - items.length} remaining` : ''}`}
+                                        {loadingMore ? 'Loading older generations…' : `Load older${total > items.length ? ` · ${total - items.length} remaining` : ''}`}
                                     </button>
                                 </div>
                             )}
@@ -315,6 +345,49 @@ export default function GalleryClient() {
                     />
                 );
             })()}
+        </div>
+    );
+}
+
+// Bound each request, including reading its body. Leaving a creator cancels
+// its work immediately; a stalled connection instead offers an explicit retry.
+async function fetchGallery(url, signal, message) {
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal.addEventListener('abort', abort, { once: true });
+    if (signal.aborted) abort();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+    }, 20_000);
+    try {
+        const response = await fetch(url, { signal: controller.signal });
+        if (!response.ok) throw new Error(message);
+        return await response.json();
+    } catch (error) {
+        if (signal.aborted) throw error;
+        throw new Error(timedOut ? 'The gallery request timed out. Try again.' : message);
+    } finally {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', abort);
+    }
+}
+
+function GalleryLoading({ children }) {
+    return (
+        <div role="status" className="mb-4 flex items-center gap-2.5 py-3 text-sm text-white/65">
+            <span aria-hidden="true" className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-white/15 border-t-white/70 motion-reduce:animate-none" />
+            {children}
+        </div>
+    );
+}
+
+function GalleryLoadError({ message, onRetry }) {
+    return (
+        <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            <p>{message}</p>
+            <button type="button" onClick={onRetry} className="shrink-0 rounded-md border border-red-300/25 px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-red-500/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-300">Retry</button>
         </div>
     );
 }
