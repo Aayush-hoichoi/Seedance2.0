@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ffmpegPath from 'ffmpeg-static';
-import { ensureH264, retimeToFps, transcodeToProRes, transcodeUrlToQuickTime } from '../lib/seedance/ensureH264.mjs';
+import { ensureH264, retimeToFps, transcodeToProRes, transcodeUrlToProRes, transcodeUrlToQuickTime } from '../lib/seedance/ensureH264.mjs';
 
 const dir = mkdtempSync(join(tmpdir(), 'h264test-'));
 
@@ -88,4 +88,41 @@ test('large video can be streamed into a QuickTime-compatible MOV', async () => 
     const output = Buffer.concat(chunks);
     assert.ok(output.length > 0);
     assert.equal(codecOf(output), 'h264');
+});
+
+test('streamed ProRes MOV preserves 10-bit 4:4:4 and audio', async () => {
+    const source = join(dir, 'stream-source.mp4');
+    execFileSync(ffmpegPath, [
+        '-y', '-f', 'lavfi', '-i', 'testsrc2=size=128x128:duration=0.2:rate=25',
+        '-f', 'lavfi', '-i', 'sine=frequency=440:duration=0.2',
+        '-c:v', 'libx265', '-pix_fmt', 'yuv444p10le', '-c:a', 'aac', source,
+    ], { stdio: 'ignore' });
+    const conversion = transcodeUrlToProRes(pathToFileURL(source).href);
+    const chunks = [];
+    try {
+        for await (const chunk of conversion.stream) chunks.push(chunk);
+    } finally {
+        conversion.cancel();
+    }
+    const output = Buffer.concat(chunks);
+    assert.ok(output.length > 0);
+    assert.match(output.subarray(0, 32).toString('ascii'), /ftypqt/, 'must be a QuickTime MOV container');
+    const file = join(dir, 'streamed-prores.mov');
+    writeFileSync(file, output);
+    let info = '';
+    try { execFileSync(ffmpegPath, ['-hide_banner', '-i', file], { stdio: 'pipe' }); } catch (error) { info = String(error.stderr); }
+    assert.match(info, /Video: prores \(4444\)/);
+    assert.match(info, /yuv444p1[02]/, 'must retain at least 10-bit 4:4:4');
+    assert.match(info, /Audio: pcm_s16le/, 'audio must survive the streamed conversion');
+});
+
+test('streamed ProRes errors reject instead of completing a partial file', async () => {
+    const conversion = transcodeUrlToProRes(pathToFileURL(join(dir, 'missing-video.mp4')).href);
+    try {
+        await assert.rejects(async () => {
+            for await (const chunk of conversion.stream) { /* consume until the encoder fails */ }
+        }, /ProRes MOV conversion failed/);
+    } finally {
+        conversion.cancel();
+    }
 });

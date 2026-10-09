@@ -2,7 +2,7 @@ import { Readable } from 'node:stream';
 import { NextResponse } from 'next/server';
 import { zipStream } from '../../../../lib/seedance/zip.mjs';
 import { safeName } from '../../../../lib/seedance/downloadName.mjs';
-import { ensureH264, remuxToMov, retimeToFps, transcodeToProRes, transcodeUrlToQuickTime } from '../../../../lib/seedance/ensureH264.mjs';
+import { ensureH264, remuxToMov, retimeToFps, transcodeUrlToProRes, transcodeUrlToQuickTime } from '../../../../lib/seedance/ensureH264.mjs';
 import { getUser } from '../../../../lib/auth/user.js';
 import { getDb } from '../../../../lib/db/neon.js';
 import { recordGenerationEvent } from '../../../../lib/access/db.js';
@@ -110,6 +110,22 @@ async function streamQuickTime(item, request) {
     });
 }
 
+function streamProRes(item, request) {
+    const conversion = transcodeUrlToProRes(item.url);
+    if (!conversion) return bad('ProRes MOV conversion is not available on this server.', 503);
+    if (request.signal?.aborted) conversion.cancel();
+    else request.signal?.addEventListener('abort', conversion.cancel, { once: true });
+    conversion.stream.once('close', () => request.signal?.removeEventListener('abort', conversion.cancel));
+    const name = item.name.replace(/\.(mp4|m4v|mov)$/i, '') + '.mov';
+    return new Response(Readable.toWeb(conversion.stream), {
+        headers: {
+            'Content-Type': 'video/quicktime',
+            'Content-Disposition': contentDisposition(name),
+            'Cache-Control': 'no-store',
+        },
+    });
+}
+
 // Download one asset into a Buffer, enforcing the size cap. Returns null on any
 // failure so a single expired/broken link never aborts the whole archive.
 async function fetchAsset(url, name = '') {
@@ -141,6 +157,12 @@ export async function POST(request) {
     const quickTime = body?.format === 'quicktime';
     // format: 'prores' → ProRes 4444 .mov (keeps 10-bit 4:4:4, opens in Nuke).
     const prores = body?.format === 'prores';
+    // The ZIP writer buffers each entry. Keep ProRes on the streaming path;
+    // a single encoded clip can exceed the function's whole memory budget.
+    if (prores && !raw) {
+        if (items.length !== 1) return bad('Download ProRes MOV videos one at a time.');
+        if (!/\.(mp4|m4v|mov)$/i.test(items[0].name)) return bad('ProRes MOV is available for videos only.');
+    }
     // fps: 25 retimes the video to 25 fps (PAL speedup) before delivery.
     const fps = body?.fps === 25 ? 25 : null;
     // format: 'mp4' opts back into the plain mp4 (codec fix still applies —
@@ -152,11 +174,6 @@ export async function POST(request) {
     // the remux fails for any reason the mp4 goes out unchanged.
     async function toDelivery(buf, name) {
         if (raw) return { data: buf, name };
-        if (prores) {
-            const mov = await transcodeToProRes(buf, name);
-            if (mov) return { data: mov, name: name.replace(/\.(mp4|m4v|mov)$/i, '') + '.mov' };
-            // ProRes not possible (not a video, no ffmpeg) → normal path below.
-        }
         // Retiming re-encodes to H.264 from any source codec, so it replaces
         // the ensureH264 step rather than stacking a second encode on it.
         const fixed = (fps && await retimeToFps(buf, name, fps)) || await ensureH264(buf, name);
@@ -166,6 +183,8 @@ export async function POST(request) {
     }
 
     await logDownloads(items);
+
+    if (prores && !raw) return streamProRes(items[0], request);
 
     // EXR results from BytePlus may be delivered as a MOV containing FFV1.
     // QuickTime cannot play FFV1, so provide a streamed H.264 MOV derivative

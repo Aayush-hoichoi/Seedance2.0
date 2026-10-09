@@ -382,13 +382,13 @@ export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext, onEx
                             </button>
                         )}
                         {!isImage && exrAccess?.granted && item.exrUrl && <Button type="button" variant="outline" className="h-auto w-full py-2 text-xs shadow-none" onClick={() => downloadArchivedAsset(item.exrArchiveKey, item.exrUrl, `${item.taskId || 'generation'}-16bit.mov`, item.taskId, { raw: true })}>Download original 16-bit output</Button>}
+                        {!isImage && <VideoDownloadFormat value={dlFormat} onValueChange={setDlFormat} />}
                         <div className="flex flex-wrap items-center gap-2">
                             <Button type="button" variant="outline" disabled={!dlUrl} className="h-auto flex-1 gap-1.5 px-3 py-2.5 text-xs shadow-none"
                                 onClick={() => downloadAsset(dlUrl, item.taskId || (isImage ? 'image' : 'video'), item.taskId, isImage ? undefined : { format: dlFormat === 'prores' ? 'prores' : dlFormat.startsWith('mp4') ? 'mp4' : 'mov', fps: dlFormat.endsWith('25') ? 25 : null })}><Download size={13} />Download</Button>
-                            {!isImage && <>
-                                <VideoDownloadFormat value={dlFormat} onValueChange={setDlFormat} />
+                            {!isImage && (
                                 <Button type="button" variant="outline" disabled={!dlUrl} onClick={() => downloadAsset(dlUrl, item.taskId || 'generation', item.taskId, { raw: true })} className="h-auto px-3 py-2.5 text-xs shadow-none">Original</Button>
-                            </>}
+                            )}
                         </div>
                     </footer>
                 </aside>

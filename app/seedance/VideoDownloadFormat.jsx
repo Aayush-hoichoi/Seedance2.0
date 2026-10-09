@@ -11,7 +11,7 @@ export default function VideoDownloadFormat({ value, onValueChange }) {
             <SelectTrigger
                 aria-label="Download format"
                 title="Video file format for Download"
-                className="h-auto min-h-11 w-auto min-w-0 flex-1 gap-2 border-line bg-paper-2 px-2 py-2.5 text-xs font-semibold text-ink hover:bg-paper-3 active:bg-paper-3 sm:min-h-0"
+                className="h-auto min-h-11 w-full min-w-0 gap-2 border-line bg-paper-2 px-3 py-2.5 text-xs font-semibold text-ink hover:bg-paper-3 active:bg-paper-3 sm:min-h-0"
             >
                 <SelectValue />
             </SelectTrigger>
@@ -24,19 +24,19 @@ export default function VideoDownloadFormat({ value, onValueChange }) {
             >
                 <SelectGroup>
                     <SelectLabel className={LABEL_CLASS}>Standard</SelectLabel>
-                    <SelectItem value="mov" className={ITEM_CLASS}>.mov</SelectItem>
-                    <SelectItem value="mp4" className={ITEM_CLASS}>.mp4</SelectItem>
+                    <SelectItem value="mov" className={ITEM_CLASS}>MOV · H.264</SelectItem>
+                    <SelectItem value="mp4" className={ITEM_CLASS}>MP4 · H.264</SelectItem>
                 </SelectGroup>
                 <SelectSeparator className="my-1.5 bg-line" />
                 <SelectGroup>
-                    <SelectLabel className={LABEL_CLASS}>ProRes · MOV</SelectLabel>
-                    <SelectItem value="prores" className={ITEM_CLASS}>ProRes 4444 (10-bit)</SelectItem>
+                    <SelectLabel className={LABEL_CLASS}>ProRes</SelectLabel>
+                    <SelectItem value="prores" className={ITEM_CLASS}>MOV · ProRes 4444</SelectItem>
                 </SelectGroup>
                 <SelectSeparator className="my-1.5 bg-line" />
                 <SelectGroup>
                     <SelectLabel className={LABEL_CLASS}>25 fps</SelectLabel>
-                    <SelectItem value="mov25" className={ITEM_CLASS}>.mov · 25 fps</SelectItem>
-                    <SelectItem value="mp425" className={ITEM_CLASS}>.mp4 · 25 fps</SelectItem>
+                    <SelectItem value="mov25" className={ITEM_CLASS}>MOV · H.264 · 25 fps</SelectItem>
+                    <SelectItem value="mp425" className={ITEM_CLASS}>MP4 · H.264 · 25 fps</SelectItem>
                 </SelectGroup>
             </SelectContent>
         </Select>
