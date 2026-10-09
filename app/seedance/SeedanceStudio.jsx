@@ -1,7 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { CARD, POPOVER, TOGGLE, RAISED, CONTROL } from '@/components/ui/surface-styles';
+import { CARD, POPOVER, ITEM, TOGGLE, RAISED, CONTROL } from '@/components/ui/surface-styles';
 
 // loglineAI Studio — muapi house look: hero headline, a scrollable grid of
 // generation jobs (running + finished, persisted across reloads), and a fixed
@@ -2500,7 +2500,7 @@ export default function SeedanceStudio() {
                             <div className={`${POPOVER} w-48 p-[3px]`}>
                                 {TOOLS.map((tool) => (
                                     <Link key={tool.id} href={tool.href} title={tool.blurb}
-                                        className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink">
+                                        className={`${ITEM} flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold`}>
                                         <tool.icon size={14} className="text-ink-3" /> {tool.name}
                                     </Link>
                                 ))}
