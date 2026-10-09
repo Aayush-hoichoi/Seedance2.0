@@ -9,7 +9,7 @@
 import * as React from 'react';
 import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { Button as UIButton } from '@/components/ui/button';
+import { Button as UIButton, compactButtonVariants } from '@/components/ui/button';
 import { Input as UIInput } from '@/components/ui/input';
 import {
     Select as UISelect, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -88,7 +88,7 @@ export function Button({ variant = 'default', size = 'sm', className, loading, c
         <UIButton
             variant={BUTTON_VARIANT[variant] || 'secondary'}
             size="sm"
-            className={cn('gap-1.5 font-medium shadow-none [&_svg]:size-auto', BUTTON_SIZE[size], className)}
+            className={compactButtonVariants({ variant: BUTTON_VARIANT[variant] || 'secondary', className: cn(BUTTON_SIZE[size], className) })}
             disabled={loading || props.disabled}
             {...props}
         >
