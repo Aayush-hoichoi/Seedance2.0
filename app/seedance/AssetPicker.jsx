@@ -1,5 +1,7 @@
 'use client';
 
+import { CONTROL } from '@/components/ui/surface-styles';
+
 // Library picker — browse the user's private BytePlus asset groups and pick an
 // existing asset to reference via asset://. Groups load per GroupType tab; assets
 // load on group select. Only Active assets whose kind the current mode accepts
@@ -97,7 +99,7 @@ export default function AssetPicker({ allowedKinds, onPick, onClose }) {
                                     key={t.id}
                                     type="button"
                                     onClick={() => setGroupType(t.id)}
-                                    className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${groupType === t.id ? 'bg-primary/15 text-primary' : 'text-white/50 hover:text-white hover:bg-white/[0.06]'}`}
+                                    className={`${CONTROL} px-2.5 py-1 text-xs font-semibold ${groupType === t.id ? 'ring-1 ring-inset ring-line-strong !text-ink' : ''}`}
                                 >{t.label}</button>
                             ))}
                         </div>
