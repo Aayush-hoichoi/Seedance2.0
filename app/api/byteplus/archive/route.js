@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { presignGetUrl, encodePath, TOS_ENDPOINT } from '../../../../lib/byteplus/tosSign.js';
 import { archiveVideo } from '../../../../lib/seedance/archiveVideo.mjs';
+import { toVideoCdnUrl } from '../../../../lib/seedance/videoCdn.mjs';
 
 // Archive a finished generation into the user's own TOS bucket so it outlives
 // ModelArk's ~24h signed URLs / ~48h task records. POST { url, taskId } —
@@ -40,7 +41,7 @@ export async function POST(request) {
         const { key } = await archiveVideo({ url, taskId });
         const host = `${BUCKET}.${TOS_ENDPOINT}`;
         const signed = presignGetUrl({ host, path: `/${encodePath(key)}`, ak: creds.ak, sk: creds.sk, expiresSec: 604800 }); // 7 days (TOS max)
-        return NextResponse.json({ key, url: signed });
+        return NextResponse.json({ key, url: toVideoCdnUrl(signed) });
     } catch (error) {
         return NextResponse.json({ error: error.message }, { status: error.httpStatus || 502 });
     }
@@ -54,5 +55,5 @@ export async function GET(request) {
     if (!KEY_RE.test(key)) return NextResponse.json({ error: 'Invalid key.' }, { status: 400 });
     const host = `${BUCKET}.${TOS_ENDPOINT}`;
     const url = presignGetUrl({ host, path: `/${encodePath(key)}`, ak: creds.ak, sk: creds.sk, expiresSec: 604800 });
-    return NextResponse.json({ key, url });
+    return NextResponse.json({ key, url: toVideoCdnUrl(url) });
 }

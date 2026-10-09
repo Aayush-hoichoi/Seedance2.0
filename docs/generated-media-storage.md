@@ -42,6 +42,40 @@ Both produce the same key, so a re-run overwrites rather than duplicates.
 DB pointer: `jobs.result.video_key` → `gallery_generations.video_key` →
 `dataset_samples.output_key`.
 
+### CloudFront video delivery
+
+Archived MP4s can be delivered through CloudFront while storage and uploads
+remain on TOS. Production uses distribution `EDWPC58AUN51N` in the `loglineos`
+AWS profile, at `d3c2rivun6cwqd.cloudfront.net`. It is separate from the shared
+`asset.logline.ai` distribution.
+
+Set these server-only variables together:
+
+| Variable | Purpose |
+| --- | --- |
+| `VIDEO_CDN_DOMAIN` | CloudFront hostname, or its HTTPS origin |
+| `VIDEO_CDN_KEY_PAIR_ID` | Public key ID in the distribution's trusted key group |
+| `VIDEO_CDN_PRIVATE_KEY` | Corresponding RSA 2048 PEM private key; keep in the deployment secret store |
+
+`videoCdn.mjs` signs the entire video delivery URL. Viewer and TOS signatures
+expire at the same instant; CloudFront checks viewer authorization on cache
+hits as well as misses. The cache key excludes query parameters, while the
+origin-request policy forwards only the six `X-Tos-*` signing fields to the
+original TOS hostname over HTTPS. The TOS bucket remains private. These are
+bearer URLs: the included TOS signature still permits direct origin access
+until expiry.
+
+Only `videos/*.mp4` is routed through this distribution. Images, uploaded
+references, and EXR outputs retain their existing URLs. Downloads accept only
+the configured CDN hostname; EXR/upscale submission converts CDN URLs back to
+their original signed TOS sources. Playback uses GET and byte ranges; a cold
+HEAD request is not supported by the origin's GET-bound signature.
+
+To roll back delivery, remove `VIDEO_CDN_DOMAIN` and redeploy. Existing objects
+and direct TOS playback remain available. To replace an archived object at the
+same key, invalidate its CloudFront path; otherwise a cached copy can persist
+for the distribution's one-day default TTL.
+
 ## Images
 
 Key format: `images/job-<jobId>-<index>.<ext>` where `<jobId>` is `jobs.id`,

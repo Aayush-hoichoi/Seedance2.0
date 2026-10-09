@@ -159,3 +159,52 @@ test('bulk ProRes requests fail clearly instead of buffering multiple conversion
     assert.deepEqual(state.conversionUrls, []);
     assert.deepEqual(state.sourceFetches, []);
 });
+
+function configureVideoCdn(t) {
+    const previous = process.env.VIDEO_CDN_DOMAIN;
+    process.env.VIDEO_CDN_DOMAIN = 'video-cdn.example.com';
+    t.after(() => {
+        if (previous === undefined) delete process.env.VIDEO_CDN_DOMAIN;
+        else process.env.VIDEO_CDN_DOMAIN = previous;
+    });
+}
+
+for (const options of [{ raw: true }, { format: 'mp4' }, { format: 'mov' }, { format: 'prores' }]) {
+    test(`configured video CDN remains a download source for ${options.raw ? 'original' : options.format}`, async (t) => {
+        configureVideoCdn(t);
+        const state = setup(t);
+        const url = 'https://video-cdn.example.com/videos/task-123.mp4?Expires=1800000000&Signature=test&Key-Pair-Id=test';
+        const response = await deliver(t, [{ url, name: 'shot' }], undefined, options);
+        assert.equal(response.status, 200);
+        if (options.format === 'prores') {
+            assert.deepEqual(state.conversionUrls, [url], 'encoder should stream through the CDN');
+            assert.deepEqual(state.sourceFetches, []);
+            assert.equal(response.headers.get('content-type'), 'video/quicktime');
+            assert.deepEqual(Buffer.from(await response.arrayBuffer()), encodedBytes);
+        } else {
+            assert.deepEqual(state.sourceFetches, [url], 'download should retain the CDN cache benefit');
+            assert.deepEqual(state.conversionUrls, []);
+            assert.equal(await response.text(), 'original MP4 bytes');
+        }
+    });
+}
+
+test('download rejects foreign CDN distributions and non-video CDN paths', async (t) => {
+    configureVideoCdn(t);
+    const state = setup(t);
+    for (const url of [
+        'https://other.cloudfront.net/videos/task.mp4',
+        'https://video-cdn.example.com.evil.example/videos/task.mp4',
+        'http://video-cdn.example.com/videos/task.mp4',
+        'https://user:password@video-cdn.example.com/videos/task.mp4',
+        'https://video-cdn.example.com:8443/videos/task.mp4',
+        'https://video-cdn.example.com/uploads/reference.mp4',
+        'https://video-cdn.example.com/images/still.png',
+        'https://video-cdn.example.com/exr/output.mov',
+    ]) {
+        const response = await deliver(t, [{ url, name: 'shot' }], undefined, { raw: true });
+        assert.equal(response.status, 400, url);
+    }
+    assert.deepEqual(state.sourceFetches, []);
+    assert.deepEqual(state.conversionUrls, []);
+});

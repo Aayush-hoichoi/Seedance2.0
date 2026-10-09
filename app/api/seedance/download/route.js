@@ -6,6 +6,7 @@ import { ensureH264, remuxToMov, retimeToFps, transcodeUrlToProRes, transcodeUrl
 import { getUser } from '../../../../lib/auth/user.js';
 import { getDb } from '../../../../lib/db/neon.js';
 import { recordGenerationEvent } from '../../../../lib/access/db.js';
+import { isVideoCdnUrl } from '../../../../lib/seedance/videoCdn.mjs';
 
 // Bulk-download finished generations (videos or images). POST { items: [{ url, name }] }.
 //   • one item  → streams that asset back as an attachment (raw mp4/png/…)
@@ -24,7 +25,8 @@ const MAX_ITEMS = 200;
 const MAX_ASSET_BYTES = 200 * 1024 * 1024; // mirrors the archive route's cap
 const configuredMaxExrBytes = Number(process.env.BYTEPLUS_MAX_EXR_BYTES);
 const MAX_EXR_BYTES = Number.isFinite(configuredMaxExrBytes) && configuredMaxExrBytes > 0 ? configuredMaxExrBytes : null;
-// Only fetch from BytePlus's own media hosts — this is not an open proxy (SSRF).
+// Only BytePlus media and this deployment's configured video CDN are trusted.
+// Never accept arbitrary CloudFront distributions as download sources.
 const HOST_RE = /\.(volces\.com|bytepluses\.com|volcvideo\.com)$/;
 
 function bad(message, status = 400) {
@@ -61,11 +63,11 @@ function parseItems(raw) {
         if (!url) return;
         let parsed;
         try { parsed = new URL(url); } catch { return; }
-        if (!HOST_RE.test(parsed.hostname)) return; // silently drop foreign hosts
+        if (!HOST_RE.test(parsed.hostname) && !isVideoCdnUrl(url)) return; // silently drop foreign hosts
         const taskId = it && typeof it.taskId === 'string' && it.taskId.length <= 200 ? it.taskId : null;
         items.push({ url, name: safeName(it.name, url, `asset-${i + 1}`), taskId });
     });
-    if (!items.length) return { error: 'No downloadable BytePlus media URLs in the request.' };
+    if (!items.length) return { error: 'No downloadable media URLs in the request.' };
     return { items };
 }
 

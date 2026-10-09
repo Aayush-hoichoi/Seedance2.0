@@ -8,6 +8,7 @@ import {
     submitEnhancement,
     validateSourceUrl,
 } from '../lib/byteplus/vodEnhance.mjs';
+import { presignGetUrl, TOS_ENDPOINT } from '../lib/byteplus/tosSign.js';
 
 test('EXR task tokens are signed and tied to the logged-in user', () => {
     const previous = process.env.BYTEPLUS_VOD_TASK_TOKEN_SECRET;
@@ -106,3 +107,66 @@ test('EXR submission removes gallery metadata before calling BytePlus', async ()
         else process.env.BYTEPLUS_VOD_MEDIAKIT_API_KEY = previousKey;
     }
 });
+
+function configureCdn(t) {
+    const values = {
+        VIDEO_CDN_DOMAIN: 'video-cdn.example.com',
+        TOS_BUCKET: 'test-video-bucket',
+        BYTEPLUS_VOD_MEDIAKIT_API_KEY: 'test-vod-key',
+    };
+    for (const [key, value] of Object.entries(values)) {
+        const previous = process.env[key];
+        process.env[key] = value;
+        t.after(() => {
+            if (previous === undefined) delete process.env[key];
+            else process.env[key] = previous;
+        });
+    }
+}
+
+test('EXR/upscale accept only the configured CDN video origin', (t) => {
+    configureCdn(t);
+    assert.equal(validateSourceUrl('https://video-cdn.example.com/videos/task.mp4'), true);
+    for (const url of [
+        'https://other.cloudfront.net/videos/task.mp4',
+        'https://video-cdn.example.com.evil.example/videos/task.mp4',
+        'http://video-cdn.example.com/videos/task.mp4',
+        'https://user:password@video-cdn.example.com/videos/task.mp4',
+        'https://video-cdn.example.com:8443/videos/task.mp4',
+        'https://video-cdn.example.com/uploads/reference.mp4',
+        'https://video-cdn.example.com/exr/output.mov',
+    ]) assert.equal(validateSourceUrl(url), false, url);
+});
+
+for (const upscale of [false, true]) {
+    test(`${upscale ? 'Upscale' : 'EXR'} submission unwraps CDN playback to the original signed TOS source`, async (t) => {
+        configureCdn(t);
+        const original = presignGetUrl({
+            host: `test-video-bucket.${TOS_ENDPOINT}`, path: '/videos/task-123.mp4',
+            ak: 'test-ak', sk: 'test-sk', expiresSec: 604800, date: new Date('2026-10-09T12:00:00Z'),
+        });
+        const cdn = new URL(original);
+        cdn.hostname = process.env.VIDEO_CDN_DOMAIN;
+        for (const [key, value] of Object.entries({ Expires: '1800000000', Signature: 'viewer-signature', 'Key-Pair-Id': 'viewer-key', unrelated: 'drop-me' })) cdn.searchParams.set(key, value);
+        let body;
+        t.mock.method(globalThis, 'fetch', async (_url, init) => {
+            body = JSON.parse(init.body);
+            return Response.json({ task_id: 'task-cdn-source' });
+        });
+        await submitEnhancement({
+            videoUrl: cdn.toString(),
+            requestBody: upscale
+                ? { _upscale: true, _billing: {}, _gallery: {}, resolution: '1080p', output_format: 'MP4' }
+                : { _billing: {}, _gallery: {}, output_format: 'EXR' },
+        });
+        const sent = new URL(body.video_url);
+        const origin = new URL(original);
+        assert.equal(sent.origin, origin.origin);
+        assert.equal(sent.pathname, origin.pathname);
+        assert.deepEqual([...sent.searchParams].sort(), [...origin.searchParams].sort());
+        assert.equal(body.output_format, upscale ? 'MP4' : 'EXR');
+        assert.equal(body._upscale, undefined);
+        assert.equal(body._billing, undefined);
+        assert.equal(body._gallery, undefined);
+    });
+}
