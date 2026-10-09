@@ -56,6 +56,7 @@ import Link from 'next/link';
 import { ArrowLeft, BookOpen, Bug, ChevronDown, ShieldCheck, Users, WalletCards, Wrench } from 'lucide-react';
 import { TOOLS } from '../tools/toolsCatalog.js';
 import AssetsPanel from './AssetsPanel.jsx';
+import VideoDownloadFormat from './VideoDownloadFormat.jsx';
 import CinematicPanel from './CinematicPanel.jsx';
 import { cinematicToPayload, sanitizeSetup, DEFAULT_SETUP } from '../../lib/seedance/cinematic.mjs';
 
@@ -3324,6 +3325,7 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
 
     useEffect(() => {
         const onKey = (e) => {
+            if (e.defaultPrevented || e.target.closest?.('[role="combobox"], [role="listbox"]')) return;
             if (e.key === 'Escape') onClose();
             else if (e.key === 'ArrowLeft') onPrev?.();
             else if (e.key === 'ArrowRight') onNext?.();
@@ -3526,7 +3528,7 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                             )}
                         </div>
                     )}
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                         <Button
                             type="button"
                             onClick={() => downloadAsset(job.videoUrl || job.imageUrl, job.taskId || 'generation', job.taskId, {
@@ -3540,19 +3542,10 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                             Download
                         </Button>
                         {job.videoUrl && (
-                            <select
+                            <VideoDownloadFormat
                                 value={dlFormat}
-                                onChange={(e) => setDlFormat(e.target.value)}
-                                title="Video file format for Download"
-                                aria-label="Download format"
-                                className="rounded-md border border-line bg-paper-2 px-2 py-2.5 text-xs font-semibold text-ink-3 transition-colors hover:bg-paper-3 hover:text-ink"
-                            >
-                                <option value="mov">.mov</option>
-                                <option value="mp4">.mp4</option>
-                                <option value="prores">ProRes 4444 (10-bit)</option>
-                                <option value="mov25">.mov · 25 fps</option>
-                                <option value="mp425">.mp4 · 25 fps</option>
-                            </select>
+                                onValueChange={setDlFormat}
+                            />
                         )}
                         {job.videoUrl && (
                             <Button

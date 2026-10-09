@@ -12,6 +12,7 @@ import { MODES } from '../../lib/seedance/constants.js';
 import { downloadArchivedAsset, downloadAsset } from '../../lib/seedance/downloadAssets.js';
 import { estimateExrCost, EXR_DEFAULT_OPTIONS, EXR_FPS, EXR_RESOLUTIONS, EXR_TIERS, normalizeExrOptions, pricePerExrMinute } from '../../lib/byteplus/exrPricing.mjs';
 import BudgetRequestModal from '../seedance/BudgetRequestModal.jsx';
+import VideoDownloadFormat from '../seedance/VideoDownloadFormat.jsx';
 
 export const modeNameOf = (id) => MODES.find((m) => m.id === id)?.name ?? null;
 
@@ -285,7 +286,7 @@ export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext, onEx
         catch { setCopyError(true); }
     };
     const navigate = (event) => {
-        if (showExrDialog || event.target.closest('input, textarea, select, [role="tablist"], [contenteditable="true"]')) return;
+        if (event.defaultPrevented || showExrDialog || event.target.closest('input, textarea, select, [role="combobox"], [role="listbox"], [role="tablist"], [contenteditable="true"]')) return;
         if (event.key === 'ArrowLeft' && onPrev) { event.preventDefault(); onPrev(); }
         if (event.key === 'ArrowRight' && onNext) { event.preventDefault(); onNext(); }
     };
@@ -385,9 +386,7 @@ export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext, onEx
                             <Button type="button" variant="outline" disabled={!dlUrl} className="h-auto flex-1 gap-1.5 px-3 py-2.5 text-xs shadow-none"
                                 onClick={() => downloadAsset(dlUrl, item.taskId || (isImage ? 'image' : 'video'), item.taskId, isImage ? undefined : { format: dlFormat === 'prores' ? 'prores' : dlFormat.startsWith('mp4') ? 'mp4' : 'mov', fps: dlFormat.endsWith('25') ? 25 : null })}><Download size={13} />Download</Button>
                             {!isImage && <>
-                                <select aria-label="Download format" value={dlFormat} onChange={(event) => setDlFormat(event.target.value)} className="min-w-0 flex-1 rounded-md border border-line bg-paper-2 px-2 py-2.5 text-xs font-semibold text-ink-3">
-                                    <option value="mov">.mov</option><option value="mp4">.mp4</option><option value="prores">ProRes 4444 (10-bit)</option><option value="mov25">.mov · 25 fps</option><option value="mp425">.mp4 · 25 fps</option>
-                                </select>
+                                <VideoDownloadFormat value={dlFormat} onValueChange={setDlFormat} />
                                 <Button type="button" variant="outline" disabled={!dlUrl} onClick={() => downloadAsset(dlUrl, item.taskId || 'generation', item.taskId, { raw: true })} className="h-auto px-3 py-2.5 text-xs shadow-none">Original</Button>
                             </>}
                         </div>
