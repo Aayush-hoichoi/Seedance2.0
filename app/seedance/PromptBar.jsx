@@ -376,9 +376,17 @@ function PillSelect({ id, openKey, setOpenKey, badge, display, label, note, opti
 
 function PillToggle({ label, active, onToggle, disabled, icon }) {
     return (
-        <button type="button" disabled={disabled} aria-pressed={active} onClick={onToggle} className={`${PILL} ${active ? PILL_ON : PILL_IDLE}`}>
-            <span className={active ? 'text-[#f0f0f0]' : 'text-white/65'}>{icon}</span>
-            <span className={`text-xs font-semibold transition-colors ${active ? 'text-[#f0f0f0]' : 'text-[#d4d4d4] group-hover:text-[#f0f0f0]'}`}>{label}</span>
+        <button type="button" disabled={disabled} aria-label={label} aria-pressed={active} onClick={onToggle} className={`${PILL} min-h-11 sm:min-h-0 ${active ? PILL_ON : PILL_IDLE}`}>
+            <span aria-hidden="true" className={active ? 'text-primary' : 'text-ink-2'}>{icon}</span>
+            <span className="text-xs font-semibold text-ink">{label}</span>
+            <span aria-hidden="true" className="ml-1 flex items-center gap-1.5">
+                <span className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full border p-0.5 ${active ? 'border-primary bg-primary' : 'border-ink-3 bg-paper-0'}`}>
+                    <span className={`h-2.5 w-2.5 rounded-full transition-transform duration-150 ease-out motion-reduce:transition-none ${active ? 'translate-x-3 bg-primary-ink' : 'translate-x-0 bg-ink-2'}`} />
+                </span>
+                <span className={`w-5 text-center text-xs font-semibold ${active ? 'text-primary' : 'text-ink-2'}`}>
+                    {active ? 'On' : 'Off'}
+                </span>
+            </span>
         </button>
     );
 }
@@ -1468,7 +1476,7 @@ export default function PromptBar({
                             />
                         )}
                     </div>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
                         <PillToggle label="Audio" active={!!options.generate_audio} onToggle={() => setOpt('generate_audio', !options.generate_audio)} icon={<AudioIcon />} />
                         <PillToggle label="Watermark" active={!!options.watermark} onToggle={() => setOpt('watermark', !options.watermark)} icon={<DropIcon />} />
                         {!isImage && selectedModel?.kind === 'full_2_5' && (
