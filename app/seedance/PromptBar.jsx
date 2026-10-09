@@ -1,7 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { CARD, WELL, RAISED, POPOVER, CONTROL, ITEM, TOGGLE } from '@/components/ui/surface-styles';
+import { CARD, WELL, RAISED, POPOVER, CONTROL, ITEM } from '@/components/ui/surface-styles';
 
 // Floating prompt bar using the console's shared surfaces and button primitives.
 // Wired to the Seedance modes/options.
@@ -460,7 +460,7 @@ function MediaTypeToggle({ value, onChange }) {
             type="button"
             aria-pressed={value === id}
             onClick={() => onChange?.(id)}
-            className={`${TOGGLE} flex w-full flex-1 flex-col items-center justify-center gap-0.5 px-2 py-2 text-[11px] font-medium sm:px-3 ${value === id ? '!bg-[#101010] !text-[#f0f0f0]' : ''}`}
+            className={`${ITEM} flex w-full flex-1 flex-col items-center justify-center gap-0.5 px-2 py-2 text-[11px] font-medium sm:px-3 ${value === id ? `${RAISED} !text-[#f0f0f0]` : ''}`}
         >
             {icon}
             {label}
@@ -1539,7 +1539,7 @@ export default function PromptBar({
                                         type="button"
                                         aria-pressed={batch === n}
                                         onClick={() => setBatch(n)}
-                                        className={`${TOGGLE} h-full px-3 py-1.5 text-xs font-medium ${batch === n ? '!bg-[#101010] !text-[#f0f0f0]' : ''}`}
+                                        className={`${ITEM} h-full px-3 py-1.5 text-xs font-medium ${batch === n ? `${RAISED} !text-[#f0f0f0]` : ''}`}
                                     >×{n}</button>
                                 ))}
                             </div>
