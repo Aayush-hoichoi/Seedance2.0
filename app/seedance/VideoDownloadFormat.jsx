@@ -5,9 +5,9 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSepa
 const ITEM_CLASS = 'min-h-9 text-xs focus:bg-paper-3 focus:text-ink';
 const LABEL_CLASS = 'text-[10px] font-semibold uppercase tracking-wider text-ink-2';
 
-export default function VideoDownloadFormat({ value, onValueChange }) {
+export default function VideoDownloadFormat({ value, onValueChange, disabled = false }) {
     return (
-        <Select value={value} onValueChange={onValueChange}>
+        <Select value={value} onValueChange={onValueChange} disabled={disabled}>
             <SelectTrigger
                 aria-label="Download format"
                 title="Video file format for Download"

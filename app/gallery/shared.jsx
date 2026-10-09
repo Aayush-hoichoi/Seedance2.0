@@ -13,6 +13,7 @@ import { downloadArchivedAsset, downloadAsset } from '../../lib/seedance/downloa
 import { estimateExrCost, EXR_DEFAULT_OPTIONS, EXR_FPS, EXR_RESOLUTIONS, EXR_TIERS, normalizeExrOptions, pricePerExrMinute } from '../../lib/byteplus/exrPricing.mjs';
 import BudgetRequestModal from '../seedance/BudgetRequestModal.jsx';
 import VideoDownloadFormat from '../seedance/VideoDownloadFormat.jsx';
+import DownloadProgress, { useDownloadProgress } from '../seedance/DownloadProgress.jsx';
 
 export const modeNameOf = (id) => MODES.find((m) => m.id === id)?.name ?? null;
 
@@ -268,6 +269,7 @@ export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext, onEx
     const imageUrls = (item.imageUrls?.length ? item.imageUrls : [item.imageUrl]).filter(Boolean);
     const [dlUrl, setDlUrl] = useState(isImage ? imageUrls[0] || null : null);
     const [dlFormat, setDlFormat] = useState('mov');
+    const { pending: downloadPending, runDownload } = useDownloadProgress();
     const [videoDuration, setVideoDuration] = useState(Number(item.duration) > 0 ? Number(item.duration) : null);
     const [showExrDialog, setShowExrDialog] = useState(false);
     const [promptTab, setPromptTab] = useState('yours');
@@ -382,12 +384,13 @@ export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext, onEx
                             </button>
                         )}
                         {!isImage && exrAccess?.granted && item.exrUrl && <Button type="button" variant="outline" className="h-auto w-full py-2 text-xs shadow-none" onClick={() => downloadArchivedAsset(item.exrArchiveKey, item.exrUrl, `${item.taskId || 'generation'}-16bit.mov`, item.taskId, { raw: true })}>Download original 16-bit output</Button>}
-                        {!isImage && <VideoDownloadFormat value={dlFormat} onValueChange={setDlFormat} />}
+                        {!isImage && <VideoDownloadFormat value={dlFormat} onValueChange={setDlFormat} disabled={!!downloadPending} />}
+                        <DownloadProgress pending={downloadPending} />
                         <div className="flex flex-wrap items-center gap-2">
-                            <Button type="button" variant="outline" disabled={!dlUrl} className="h-auto flex-1 gap-1.5 px-3 py-2.5 text-xs shadow-none"
-                                onClick={() => downloadAsset(dlUrl, item.taskId || (isImage ? 'image' : 'video'), item.taskId, isImage ? undefined : { format: dlFormat === 'prores' ? 'prores' : dlFormat.startsWith('mp4') ? 'mp4' : 'mov', fps: dlFormat.endsWith('25') ? 25 : null })}><Download size={13} />Download</Button>
+                            <Button type="button" variant="outline" disabled={!dlUrl || !!downloadPending} aria-busy={!!downloadPending} className="h-auto flex-1 gap-1.5 px-3 py-2.5 text-xs shadow-none"
+                                onClick={() => runDownload(() => downloadAsset(dlUrl, item.taskId || (isImage ? 'image' : 'video'), item.taskId, isImage ? undefined : { format: dlFormat === 'prores' ? 'prores' : dlFormat.startsWith('mp4') ? 'mp4' : 'mov', fps: dlFormat.endsWith('25') ? 25 : null }), isImage ? 'file' : 'video')}><Download size={13} />{downloadPending ? 'Processing…' : 'Download'}</Button>
                             {!isImage && (
-                                <Button type="button" variant="outline" disabled={!dlUrl} onClick={() => downloadAsset(dlUrl, item.taskId || 'generation', item.taskId, { raw: true })} className="h-auto px-3 py-2.5 text-xs shadow-none">Original</Button>
+                                <Button type="button" variant="outline" disabled={!dlUrl || !!downloadPending} onClick={() => runDownload(() => downloadAsset(dlUrl, item.taskId || 'generation', item.taskId, { raw: true }), 'file')} className="h-auto px-3 py-2.5 text-xs shadow-none">Original</Button>
                             )}
                         </div>
                     </footer>

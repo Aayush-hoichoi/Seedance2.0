@@ -57,6 +57,7 @@ import { ArrowLeft, BookOpen, Bug, ChevronDown, ShieldCheck, Users, WalletCards,
 import { TOOLS } from '../tools/toolsCatalog.js';
 import AssetsPanel from './AssetsPanel.jsx';
 import VideoDownloadFormat from './VideoDownloadFormat.jsx';
+import DownloadProgress, { useDownloadProgress } from './DownloadProgress.jsx';
 import CinematicPanel from './CinematicPanel.jsx';
 import { cinematicToPayload, sanitizeSetup, DEFAULT_SETUP } from '../../lib/seedance/cinematic.mjs';
 
@@ -3254,6 +3255,7 @@ function Hero() {
 // thumbnails, generation details and the reuse / download / like actions.
 function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onRequestExrAccess, onRequestExrBudget, exrAccessRequesting, onToggleLike, onRefresh, onPrev, onNext }) {
     const [dlFormat, setDlFormat] = useState('mov'); // video download container — mov is the default
+    const { pending: downloadPending, runDownload } = useDownloadProgress();
     const [showExrInfo, setShowExrInfo] = useState(false);
     // The confirm dialog stays open through the generate, so a budget
     // rejection (and its request-budget action) is seen where it happened —
@@ -3532,25 +3534,30 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                         <VideoDownloadFormat
                             value={dlFormat}
                             onValueChange={setDlFormat}
+                            disabled={!!downloadPending}
                         />
                     )}
+                    <DownloadProgress pending={downloadPending} />
                     <div className="flex flex-wrap items-center gap-2">
                         <Button
                             type="button"
-                            onClick={() => downloadAsset(job.videoUrl || job.imageUrl, job.taskId || 'generation', job.taskId, {
+                            disabled={!!downloadPending}
+                            aria-busy={!!downloadPending}
+                            onClick={() => runDownload(() => downloadAsset(job.videoUrl || job.imageUrl, job.taskId || 'generation', job.taskId, {
                                 format: dlFormat === 'prores' ? 'prores' : dlFormat.startsWith('mp4') ? 'mp4' : 'mov',
                                 fps: dlFormat.endsWith('25') ? 25 : null,
-                            })}
+                            }), job.videoUrl ? 'video' : 'file')}
                             title={job.videoUrl ? `Download (${dlFormat})` : 'Download'}
                             variant="outline" className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto flex flex-1 items-center justify-center px-3 py-2.5 text-xs"
                         >
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
-                            Download
+                            {downloadPending ? 'Processing…' : 'Download'}
                         </Button>
                         {job.videoUrl && (
                             <Button
                                 type="button"
-                                onClick={() => downloadAsset(job.videoUrl, job.taskId || 'generation', job.taskId, { raw: true })}
+                                disabled={!!downloadPending}
+                                onClick={() => runDownload(() => downloadAsset(job.videoUrl, job.taskId || 'generation', job.taskId, { raw: true }), 'file')}
                                 title="Exact file as generated, no re-encode (Seedance 2.5 outputs 10-bit H.265 at every resolution; 2.0 uses it at 4k — may not open in Nuke)"
                                 variant="outline" className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto px-3 py-2.5 text-xs"
                             >
