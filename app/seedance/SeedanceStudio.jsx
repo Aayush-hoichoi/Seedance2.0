@@ -36,6 +36,7 @@ import { packDraft, mergeDraft, unpackDraft, loadDraft, saveDraft } from '../../
 import { tosPresignExpired } from '../../lib/seedance/tosPresign.mjs';
 import { preferredProjectId, resolveProjectId, rememberProjectId, syncProjectParam } from '../../lib/seedance/projectChoice.mjs';
 import { archiveKeyForTask } from '../../lib/seedance/archiveKey.mjs';
+import { mergeStudioHistory } from '../../lib/seedance/historyMerge.mjs';
 import { resolveFreshVideoUrl } from '../../lib/seedance/videoUrl.js';
 import { downloadArchivedAsset, downloadAsset } from '../../lib/seedance/downloadAssets.js';
 import { estimateExrCost, EXR_DEFAULT_OPTIONS, EXR_FPS, EXR_RESOLUTIONS, EXR_TIERS, normalizeExrOptions, pricePerExrMinute } from '../../lib/byteplus/exrPricing.mjs';
@@ -1175,81 +1176,7 @@ export default function SeedanceStudio() {
         // and ones made on another device, still appear in the rail. The server
         // returns 200 rows per page with a `nextBefore` cursor; walk every page
         // so heavy users see all of their history, not just the newest 200.
-        const mergeMine = (items) => {
-                const toStatus = (s) => (s === 'succeeded' ? 'done' : ['queued', 'running'].includes(s) ? s : 'error');
-                updateJobs((prev) => {
-                    // The DB is the authority on which project a generation
-                    // billed to. Re-tag server-built (srv-*) cards whose tag is
-                    // missing (ModelArk merge won the race) or wrong (a past
-                    // reload's legacy backfill stamped them onto the home
-                    // project) — untagged cards show in NO project's rail.
-                    const byTask = new Map(items.map((it) => [it.taskId, it]));
-                    let changed = false;
-                    const refreshed = prev.map((j) => {
-                        const it = j.taskId && byTask.get(j.taskId);
-                        if (!it) return j;
-                        const projectId = it.projectId != null && (j.projectId == null || String(j.id).startsWith('srv-'))
-                            ? it.projectId : j.projectId;
-                        // Hydrate timing even when a cached card already has
-                        // the right project. Local createdAt predates submit.
-                        const gatewayId = it.gatewayId ?? j.gatewayId;
-                        const submittedAt = it.submittedAt ?? j.submittedAt;
-                        const finishedAt = it.finishedAt ?? j.finishedAt;
-                        if (projectId === j.projectId && gatewayId === j.gatewayId
-                            && submittedAt === j.submittedAt && finishedAt === j.finishedAt) return j;
-                        changed = true;
-                        return { ...j, projectId, gatewayId, submittedAt, finishedAt };
-                    });
-                    const base = changed ? refreshed : prev;
-                    const known = new Set(base.map((j) => j.taskId).filter(Boolean));
-                    // Image jobs have no provider task id: the server keys them
-                    // 'job:<genId>'. Skip any we already track locally by genId,
-                    // else the same image shows twice (local card + server merge).
-                    const knownGen = new Set(base.map((j) => (j.genId != null ? String(j.genId) : null)).filter(Boolean));
-                    const isDupImage = (it) => it.mediaType === 'image'
-                        && typeof it.taskId === 'string' && it.taskId.startsWith('job:')
-                        && knownGen.has(it.taskId.slice(4));
-                    const added = items
-                        .filter((it) => it.taskId && !known.has(it.taskId) && !isDupImage(it))
-                        .map((it) => {
-                            const isImage = it.mediaType === 'image';
-                            return {
-                                id: `srv-${it.taskId}`,
-                                taskId: it.taskId,
-                                mediaType: it.mediaType || 'video',
-                                projectId: it.projectId ?? null,
-                                prompt: it.prompt || '',
-                                userPrompt: it.userPrompt || null,
-                                style: it.style || null,
-                                modeId: isImage ? 'image' : null,
-                                refs: it.refs || null,
-                                options: { model: it.modelId, resolution: it.resolution, duration: it.duration, ratio: it.ratio },
-                                model: it.modelId,
-                                status: toStatus(it.status),
-                                genId: null,
-                                gatewayId: it.gatewayId ?? null,
-                                submittedAt: it.submittedAt ?? null,
-                                finishedAt: it.finishedAt ?? null,
-                                videoUrl: isImage ? null : (it.archiveUrl || null),
-                                archiveKey: isImage ? null : (it.taskId ? archiveKeyForTask(it.taskId) : null),
-                                imageUrl: isImage ? (it.imageUrl || null) : null,
-                                imageUrls: isImage ? (it.imageUrls || null) : null,
-                                // A finished EXR survives a reload: the gallery row
-                                // carries its URL/key/resolution from exr_jobs.
-                                exrUrl: it.exrUrl || null,
-                                exrArchiveKey: it.exrArchiveKey || null,
-                                exrStatus: it.exrUrl ? 'succeeded' : null,
-                                exrMetadata: it.exrResolution ? { resolution: it.exrResolution } : null,
-                                error: null,
-                                liked: !!it.liked,
-                                deleted: false,
-                                deletedAt: null,
-                                createdAt: it.createdAt ? new Date(it.createdAt).getTime() : Date.now(),
-                            };
-                        });
-                    return added.length ? [...base, ...added].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)) : base;
-                });
-        };
+        const mergeMine = (items) => updateJobs((prev) => mergeStudioHistory(prev, items));
         (async () => {
             let before = null;
             let beforeId = null;
