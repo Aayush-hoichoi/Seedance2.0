@@ -80,6 +80,8 @@ function GalleryVideoPreview({ item, visible, hovered }) {
     const releaseRef = useRef(null);
     const [ready, setReady] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [slow, setSlow] = useState(false);
+    const [timedOut, setTimedOut] = useState(false);
     const [failed, setFailed] = useState(false);
     const attachVideo = useCallback((video) => {
         if (videoRef.current && videoRef.current !== video) stopPreviewVideo(videoRef.current);
@@ -87,25 +89,31 @@ function GalleryVideoPreview({ item, visible, hovered }) {
     }, []);
 
     useEffect(() => {
-        if (!visible || ready || failed || hovered) return;
-        let timer;
+        if (!visible || ready || failed || timedOut || hovered) return;
+        let slowTimer;
+        let deadlineTimer;
         const cancel = videoPreviewQueue.enqueue((release) => {
             releaseRef.current = release;
             setLoading(true);
-            timer = setTimeout(() => {
+            setSlow(false);
+            // Large 4K files can need a tail-metadata range before a frame.
+            // Report the delay without throwing away their download progress.
+            slowTimer = setTimeout(() => setSlow(true), 12000);
+            deadlineTimer = setTimeout(() => {
                 stopPreviewVideo(videoRef.current);
                 setLoading(false);
-                setFailed(true);
+                setTimedOut(true);
                 release();
-            }, 12000);
+            }, 60000);
         });
         return () => {
-            clearTimeout(timer);
+            clearTimeout(slowTimer);
+            clearTimeout(deadlineTimer);
             releaseRef.current = null;
             setLoading(false);
             cancel();
         };
-    }, [visible, ready, failed, hovered]);
+    }, [visible, ready, failed, timedOut, hovered]);
 
     const captureFrame = (event) => {
         const video = event.currentTarget;
@@ -120,6 +128,7 @@ function GalleryVideoPreview({ item, visible, hovered }) {
             if (!hovered) stopPreviewVideo(video);
             setReady(true);
             setFailed(false);
+            setTimedOut(false);
         } catch {
             if (!hovered) stopPreviewVideo(video);
             setFailed(true);
@@ -132,7 +141,7 @@ function GalleryVideoPreview({ item, visible, hovered }) {
         setLoading(false);
         releaseRef.current?.();
     }, []);
-    const state = ready ? 'ready' : failed ? 'error' : loading || hovered ? 'loading' : visible ? 'queued' : 'idle';
+    const state = ready ? 'ready' : failed ? 'error' : timedOut ? 'timeout' : loading || hovered ? 'loading' : visible ? 'queued' : 'idle';
     return (
         <div className="relative h-full w-full" data-preview-state={state}>
             <canvas ref={canvasRef} aria-hidden="true" className={`absolute inset-0 h-full w-full object-cover ${ready ? '' : 'invisible'}`} />
@@ -148,7 +157,7 @@ function GalleryVideoPreview({ item, visible, hovered }) {
                     onLoadedData={captureFrame} onSeeked={captureFrame} onUnavailable={unavailable} />
             )}
             {!ready && <div role="status" className="absolute inset-0 flex items-center justify-center gap-2 text-[11px] font-medium text-white/65 pointer-events-none">
-                {failed ? 'Preview unavailable · Click to play' : <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />{loading || hovered ? 'Loading preview…' : 'Preparing preview…'}</>}
+                {failed ? 'Preview unavailable · Click to play' : timedOut ? 'Preview is taking too long · Click to play' : <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />{slow ? 'Taking longer… Loading preview' : loading || hovered ? 'Loading preview…' : 'Preparing preview…'}</>}
             </div>}
         </div>
     );
