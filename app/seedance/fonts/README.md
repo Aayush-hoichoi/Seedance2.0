@@ -19,3 +19,11 @@ All three official download packages include the same ITF Free Font License v2.0
 Hero.module.css loads the original WOFF2 files directly from Fontshare's CDN. Font files are not modified or redistributed in this repository. Commercial website use is permitted without a fee. These fonts are used for Studio interface text, not offered as selectable fonts for user-generated content.
 
 If the CDN is unavailable, Melodrama falls back to Georgia/serif, Comico to the app's display font/sans-serif, and Chubbo to the app's body font/sans-serif. The font-display swap setting keeps text visible while the webfonts load.
+
+## Prompt placeholder
+
+The expanded placeholder and collapsed empty-prompt label use Ostrich Sans Regular by Tyler Finck. Typed prompt text retains the body font so textarea caret and reference-chip overlay metrics remain aligned.
+
+Source: https://github.com/theleagueof/ostrich-sans
+Family: https://www.theleagueofmoveabletype.com/ostrich-sans
+The original regular WOFF is self-hosted with its SIL Open Font License in OstrichSans-OFL.md.

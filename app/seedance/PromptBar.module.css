@@ -1,0 +1,15 @@
+/* Ostrich Sans by Tyler Finck. See fonts/OstrichSans-OFL.md. */
+@font-face {
+    font-family: 'Studio Ostrich Sans';
+    src: url('./fonts/ostrich-sans-regular.woff') format('woff');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+.input::placeholder,
+.empty {
+    font-family: 'Studio Ostrich Sans', var(--font-body), sans-serif;
+    font-size: 18px;
+    font-weight: 400;
+}
