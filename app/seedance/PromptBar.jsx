@@ -1,6 +1,5 @@
 'use client';
 
-import promptStyles from './PromptBar.module.css';
 import { Button } from '@/components/ui/button';
 import { CARD, WELL, RAISED, POPOVER, CONTROL, ITEM, TOGGLE } from '@/components/ui/surface-styles';
 
@@ -1080,7 +1079,7 @@ export default function PromptBar({
                     className={`${CARD} w-full pl-4 pr-3 py-2.5 flex items-center gap-3 text-left hover:border-line-strong transition-colors duration-150 group`}
                 >
                     <span className="w-4 h-4 shrink-0 bg-primary rounded flex items-center justify-center"><span className="text-[9px] font-bold text-black">S</span></span>
-                    <span className={`flex-1 min-w-0 truncate text-sm ${prompt ? 'text-white/80' : `text-white/40 ${promptStyles.empty}`}`}>
+                    <span className={`flex-1 min-w-0 truncate text-sm ${prompt ? 'text-white/80' : 'text-white/40'}`}>
                         {prompt || (isImage ? 'Describe the image…' : 'Describe the video…')}
                     </span>
                     {attached > 0 && (
@@ -1207,7 +1206,7 @@ export default function PromptBar({
                             placeholder={characters.length ? `Describe the ${isImage ? 'image' : 'video'} — type “@” to tag a project character or reference an upload` : isImage ? 'Describe the image you want to create' : allTagsPossible ? 'Describe the video — type “@” to reference an upload (e.g. actions in @Video1, character from @Image1)' : mode.requiresText ? 'Describe the video you want to create' : 'Describe the video (optional)…'}
                             rows={1}
                             title="Drag the bottom-right corner to resize"
-                            className={`${promptStyles.input} relative block w-full bg-transparent border-none text-transparent [&::selection]:text-transparent caret-white text-sm placeholder:text-white/40 focus:outline-none resize-y pt-2 leading-relaxed min-h-[40px] max-h-[60vh] overflow-y-auto custom-scrollbar [scrollbar-gutter:stable]`}
+                            className="relative block w-full bg-transparent border-none text-transparent [&::selection]:text-transparent caret-white text-sm placeholder:text-white/40 focus:outline-none resize-y pt-2 leading-relaxed min-h-[40px] max-h-[60vh] overflow-y-auto custom-scrollbar [scrollbar-gutter:stable]"
                         />
                     </div>
                     <MicButton
