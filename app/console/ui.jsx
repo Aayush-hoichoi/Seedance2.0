@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Card as UICard } from '@/components/ui/card';
-import { CARD, WELL, RAISED } from '@/components/ui/surface-styles';
+import { CARD, WELL, RAISED, RAISED_HOVER } from '@/components/ui/surface-styles';
 import { Badge as UIBadge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
@@ -187,7 +187,7 @@ export function Select({ className, children, value, onChange, title, disabled }
             <SelectContent className={cn('p-[3px] shadow-[0_8px_24px_rgba(0,0,0,0.55)] duration-150 ease-out', WELL)}>
                 {options.map((o, i) => (
                     <SelectItem key={`${o.value}-${i}`} value={o.value === '' ? EMPTY_VALUE : o.value} disabled={o.disabled}
-                        className="rounded-[10px] text-[#9a9a9a] transition-all duration-150 hover:bg-[#222222] hover:text-[#f0f0f0] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_1px_2px_rgba(0,0,0,0.4)] focus:bg-[#222222] focus:text-[#f0f0f0] focus:shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_1px_2px_rgba(0,0,0,0.4)] data-[state=checked]:text-[#f0f0f0] focus-visible:!outline-none">
+                        className={cn('rounded-[10px] text-[#9a9a9a] transition-all duration-150 focus:bg-[#222222] focus:text-[#f0f0f0] focus:shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_1px_2px_rgba(0,0,0,0.4)] data-[state=checked]:text-[#f0f0f0] focus-visible:!outline-none', RAISED_HOVER)}>
                         {o.label}
                     </SelectItem>
                 ))}
