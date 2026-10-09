@@ -5,6 +5,9 @@
 // archived→live URL fallback player, and the Reuse-in-Studio handoff.
 
 import { useEffect, useRef, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { ChevronLeft, ChevronRight, Download, RotateCcw, X } from 'lucide-react';
 import { MODES } from '../../lib/seedance/constants.js';
 import { downloadArchivedAsset, downloadAsset } from '../../lib/seedance/downloadAssets.js';
 import { estimateExrCost, EXR_DEFAULT_OPTIONS, EXR_FPS, EXR_RESOLUTIONS, EXR_TIERS, normalizeExrOptions, pricePerExrMinute } from '../../lib/byteplus/exrPricing.mjs';
@@ -258,171 +261,141 @@ export function SmartVideo({ item, videoRef, onUrl, className, ...videoProps }) 
     );
 }
 
-// Full view: the video big, everything about the generation beside it, and
-// the Reuse action that loads this exact setup back into the studio.
+// Full-screen Studio-style preview, shared by Community Gallery and Liked.
 export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext, onExrReady, exrAccess, exrAccessRequesting, onRequestExrAccess }) {
     const isImage = item.mediaType === 'image';
-    const [dlUrl, setDlUrl] = useState(isImage ? item.imageUrl || null : null);
+    const imageUrls = (item.imageUrls?.length ? item.imageUrls : [item.imageUrl]).filter(Boolean);
+    const [dlUrl, setDlUrl] = useState(isImage ? imageUrls[0] || null : null);
+    const [dlFormat, setDlFormat] = useState('mov');
     const [videoDuration, setVideoDuration] = useState(Number(item.duration) > 0 ? Number(item.duration) : null);
     const [showExrDialog, setShowExrDialog] = useState(false);
-    // Esc closes; ← / → step to the neighbouring generation in the grid.
-    useEffect(() => {
-        const onKey = (e) => {
-            if (e.key === 'Escape') onClose();
-            else if (e.key === 'ArrowLeft') onPrev?.();
-            else if (e.key === 'ArrowRight') onNext?.();
-        };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
-    }, [onClose, onPrev, onNext]);
+    const [promptTab, setPromptTab] = useState('yours');
+    const [copied, setCopied] = useState(false);
+    const [copyError, setCopyError] = useState(false);
+    const prompt = item.userPrompt || item.prompt || '';
     const hasBoth = !!item.userPrompt && !!item.prompt && item.userPrompt !== item.prompt;
-    const meta = [
-        item.modelName,
-        item.resolution,
-        item.duration ? `${item.duration}s` : null,
-        item.ratio && item.ratio !== 'adaptive' ? item.ratio : null,
-        modeNameOf(item.mode),
-    ].filter(Boolean);
+    const shownPrompt = promptTab === 'enhanced' && hasBoth ? item.prompt : prompt;
+    const created = item.createdAt ? new Date(item.createdAt) : null;
+    const createdText = created && !Number.isNaN(created.getTime())
+        ? created.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : null;
+
+    useEffect(() => { setCopied(false); setCopyError(false); }, [shownPrompt]);
+    const copyPrompt = async () => {
+        try { await navigator.clipboard.writeText(shownPrompt); setCopied(true); setCopyError(false); }
+        catch { setCopyError(true); }
+    };
+    const navigate = (event) => {
+        if (showExrDialog || event.target.closest('input, textarea, select, [role="tablist"], [contenteditable="true"]')) return;
+        if (event.key === 'ArrowLeft' && onPrev) { event.preventDefault(); onPrev(); }
+        if (event.key === 'ArrowRight' && onNext) { event.preventDefault(); onNext(); }
+    };
+    const details = [
+        ['Model', item.modelName || item.modelId],
+        ['Resolution', item.resolution],
+        ['EXR resolution', item.exrResolution],
+        ['Duration', item.duration ? `${item.duration}s` : null],
+        ['Aspect ratio', item.ratio && item.ratio !== 'adaptive' ? item.ratio : null],
+        ['Mode', modeNameOf(item.mode)],
+        ['Project', item.projectName],
+        ['Created', createdText],
+    ].filter(([, value]) => value);
+
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-fade-in-up" onClick={onClose}>
-            <button type="button" onClick={onClose} aria-label="Close" className="absolute top-5 right-5 p-2.5 bg-white/10 hover:bg-white/20 rounded-full border border-white/10 text-white transition-colors z-10">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-            </button>
-            {onPrev && (
-                <button type="button" onClick={(e) => { e.stopPropagation(); onPrev(); }} aria-label="Previous" className="absolute left-3 sm:left-5 top-1/2 -translate-y-1/2 p-2.5 sm:p-3 bg-white/10 hover:bg-white/20 rounded-full border border-white/10 text-white transition-colors z-10">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
-                </button>
-            )}
-            {onNext && (
-                <button type="button" onClick={(e) => { e.stopPropagation(); onNext(); }} aria-label="Next" className="absolute right-3 sm:right-5 top-1/2 -translate-y-1/2 p-2.5 sm:p-3 bg-white/10 hover:bg-white/20 rounded-full border border-white/10 text-white transition-colors z-10">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
-                </button>
-            )}
-            <div
-                className="flex flex-col lg:flex-row gap-4 w-full max-w-6xl max-h-[92vh] overflow-y-auto custom-scrollbar lg:overflow-visible"
-                onClick={(e) => e.stopPropagation()}
+        <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+            <DialogContent
+                aria-describedby={undefined}
+                onKeyDown={navigate}
+                onEscapeKeyDown={(event) => {
+                    if (showExrDialog) { event.preventDefault(); setShowExrDialog(false); }
+                }}
+                className="inset-0 left-0 top-0 z-[100] flex h-dvh w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 bg-app-bg p-0 text-ink shadow-none sm:rounded-none lg:flex-row [&>button]:hidden data-[state=open]:animate-none data-[state=closed]:animate-none"
+                overlayClassName="z-[99] bg-black"
             >
-                <div className="flex-1 min-w-0 flex items-start justify-center">
-                    <div className="rounded-2xl overflow-hidden border border-white/10 bg-black shadow-2xl w-full">
-                        {isImage
-                            // Multi-image jobs: every stored image, stacked; the
-                            // single-image case renders exactly as before.
-                            ? (item.imageUrls?.length ? item.imageUrls : [item.imageUrl]).map((url, i) => (
-                                <img key={i} src={url} alt={item.userPrompt || item.prompt || ''} className="w-full max-h-[80vh] object-contain bg-black" />
-                            ))
-                            : <SmartVideo item={item} onUrl={setDlUrl} onLoadedMetadata={(event) => {
+                <DialogTitle className="sr-only">Generation preview</DialogTitle>
+                <div className="relative flex min-h-0 flex-1 items-center justify-center bg-black">
+                    {isImage ? (
+                        imageUrls.length ? (
+                            <div className={`flex h-full w-full min-h-0 items-center justify-center gap-2 ${imageUrls.length > 1 ? 'flex-wrap overflow-y-auto p-2' : ''}`}>
+                                {imageUrls.map((url, index) => (
+                                    <img key={url} src={url} alt={prompt || `Generated image ${index + 1}`} className={imageUrls.length > 1 ? 'max-h-[45%] max-w-[48%] object-contain' : 'max-h-full max-w-full object-contain'} />
+                                ))}
+                            </div>
+                        ) : <p className="text-sm text-ink-3">Image no longer available</p>
+                    ) : (
+                        <SmartVideo key={item.taskId} item={item} onUrl={setDlUrl}
+                            onLoadedMetadata={(event) => {
                                 const duration = event.currentTarget.duration;
                                 if (Number.isFinite(duration) && duration > 0) setVideoDuration(duration);
-                            }} className="w-full max-h-[70vh] aspect-video object-contain bg-black" controls autoPlay loop playsInline />}
-                    </div>
+                            }}
+                            className="max-h-full max-w-full object-contain" controls autoPlay loop playsInline />
+                    )}
+                    <button type="button" onClick={onClose} aria-label="Close preview" className="absolute left-4 top-4 z-10 rounded-full border border-white/10 bg-black/60 p-2 text-white/80 hover:bg-black/80 hover:text-white lg:hidden"><X size={18} /></button>
+                    {onPrev && <button type="button" onClick={onPrev} aria-label="Previous generation" className="absolute left-3 top-1/2 z-10 -translate-y-1/2 rounded-full border border-white/10 bg-black/60 p-2.5 text-white/80 transition-colors hover:bg-black/80 hover:text-white sm:left-5"><ChevronLeft size={20} /></button>}
+                    {onNext && <button type="button" onClick={onNext} aria-label="Next generation" className="absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-full border border-white/10 bg-black/60 p-2.5 text-white/80 transition-colors hover:bg-black/80 hover:text-white sm:right-5"><ChevronRight size={20} /></button>}
                 </div>
-                <div className="w-full lg:w-80 xl:w-96 shrink-0 flex flex-col rounded-2xl border border-white/10 bg-white/[0.02] backdrop-blur-sm overflow-hidden lg:max-h-[70vh]">
-                    {/* Creator + meta */}
-                    <div className="px-4 py-3 border-b border-white/[0.06] shrink-0">
-                        {creator && (
-                            <div className="flex items-center gap-2.5">
-                                <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${gradientFor(creator.id)} flex items-center justify-center text-xs font-black text-black/80 shrink-0`}>{initialOf(creator)}</div>
-                                <div className="min-w-0">
-                                    <p className="text-xs font-bold truncate">{creator.name || creator.email}</p>
-                                    <p className="text-[10px] text-white/35">{timeAgo(item.createdAt)}</p>
-                                </div>
+
+                <aside className="flex max-h-[55dvh] min-h-0 w-full shrink-0 flex-col border-t border-line bg-paper-1 lg:h-full lg:max-h-none lg:w-[360px] lg:border-l lg:border-t-0">
+                    <header className="flex shrink-0 items-center justify-between gap-2 border-b border-line px-4 py-3">
+                        <div className="flex min-w-0 items-center gap-2">
+                            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-accent font-display text-xs font-bold text-accent-ink">{creator ? initialOf(creator) : 'S'}</span>
+                            <div className="min-w-0 leading-tight">
+                                <div className="truncate text-xs font-semibold text-ink">{creator?.name || creator?.email || 'Community generation'}</div>
+                                <div className="truncate text-[11px] text-ink-3">{item.modelName || item.modelId || (isImage ? 'Image' : 'Video')}</div>
                             </div>
-                        )}
-                        <div className="flex flex-wrap gap-1.5 mt-3">
-                            {meta.map((m) => (
-                                <span key={m} className="px-2 py-0.5 rounded-md bg-white/[0.06] text-[10px] font-semibold text-white/60">{m}</span>
-                            ))}
                         </div>
+                        <button type="button" onClick={onClose} aria-label="Close preview" className="rounded-md p-1.5 text-ink-3 transition-colors hover:bg-paper-3 hover:text-ink"><X size={16} /></button>
+                    </header>
+                    <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto">
+                        <section className="border-b border-line px-4 py-3">
+                            <div className="mb-2 flex items-center justify-between gap-2">
+                                {hasBoth ? (
+                                    <div className="flex items-center gap-1" role="group" aria-label="Prompt version">
+                                        {[['yours', 'Original prompt'], ['enhanced', 'Enhanced prompt']].map(([id, label]) => (
+                                            <button key={id} type="button" aria-pressed={promptTab === id} onClick={() => setPromptTab(id)} className={`rounded-md px-2 py-1 text-[11px] font-semibold transition-colors ${promptTab === id ? 'bg-accent/15 text-accent-hi' : 'text-ink-3 hover:text-ink'}`}>{label}</button>
+                                        ))}
+                                    </div>
+                                ) : <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-3">Prompt</span>}
+                                {shownPrompt && <button type="button" onClick={copyPrompt} className="shrink-0 text-[11px] font-medium text-ink-3 hover:text-ink">{copied ? 'Copied' : 'Copy'}</button>}
+                            </div>
+                            <p className="max-h-56 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-ink-2">{shownPrompt || 'No prompt recorded for this generation.'}</p>
+                            {copyError && <p role="status" className="mt-2 text-xs text-danger">Couldn’t copy. Select the prompt text to copy it.</p>}
+                        </section>
+                        {item.style && <section className="border-b border-line px-4 py-3"><h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-3">Style applied</h3><p className="text-xs text-ink-2">{item.style}</p></section>}
+                        {item.refs?.length > 0 && <section className="border-b border-line px-4 py-3"><RefStrip refs={item.refs} /></section>}
+                        <section className="px-4 py-3">
+                            <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-3">Details</h3>
+                            <dl className="space-y-2 text-xs">
+                                {details.map(([label, value]) => <div key={label} className="flex items-start justify-between gap-3"><dt className="shrink-0 text-ink-3">{label}</dt><dd className="break-words text-right font-medium text-ink-2">{value}</dd></div>)}
+                                {item.taskId && <div className="flex items-start justify-between gap-3"><dt className="text-ink-3">Task</dt><dd className="min-w-0 break-all text-right font-mono text-[10px] text-ink-2">{item.taskId}</dd></div>}
+                            </dl>
+                        </section>
                     </div>
-                    {/* Prompts */}
-                    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-4 py-3 flex flex-col gap-3">
-                        {item.userPrompt && (
-                            <div>
-                                <p className="text-[9px] font-bold uppercase tracking-wider text-white/30 pb-1">Prompt</p>
-                                <p className="text-xs leading-relaxed text-white/70 whitespace-pre-wrap break-words">{item.userPrompt}</p>
-                            </div>
-                        )}
-                        {hasBoth && (
-                            <div>
-                                <p className="text-[9px] font-bold uppercase tracking-wider text-white/30 pb-1">Enhanced brief · sent to the model</p>
-                                <p className="text-xs leading-relaxed text-white/50 whitespace-pre-wrap break-words">{item.prompt}</p>
-                            </div>
-                        )}
-                        {!item.userPrompt && !hasBoth && item.prompt && (
-                            <div>
-                                <p className="text-[9px] font-bold uppercase tracking-wider text-white/30 pb-1">Prompt</p>
-                                <p className="text-xs leading-relaxed text-white/70 whitespace-pre-wrap break-words">{item.prompt}</p>
-                            </div>
-                        )}
-                        {item.refs?.length > 0 && <RefStrip refs={item.refs} />}
-                    </div>
-                    {/* Actions */}
-                    <div className="px-4 py-3 border-t border-white/[0.06] flex gap-2 shrink-0">
-                        <button
-                            type="button"
-                            onClick={onReuse}
-                            title="Load this prompt, references and settings into the studio"
-                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-primary/15 border border-primary/40 text-primary text-xs font-bold hover:bg-primary/25 transition-colors"
-                        >
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M1 4v6h6M23 20v-6h-6" /><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15" /></svg>
-                            Reuse in Studio
-                        </button>
-                        {dlUrl && (
-                            <button
-                                type="button"
-                                onClick={() => downloadAsset(dlUrl, item.taskId || (isImage ? 'image' : 'video'), item.taskId)}
-                                title={isImage ? 'Download this image' : 'Download this video'}
-                                aria-label={isImage ? 'Download this image' : 'Download this video'}
-                                className="flex items-center justify-center px-3 py-2 rounded-lg border border-white/10 bg-white/[0.04] text-white/70 hover:text-white hover:border-white/25 transition-colors"
-                            >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
-                            </button>
-                        )}
+                    <footer className="shrink-0 space-y-2 border-t border-line p-3">
+                        <Button type="button" onClick={onReuse} className="h-auto w-full gap-1.5 px-3 py-2.5 text-xs font-medium shadow-none"><RotateCcw size={13} />Reuse this setup</Button>
                         {!isImage && !(exrAccess?.granted && item.exrUrl) && (
-                            <button
-                                type="button"
-                                disabled={exrAccessRequesting}
+                            <button type="button" disabled={exrAccessRequesting || exrAccess?.status === 'pending'}
                                 onClick={() => exrAccess?.granted ? setShowExrDialog(true) : onRequestExrAccess?.()}
                                 title={exrAccess?.granted ? 'Generate a 16-bit EXR output' : 'Request EXR access'}
-                                aria-label={exrAccess?.granted ? 'Generate a 16-bit EXR output' : 'Request EXR access'}
-                                className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border transition-colors text-xs font-semibold ${exrAccess?.granted
-                                    ? 'border-amber-300/25 bg-amber-300/10 text-amber-200 hover:bg-amber-300/20 hover:border-amber-300/45'
-                                    : exrAccess?.status === 'pending'
-                                        ? 'border-white/10 bg-white/[0.04] text-white/45'
-                                        : 'border-amber-300/25 bg-amber-300/5 text-amber-200 hover:bg-amber-300/15'}`}
-                            >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
-                                {exrAccess?.granted ? 'Generate EXR' : exrAccess?.status === 'pending' ? 'EXR access pending' : 'Request EXR access'}
+                                className="flex w-full items-center justify-center rounded-md border border-accent/40 bg-accent/10 px-3 py-2.5 text-xs font-semibold text-ink transition-colors hover:bg-accent/20 disabled:opacity-50">
+                                {exrAccess?.granted ? 'EXR' : exrAccess?.status === 'pending' ? 'EXR access pending' : 'Request EXR access'}
                             </button>
                         )}
-                        {!isImage && exrAccess?.granted && item.exrUrl && (
-                            <button
-                                type="button"
-                                onClick={() => downloadArchivedAsset(item.exrArchiveKey, item.exrUrl, `${item.taskId || 'generation'}-16bit.mov`, item.taskId, { raw: true })}
-                                title="Download the original 16-bit output"
-                                aria-label="Download the original 16-bit output"
-                                className="flex items-center justify-center px-3 py-2 rounded-lg border border-white/10 bg-white/[0.04] text-white/70 hover:text-white hover:border-white/25 transition-colors text-xs font-semibold"
-                            >
-                                Original 16-bit
-                            </button>
-                        )}
-                    </div>
-                </div>
-            </div>
-            {showExrDialog && !isImage && (
-                <GalleryExrDialog
-                    item={item}
-                    sourceUrl={dlUrl}
-                    durationSeconds={videoDuration}
-                    projectId={exrAccess?.projectId}
-                    onClose={() => setShowExrDialog(false)}
-                    onReady={(url) => {
-                        setShowExrDialog(false);
-                        onExrReady?.(item.taskId, url);
-                    }}
-                />
-            )}
-        </div>
+                        {!isImage && exrAccess?.granted && item.exrUrl && <Button type="button" variant="outline" className="h-auto w-full py-2 text-xs shadow-none" onClick={() => downloadArchivedAsset(item.exrArchiveKey, item.exrUrl, `${item.taskId || 'generation'}-16bit.mov`, item.taskId, { raw: true })}>Download original 16-bit output</Button>}
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Button type="button" variant="outline" disabled={!dlUrl} className="h-auto flex-1 gap-1.5 px-3 py-2.5 text-xs shadow-none"
+                                onClick={() => downloadAsset(dlUrl, item.taskId || (isImage ? 'image' : 'video'), item.taskId, isImage ? undefined : { format: dlFormat === 'prores' ? 'prores' : dlFormat.startsWith('mp4') ? 'mp4' : 'mov', fps: dlFormat.endsWith('25') ? 25 : null })}><Download size={13} />Download</Button>
+                            {!isImage && <>
+                                <select aria-label="Download format" value={dlFormat} onChange={(event) => setDlFormat(event.target.value)} className="min-w-0 flex-1 rounded-md border border-line bg-paper-2 px-2 py-2.5 text-xs font-semibold text-ink-3">
+                                    <option value="mov">.mov</option><option value="mp4">.mp4</option><option value="prores">ProRes 4444 (10-bit)</option><option value="mov25">.mov · 25 fps</option><option value="mp425">.mp4 · 25 fps</option>
+                                </select>
+                                <Button type="button" variant="outline" disabled={!dlUrl} onClick={() => downloadAsset(dlUrl, item.taskId || 'generation', item.taskId, { raw: true })} className="h-auto px-3 py-2.5 text-xs shadow-none">Original</Button>
+                            </>}
+                        </div>
+                    </footer>
+                </aside>
+                {showExrDialog && !isImage && <GalleryExrDialog item={item} sourceUrl={dlUrl} durationSeconds={videoDuration} projectId={exrAccess?.projectId} onClose={() => setShowExrDialog(false)} onReady={(url, archiveKey) => { setShowExrDialog(false); onExrReady?.(item.taskId, url, archiveKey); }} />}
+            </DialogContent>
+        </Dialog>
     );
 }
 
