@@ -1,0 +1,12 @@
+/* Original Melodrama Regular webfont from Fontshare. See fonts/FFL.txt. */
+@font-face {
+    font-family: 'Studio Melodrama';
+    src: url('https://cdn.fontshare.com/wf/VEUKFNC77KIIUSHNOWJWAF2K4XRJIN3O/QVM7H4UBRHRYAZVIJFG42NIFQOHEU4LT/RSPG5F452B5Q23RR6KSVIVZS3KHJF6UY.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+.intro {
+    font-family: 'Studio Melodrama', Georgia, serif;
+}
