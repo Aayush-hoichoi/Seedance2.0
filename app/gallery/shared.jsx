@@ -4,7 +4,7 @@
 // /liked): video cards with hover preview, the full lightbox view, the
 // archived→live URL fallback player, and the Reuse-in-Studio handoff.
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { ChevronLeft, ChevronRight, Download, RotateCcw, X } from 'lucide-react';
@@ -15,6 +15,7 @@ import BudgetRequestModal from '../seedance/BudgetRequestModal.jsx';
 import VideoDownloadFormat from '../seedance/VideoDownloadFormat.jsx';
 import DownloadProgress, { useDownloadProgress } from '../seedance/DownloadProgress.jsx';
 import { formatGenerationTime, GENERATION_TIME_DESCRIPTION } from '../../lib/seedance/generationTime.mjs';
+import { videoPreviewQueue } from '../../lib/seedance/videoPreviewQueue.mjs';
 
 export const modeNameOf = (id) => MODES.find((m) => m.id === id)?.name ?? null;
 
@@ -46,20 +47,111 @@ export function timeAgo(iso) {
 // Latches on first intersection and stays true (no re-fetch thrash on scroll).
 // 200px lookahead: enough to feel instant on scroll without prefetching rows
 // of media the user may never reach (which crushed slow connections).
-function useInView(rootMargin = '200px') {
+function useInView(rootMargin = '200px', once = true) {
     const ref = useRef(null);
     const [inView, setInView] = useState(false);
     useEffect(() => {
         const el = ref.current;
-        if (!el || inView) return;
+        if (!el || (once && inView)) return;
         if (typeof IntersectionObserver === 'undefined') { setInView(true); return; }
         const obs = new IntersectionObserver(([e]) => {
-            if (e.isIntersecting) { setInView(true); obs.disconnect(); }
+            if (e.isIntersecting || !once) setInView(e.isIntersecting);
+            if (e.isIntersecting && once) obs.disconnect();
         }, { rootMargin });
         obs.observe(el);
         return () => obs.disconnect();
-    }, [inView, rootMargin]);
+    }, [inView, rootMargin, once]);
     return [ref, inView];
+}
+
+function stopPreviewVideo(video) {
+    if (!video) return;
+    video.pause();
+    video.removeAttribute('src');
+    video.load(); // abort the MP4 transfer, rather than relying on preload hints
+}
+
+// Keep a small displayed canvas after decoding one frame. Drawing is allowed
+// even for cross-origin video: we never read its pixels or export the canvas.
+// This avoids adding CORS requirements to otherwise playable provider links.
+function GalleryVideoPreview({ item, visible, hovered }) {
+    const canvasRef = useRef(null);
+    const videoRef = useRef(null);
+    const releaseRef = useRef(null);
+    const [ready, setReady] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [failed, setFailed] = useState(false);
+    const attachVideo = useCallback((video) => {
+        if (videoRef.current && videoRef.current !== video) stopPreviewVideo(videoRef.current);
+        videoRef.current = video;
+    }, []);
+
+    useEffect(() => {
+        if (!visible || ready || failed || hovered) return;
+        let timer;
+        const cancel = videoPreviewQueue.enqueue((release) => {
+            releaseRef.current = release;
+            setLoading(true);
+            timer = setTimeout(() => {
+                stopPreviewVideo(videoRef.current);
+                setLoading(false);
+                setFailed(true);
+                release();
+            }, 12000);
+        });
+        return () => {
+            clearTimeout(timer);
+            releaseRef.current = null;
+            setLoading(false);
+            cancel();
+        };
+    }, [visible, ready, failed, hovered]);
+
+    const captureFrame = (event) => {
+        const video = event.currentTarget;
+        if (ready || video.seeking || video.readyState < 2 || !video.videoWidth) return;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        try {
+            const scale = Math.min(1, 480 / Math.max(video.videoWidth, video.videoHeight));
+            canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+            canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+            canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+            if (!hovered) stopPreviewVideo(video);
+            setReady(true);
+            setFailed(false);
+        } catch {
+            if (!hovered) stopPreviewVideo(video);
+            setFailed(true);
+        }
+        setLoading(false);
+        releaseRef.current?.();
+    };
+    const unavailable = useCallback(() => {
+        setFailed(true);
+        setLoading(false);
+        releaseRef.current?.();
+    }, []);
+    const state = ready ? 'ready' : failed ? 'error' : loading || hovered ? 'loading' : visible ? 'queued' : 'idle';
+    return (
+        <div className="relative h-full w-full" data-preview-state={state}>
+            <canvas ref={canvasRef} aria-hidden="true" className={`absolute inset-0 h-full w-full object-cover ${ready ? '' : 'invisible'}`} />
+            {(hovered || (visible && loading && !ready)) && (
+                <SmartVideo key={hovered ? 'hover' : 'still'} item={item} videoRef={attachVideo}
+                    className={`absolute inset-0 h-full w-full object-cover ${hovered ? '' : 'opacity-0 pointer-events-none'}`}
+                    muted playsInline preload="metadata" autoPlay={hovered} loop={hovered}
+                    onLoadedMetadata={(event) => {
+                        if (!hovered && Number.isFinite(event.currentTarget.duration)) {
+                            event.currentTarget.currentTime = Math.min(0.1, event.currentTarget.duration / 2);
+                        }
+                    }}
+                    onLoadedData={captureFrame} onSeeked={captureFrame} onUnavailable={unavailable} />
+            )}
+            {!ready && <div role="status" className="absolute inset-0 flex items-center justify-center gap-2 text-[11px] font-medium text-white/65 pointer-events-none">
+                {failed ? 'Preview unavailable · Click to play' : <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />{loading || hovered ? 'Loading preview…' : 'Preparing preview…'}</>}
+            </div>}
+        </div>
+    );
 }
 
 // Hand the full setup (prompt, refs, settings, mode) to the studio via
@@ -95,8 +187,8 @@ export async function reuseInStudio(router, item) {
 // `creator` (optional) puts the maker's avatar chip on the card — used on
 // pages that mix creators (/liked); the per-creator gallery omits it.
 export function VideoCard({ item, creator, onOpen, exrAccess }) {
-    const videoRef = useRef(null);
-    const [wrapRef, inView] = useInView();
+    const [wrapRef, inView] = useInView('0px', false);
+    const [hovered, setHovered] = useState(false);
     const prompt = item.userPrompt || item.prompt || '';
     return (
         <div
@@ -105,24 +197,12 @@ export function VideoCard({ item, creator, onOpen, exrAccess }) {
             tabIndex={0}
             onClick={onOpen}
             onKeyDown={(e) => { if (e.key === 'Enter') onOpen(); }}
-            onMouseEnter={() => videoRef.current?.play().catch(() => {})}
-            onMouseLeave={() => { const v = videoRef.current; if (v) { v.pause(); v.currentTime = 0; } }}
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
             className="group relative aspect-video rounded-2xl overflow-hidden border border-white/10 bg-black/50 cursor-pointer hover:border-white/30 transition-all hover:shadow-xl hover:shadow-black/40"
             title={prompt}
         >
-            {inView
-                ? <>
-                    {/* preload="none": a grid of N cards costs zero video bytes
-                        until hover (desktop) or open (mobile) — preload="metadata"
-                        pulled part of every MP4 and drowned slow networks. The
-                        film glyph sits under the transparent video and is covered
-                        the moment a frame paints. */}
-                    <div className="absolute inset-0 flex items-center justify-center text-white/15 pointer-events-none">
-                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" /></svg>
-                    </div>
-                    <SmartVideo item={item} videoRef={videoRef} className="relative w-full h-full object-cover" muted playsInline preload="none" loop />
-                </>
-                : <div className="w-full h-full bg-white/[0.03] animate-pulse" />}
+            <GalleryVideoPreview key={item.taskId} item={item} visible={inView} hovered={hovered && inView} />
             {/* Bottom info gradient */}
             <div className="absolute inset-x-0 bottom-0 p-2.5 pt-8 bg-gradient-to-t from-black/85 to-transparent pointer-events-none">
                 {prompt && <p className="text-[11px] leading-snug text-white/85 line-clamp-2">{prompt}</p>}
@@ -208,7 +288,7 @@ export function ImageCard({ item, creator, onOpen }) {
 // Video with a two-step URL fallback: the archived TOS copy (long-lived,
 // presigned server-side) → the live ModelArk task record (~24h) → a
 // placeholder. `videoRef`/`onUrl` let parents control playback / download.
-export function SmartVideo({ item, videoRef, onUrl, className, ...videoProps }) {
+export function SmartVideo({ item, videoRef, onUrl, onUnavailable, className, ...videoProps }) {
     const [src, setSrc] = useState(item.archiveUrl || null);
     const [phase, setPhase] = useState(item.archiveUrl ? 'archive' : 'task');
     const [taskStatus, setTaskStatus] = useState(null);
@@ -233,6 +313,7 @@ export function SmartVideo({ item, videoRef, onUrl, className, ...videoProps }) 
     }, []);
 
     useEffect(() => { if (src) onUrl?.(src); }, [src, onUrl]);
+    useEffect(() => { if (phase === 'dead') onUnavailable?.(); }, [phase, onUnavailable]);
 
     if (phase === 'dead') {
         const rendering = ['queued', 'running'].includes(taskStatus);
