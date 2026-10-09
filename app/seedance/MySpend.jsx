@@ -1,5 +1,7 @@
 'use client';
 
+import { CONTROL } from '@/components/ui/surface-styles';
+
 import { useEffect, useRef, useState } from 'react';
 import { CircleUser, Loader2 } from 'lucide-react';
 import { usd } from '../../lib/seedance/money.mjs';
@@ -67,7 +69,7 @@ export default function MySpend({ project, spendRank }) {
             <output
                 aria-label={detail}
                 onClick={() => (open ? setOpen(false) : show())}
-                className="inline-flex h-7 cursor-default items-center whitespace-nowrap rounded-md border border-line bg-paper-2 px-2.5 font-mono text-[11px] font-semibold tabular-nums text-ink-2"
+                className={`${CONTROL} inline-flex h-7 cursor-default items-center whitespace-nowrap px-2.5 font-mono text-[11px] font-semibold tabular-nums`}
             >
                 <span className="inline-flex items-center gap-1.5">
                     <CircleUser size={13} aria-hidden="true" />

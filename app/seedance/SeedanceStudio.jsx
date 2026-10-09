@@ -1,7 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { CARD, POPOVER, ITEM, RAISED } from '@/components/ui/surface-styles';
+import { CARD, POPOVER, ITEM, RAISED, CONTROL } from '@/components/ui/surface-styles';
 
 // loglineAI Studio — muapi house look: hero headline, a scrollable grid of
 // generation jobs (running + finished, persisted across reloads), and a fixed
@@ -2446,11 +2446,11 @@ export default function SeedanceStudio() {
                 (see BudgetRemaining / MySpend) so it fits a phone. */}
             <div className="fixed inset-x-3 top-3 z-40 flex items-center justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-2">
-                    <Button type="button" onClick={() => setSelectedId(null)} title="Home" variant="secondary" className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto flex shrink-0 items-center px-2 py-1.5 text-xs sm:px-2.5">
+                    <Button type="button" onClick={() => setSelectedId(null)} title="Home" variant="secondary" className={`${CONTROL} h-auto gap-1.5 font-medium [&_svg]:size-auto flex shrink-0 items-center px-2 py-1.5 text-xs sm:px-2.5`}>
                         <span className="grid h-4 w-4 place-items-center rounded bg-accent font-display text-[10px] font-bold text-accent-ink">L</span>
                         <span className="hidden sm:inline">LoglineAI</span>{activeCount > 0 && <span className="ml-0.5 text-accent-hi">· {activeCount}</span>}
                     </Button>
-                    <Link href="/projects" title="Back to projects" className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-line bg-paper-2 text-ink-3 transition-colors hover:text-ink">
+                    <Link href="/projects" title="Back to projects" className={`${CONTROL} grid h-7 w-7 shrink-0 place-items-center`}>
                         <ArrowLeft size={14} />
                     </Link>
                     {projects.length > 0 && <ProjectSelect projects={projects} value={projectId} onChange={selectProject} />}
@@ -2458,7 +2458,7 @@ export default function SeedanceStudio() {
                     {exrAccess?.granted && projectId && <ExrBudgetChip projectId={projectId} />}
                     {!isAdmin && projectId && (
                         <Button type="button" onClick={() => setBudgetRequestOpen(true)} title="Request more budget"
-                            variant="secondary" className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto inline-flex h-7 items-center px-2.5 text-[11px] hover:border-accent/40 hover:text-accent-hi">
+                            variant="secondary" className={`${CONTROL} h-auto gap-1.5 font-medium [&_svg]:size-auto inline-flex h-7 items-center px-2.5 text-[11px]`}>
                             <WalletCards size={13} /> <span className="hidden sm:inline">Request budget</span>
                         </Button>
                     )}
@@ -2481,17 +2481,17 @@ export default function SeedanceStudio() {
                 </div>
                 <div className="flex items-center gap-2">
                     <MySpend project={projects.find((p) => p.id === projectId) ?? null} spendRank={spendRank} />
-                    <Link href="/docs" title="Docs — models, modes, limits and guidelines" className="grid h-7 w-7 place-items-center rounded-md border border-line bg-paper-2 text-ink-2 transition-colors hover:text-ink">
+                    <Link href="/docs" title="Docs — models, modes, limits and guidelines" className={`${CONTROL} grid h-7 w-7 place-items-center`}>
                         <BookOpen size={14} />
                     </Link>
-                    <Link href="/characters" title="Characters — the project's shared cast and its vault; tag one with “@” in the prompt" className="flex h-7 items-center gap-1.5 rounded-md border border-line bg-paper-2 px-2 text-xs font-semibold text-ink-2 transition-colors hover:text-ink">
+                    <Link href="/characters" title="Characters — the project's shared cast and its vault; tag one with “@” in the prompt" className={`${CONTROL} flex h-7 items-center gap-1.5 px-2 text-xs font-semibold`}>
                         <Users size={14} />
                         <span className="hidden sm:inline">Characters</span>
                     </Link>
                     {/* Hover opens the tool list; clicking "Tools" still goes
                         to the full /tools page (also the touch fallback). */}
                     <div className="group relative">
-                        <Link href="/tools" title="Tools" className="flex h-7 items-center gap-1.5 rounded-md border border-line bg-paper-2 px-2 text-xs font-semibold text-ink-2 transition-colors hover:text-ink">
+                        <Link href="/tools" title="Tools" className={`${CONTROL} flex h-7 items-center gap-1.5 px-2 text-xs font-semibold`}>
                             <Wrench size={14} />
                             <span className="hidden sm:inline">Tools</span>
                             <ChevronDown size={12} className="hidden text-ink-3 transition-transform group-hover:rotate-180 sm:inline" />
@@ -2500,7 +2500,7 @@ export default function SeedanceStudio() {
                             <div className={`${POPOVER} w-48 p-[3px]`}>
                                 {TOOLS.map((tool) => (
                                     <Link key={tool.id} href={tool.href} title={tool.blurb}
-                                        className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-3 hover:text-ink">
+                                        className={`${ITEM} flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold`}>
                                         <tool.icon size={14} className="text-ink-3" /> {tool.name}
                                     </Link>
                                 ))}
@@ -2508,11 +2508,11 @@ export default function SeedanceStudio() {
                         </div>
                     </div>
                     {isAdmin && (
-                        <Link href="/console" title="Console" className="grid h-7 w-7 place-items-center rounded-md border border-line bg-paper-2 text-warn/80 transition-colors hover:text-warn">
+                        <Link href="/console" title="Console" className={`${CONTROL} grid h-7 w-7 place-items-center text-warn/80`}>
                             <ShieldCheck size={14} />
                         </Link>
                     )}
-                    <Button type="button" onClick={() => setShowAssets(true)} title="Assets" variant="secondary" className="h-auto gap-1.5 font-medium shadow-none [&_svg]:size-auto p-1.5">
+                    <Button type="button" onClick={() => setShowAssets(true)} title="Assets" variant="secondary" className={`${CONTROL} h-auto gap-1.5 font-medium [&_svg]:size-auto p-1.5`}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>
                     </Button>
                     <UserButton />
