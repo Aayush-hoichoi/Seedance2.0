@@ -3241,7 +3241,7 @@ function Hero() {
             </h1>
             {/* Decorative copy only — on a phone the prompt bar and the history
                 strip own the screen, so this sits out below sm. */}
-            <p className="hidden sm:block text-white/40 text-sm md:text-base font-medium tracking-wide text-center max-w-lg leading-relaxed">
+            <p className={`${heroStyles.description} hidden sm:block text-white/40 text-sm md:text-base font-normal tracking-wide text-center max-w-lg leading-relaxed`}>
                 Turn text, images, or references into cinematic AI video — governed, budgeted, and shared with your team.
             </p>
         </div>
