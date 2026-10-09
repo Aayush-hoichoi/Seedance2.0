@@ -38,6 +38,8 @@ import { preferredProjectId, resolveProjectId, rememberProjectId, syncProjectPar
 import { archiveKeyForTask } from '../../lib/seedance/archiveKey.mjs';
 import { mergeStudioHistory } from '../../lib/seedance/historyMerge.mjs';
 import { resolveFreshVideoUrl } from '../../lib/seedance/videoUrl.js';
+import { isStudioVideoUrlStale as isStaleUrl } from '../../lib/seedance/videoUrlState.mjs';
+import VideoThumbnail from './VideoThumbnail.jsx';
 import { downloadArchivedAsset, downloadAsset } from '../../lib/seedance/downloadAssets.js';
 import { estimateExrCost, EXR_DEFAULT_OPTIONS, EXR_FPS, EXR_RESOLUTIONS, EXR_TIERS, normalizeExrOptions, pricePerExrMinute } from '../../lib/byteplus/exrPricing.mjs';
 import PromptBar from './PromptBar.jsx';
@@ -155,14 +157,6 @@ async function rehydrateStaleAssetRefs(items) {
         }
     }));
 }
-// A done job whose only link is the ~24h ModelArk task URL is refreshed
-// proactively once it's ~20h old — players skip a stale URL entirely instead
-// of paying for the slow network failure first. URL age = last refresh, else
-// job creation (a refresh hands out a brand-new signed link).
-const STALE_URL_MS = 20 * 60 * 60 * 1000;
-const isStaleUrl = (job) => !job.archiveKey
-    && Date.now() - (job.urlRefreshedAt || job.createdAt || 0) > STALE_URL_MS;
-
 // Issue-decision ids this browser has already shown a banner for — the dedup
 // behind the replay-on-load effect below.
 function seenDecisions() {
@@ -845,8 +839,13 @@ export default function SeedanceStudio() {
         if (fromError) patchJob(job.id, { videoUrl: null }); // dead link → show the loading treatment meanwhile
         resolveFreshVideoUrl(job.taskId).then((url) => {
             refreshedRef.current.set(job.id, 'done');
-            if (url) patchJob(job.id, { videoUrl: url, urlRefreshedAt: Date.now() });
-            else if (fromError) patchJob(job.id, { expired: true });
+            // Gallery hydration or the archive-only renewal can finish first.
+            // Neither a late URL nor a late failed probe may undo that repair.
+            updateJobs((prev) => prev.map((current) => {
+                if (current.id !== job.id || !isStaleUrl(current)) return current;
+                if (url) return { ...current, videoUrl: url, urlRefreshedAt: Date.now() };
+                return fromError ? { ...current, expired: true } : current;
+            }));
         });
     };
 
@@ -1058,13 +1057,17 @@ export default function SeedanceStudio() {
 
         // (Stale-asset cleanup runs per project in its own effect above.)
 
-        // Archived videos live in the user's own TOS bucket forever — refresh
-        // their presigned URLs (pure local signing on the server, instant).
+        // Archived videos persist; renew expired signatures without replacing
+        // valid links that a visible thumbnail may already be decoding.
         for (const j of restored) {
-            if (j.archiveKey && j.status === 'done') {
+            if (j.archiveKey && j.status === 'done' && isStaleUrl(j)) {
                 fetch(`/api/byteplus/archive?key=${encodeURIComponent(j.archiveKey)}`)
                     .then((r) => (r.ok ? r.json() : null))
-                    .then((d) => { if (d?.url) patchJob(j.id, { videoUrl: d.url }); })
+                    .then((d) => {
+                        if (d?.url) updateJobs((prev) => prev.map((current) => (
+                            current.id === j.id && isStaleUrl(current) ? { ...current, videoUrl: d.url } : current
+                        )));
+                    })
                     .catch(() => {});
             }
         }
@@ -3010,37 +3013,24 @@ function TilePlaceholder({ expired }) {
     );
 }
 
-// ONE IntersectionObserver shared by every rail tile: with ~150 jobs in
-// history, mounting 150 <video>s on load stampedes the network (and every
-// expired link waits out a slow failure first). A tile only gets its <video>
-// once scrolled into view (~7 visible), and is unobserved after that.
-const tileCallbacks = new WeakMap(); // element → set-in-view callback
+// One visibility observer for the rail. Leaving the scroll window cancels
+// queued/active first-frame work; completed canvases remain on their cards.
+const tileCallbacks = new WeakMap();
 let tileObserver = null;
 function observeTile(el, cb) {
-    if (typeof IntersectionObserver === 'undefined') { cb(); return undefined; }
+    if (typeof IntersectionObserver === 'undefined') { cb(true); return undefined; }
     tileObserver ||= new IntersectionObserver((entries) => {
-        for (const e of entries) {
-            if (!e.isIntersecting) continue;
-            tileObserver.unobserve(e.target);
-            tileCallbacks.get(e.target)?.();
-            tileCallbacks.delete(e.target);
-        }
-    }, { rootMargin: '100px' });
+        for (const entry of entries) tileCallbacks.get(entry.target)?.(entry.isIntersecting);
+    });
     tileCallbacks.set(el, cb);
     tileObserver.observe(el);
     return () => { tileCallbacks.delete(el); tileObserver.unobserve(el); };
 }
 
-// Rail tile video: placeholder until the tile scrolls into view AND a frame
-// is decodable — black-void tiles were dead links rendering nothing. A link
-// already ~20h+ old is never attached at all: straight to the one-shot
-// refresh instead of waiting out the network failure.
 function RailVideo({ job, onRefresh }) {
-    const [ready, setReady] = useState(false);
     const [inView, setInView] = useState(false);
     const ref = useRef(null);
-    useEffect(() => observeTile(ref.current, () => setInView(true)), []);
-    useEffect(() => { setReady(false); }, [job.videoUrl]); // a refreshed URL reloads from scratch
+    useEffect(() => observeTile(ref.current, setInView), []);
     const stale = isStaleUrl(job);
     useEffect(() => {
         if (inView && stale) onRefresh(job, { fromError: true });
@@ -3048,10 +3038,8 @@ function RailVideo({ job, onRefresh }) {
     }, [inView, stale]);
     return (
         <div ref={ref} className="absolute inset-0">
-            {inView && !stale && (
-                <video src={job.videoUrl} muted playsInline preload="metadata" onLoadedData={() => setReady(true)} onError={() => onRefresh(job, { fromError: true })} className="w-full h-full object-cover bg-black" />
-            )}
-            {!ready && <TilePlaceholder />}
+            <VideoThumbnail item={{ archiveUrl: stale ? null : job.videoUrl }} visible={inView && !stale} compact
+                playerProps={{ onError: () => onRefresh(job, { fromError: true }) }} />
         </div>
     );
 }
@@ -3095,7 +3083,7 @@ function HistoryRail({ jobs, selectedId, onSelect, onRemove, onToggleLike, onRef
                         >
                             {job.status === 'done' && job.imageUrl ? (
                                 <img src={job.imageUrl} alt="" loading="lazy" className="w-full h-full object-cover bg-black" />
-                            ) : job.status === 'done' && job.videoUrl && !job.expired ? (
+                            ) : job.status === 'done' && job.mediaType !== 'image' && (job.videoUrl || job.taskId) && !job.expired ? (
                                 <RailVideo job={job} onRefresh={onRefresh} />
                             ) : job.status === 'done' ? (
                                 <TilePlaceholder expired={!!job.expired} />

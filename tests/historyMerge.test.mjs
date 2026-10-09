@@ -84,3 +84,60 @@ test('video timing and project hydration keep the local playback URL and user ch
     assert.equal(merged.liked, true);
     assert.equal(merged.deleted, true);
 });
+
+const cachedVideo = {
+    id: 'local-video', taskId: 'video', mediaType: 'video', status: 'done',
+    archiveKey: 'videos/video.mp4',
+    videoUrl: 'https://bucket.tos-ap-southeast-1.bytepluses.com/videos/video.mp4?X-Tos-Date=20200101T000000Z&X-Tos-Expires=604800',
+    expired: true, createdAt: 100, liked: true, deleted: true,
+    prompt: 'Local prompt', options: { resolution: '4k' }, refs: [{ name: 'Reference' }],
+};
+const freshVideo = {
+    taskId: 'video', mediaType: 'video', status: 'succeeded',
+    archiveUrl: 'https://video.example.cloudfront.net/videos/video.mp4?fresh=1',
+};
+
+test('a fresh successful archive row replaces an expired cached video and resets its expired flag', () => {
+    const before = Date.now();
+    const result = mergeStudioHistory([cachedVideo], [freshVideo]);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].videoUrl, freshVideo.archiveUrl);
+    assert.equal(result[0].expired, false);
+    assert.ok(result[0].urlRefreshedAt >= before);
+    for (const key of ['id', 'taskId', 'archiveKey', 'createdAt', 'liked', 'deleted', 'prompt', 'options', 'refs']) {
+        assert.deepEqual(result[0][key], cachedVideo[key], key);
+    }
+});
+
+test('fresh gallery signatures renew stale legacy archived links while preserving working provider URLs', () => {
+    const [archived] = mergeStudioHistory([{ ...cachedVideo, videoUrl: 'current-archive', expired: false }], [freshVideo]);
+    assert.equal(archived.videoUrl, freshVideo.archiveUrl);
+    const provider = { ...cachedVideo, archiveKey: null, videoUrl: 'https://provider.volces.com/current.mp4', expired: false };
+    const [working] = mergeStudioHistory([provider], [freshVideo]);
+    assert.equal(working.videoUrl, provider.videoUrl);
+    assert.equal(working.urlRefreshedAt, undefined);
+});
+
+test('a valid cached archive signature is preserved so gallery hydration cannot restart its preview', () => {
+    const videoUrl = 'https://video.example.cloudfront.net/videos/video.mp4?X-Tos-Date=20990101T000000Z&X-Tos-Expires=604800';
+    const [merged] = mergeStudioHistory([{ ...cachedVideo, videoUrl, expired: false }], [freshVideo]);
+    assert.equal(merged.videoUrl, videoUrl);
+    assert.equal(merged.urlRefreshedAt, undefined);
+});
+
+test('an expired signed or missing video URL can be repaired without inventing an archive key', () => {
+    for (const videoUrl of [cachedVideo.videoUrl, null]) {
+        const [merged] = mergeStudioHistory([{ ...cachedVideo, archiveKey: null, videoUrl, expired: false }], [freshVideo]);
+        assert.equal(merged.videoUrl, freshVideo.archiveUrl);
+        assert.equal(merged.archiveKey, null);
+    }
+});
+
+test('only a successful row with an archive URL may reset an expired video', () => {
+    for (const row of [{ ...freshVideo, status: 'running' }, { ...freshVideo, status: 'failed' }, { ...freshVideo, archiveUrl: null }]) {
+        const [merged] = mergeStudioHistory([cachedVideo], [row]);
+        assert.equal(merged.videoUrl, cachedVideo.videoUrl);
+        assert.equal(merged.expired, true);
+        assert.equal(merged.urlRefreshedAt, undefined);
+    }
+});
