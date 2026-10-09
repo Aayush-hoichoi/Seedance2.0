@@ -452,7 +452,7 @@ function MediaTypeToggle({ value, onChange }) {
             type="button"
             aria-pressed={value === id}
             onClick={() => onChange?.(id)}
-            className={`${TOGGLE} flex w-full flex-1 flex-col items-center justify-center gap-0.5 px-2 py-2 text-[11px] font-medium sm:px-3 ${value === id ? `${RAISED} !text-[#f0f0f0]` : ''}`}
+            className={`${TOGGLE} flex w-full flex-1 flex-col items-center justify-center gap-0.5 px-2 py-2 text-[11px] font-medium sm:px-3 ${value === id ? '!bg-[#101010] !text-[#f0f0f0]' : ''}`}
         >
             {icon}
             {label}
@@ -1531,7 +1531,7 @@ export default function PromptBar({
                                         type="button"
                                         aria-pressed={batch === n}
                                         onClick={() => setBatch(n)}
-                                        className={`${TOGGLE} h-full px-3 py-1.5 text-xs font-medium ${batch === n ? `${RAISED} !text-[#f0f0f0]` : ''}`}
+                                        className={`${TOGGLE} h-full px-3 py-1.5 text-xs font-medium ${batch === n ? '!bg-[#101010] !text-[#f0f0f0]' : ''}`}
                                     >×{n}</button>
                                 ))}
                             </div>
