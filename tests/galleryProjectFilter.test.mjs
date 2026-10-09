@@ -35,6 +35,10 @@ async function fixture() {
             created_at timestamptz, category text, image_key text,
             image_prompt text, project_id integer, images jsonb
         );
+        CREATE TABLE jobs (
+            id integer PRIMARY KEY, provider_task_id text, user_id text,
+            status text, created_at timestamptz, finished_at timestamptz
+        );
         INSERT INTO projects (id, name) VALUES (10, 'Film A'), (20, 'Film B');
         INSERT INTO gallery_generations
             (task_id, user_id, model_id, status, created_at, category, image_key, image_prompt, project_id)
@@ -69,6 +73,41 @@ test('gallery project filtering includes image jobs without prompt rows and excl
             images: project.images,
             videos: project.videos,
         })), [{ id: 10, generations: 2, images: 1, videos: 1 }]);
+    } finally {
+        await db.close();
+    }
+});
+
+test('gallery timing selects the latest matching owner job without multiplying a card', async () => {
+    const { db, sql } = await fixture();
+    try {
+        await db.exec(`INSERT INTO jobs (id, provider_task_id, user_id, status, created_at, finished_at)
+            VALUES
+                (1, 'video-a', 'u1', 'succeeded', '2026-09-20T10:58:00Z', '2026-09-20T11:03:00Z'),
+                (2, 'video-a', 'u1', 'succeeded', '2026-09-20T10:59:00Z', '2026-09-20T11:07:00Z'),
+                (3, 'video-a', 'u2', 'succeeded', '2026-09-20T10:57:00Z', '2026-09-20T11:09:00Z')`);
+        const rows = await queryUserGenerations(sql, { userId: 'u1', projectId: 10 });
+        const videos = rows.filter((row) => row.task_id === 'video-a');
+        assert.equal(videos.length, 1);
+        assert.equal(videos[0].gateway_id, 2);
+        assert.equal(new Date(videos[0].submitted_at).toISOString(), '2026-09-20T10:59:00.000Z');
+        assert.equal(new Date(videos[0].finished_at).toISOString(), '2026-09-20T11:07:00.000Z');
+        assert.equal(new Date(videos[0].created_at).toISOString(), '2026-09-20T11:00:00.000Z');
+    } finally {
+        await db.close();
+    }
+});
+
+test('unfinished gallery jobs do not expose a stale completion timestamp', async () => {
+    const { db, sql } = await fixture();
+    try {
+        await db.exec(`INSERT INTO jobs (id, provider_task_id, user_id, status, created_at, finished_at)
+            VALUES (1, 'video-a', 'u1', 'running', '2026-09-20T10:59:00Z', '2026-09-20T11:07:00Z')`);
+        const rows = await queryUserGenerations(sql, { userId: 'u1', projectId: 10 });
+        const video = rows.find((row) => row.task_id === 'video-a');
+        assert.equal(video.gateway_id, 1);
+        assert.notEqual(video.submitted_at, null);
+        assert.equal(video.finished_at, null);
     } finally {
         await db.close();
     }

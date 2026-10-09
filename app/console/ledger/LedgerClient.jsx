@@ -18,6 +18,7 @@ import EnhanceLedger from './EnhanceLedger.jsx';
 const StatusDonut = dynamic(() => import('../charts.jsx').then((m) => m.StatusDonut), { ssr: false });
 const DailyOutcomeBars = dynamic(() => import('../charts.jsx').then((m) => m.DailyOutcomeBars), { ssr: false });
 const TaskCostLines = dynamic(() => import('../charts.jsx').then((m) => m.TaskCostLines), { ssr: false });
+const GenerationDurationChart = dynamic(() => import('./GenerationDurationChart.jsx'), { ssr: false });
 
 const WORKBOOKS = {
     master: {
@@ -428,7 +429,11 @@ export default function LedgerClient() {
                     {active ? <Button variant="outline" onClick={clearAll}>Clear filters</Button> : null}
                 </EmptyState>
             ) : section === 'analytics' ? (
-                <LedgerAnalytics analytics={analytics} total={total} days={data?.days ?? []} />
+                isLoading ? (
+                    <Card className="p-6 text-sm text-ink-3"><p role="status">Loading analytics for these filters…</p></Card>
+                ) : (
+                    <LedgerAnalytics analytics={analytics} total={total} days={data?.days ?? []} generationDuration={data?.generationDuration} />
+                )
             ) : (
                 <>
                     <div className="overflow-x-auto rounded border border-line">
@@ -474,7 +479,7 @@ export default function LedgerClient() {
     );
 }
 
-export function LedgerAnalytics({ analytics, total, days = [] }) {
+export function LedgerAnalytics({ analytics, total, days = [], generationDuration }) {
     const scope = `${fmtInt(analytics.total)} matching generation${analytics.total === 1 ? '' : 's'}`;
     // TaskCostLines wants {key, tasks, cost_usd}; the days rollup carries both.
     const perf = days.map((d) => ({ key: d.key, tasks: Number(d.total || 0), cost_usd: Number(d.cost_usd || 0) }));
@@ -484,12 +489,12 @@ export function LedgerAnalytics({ analytics, total, days = [] }) {
             <div>
                 <h2 className="text-base font-semibold text-ink">Generation outcomes</h2>
                 <p className="mt-1 text-xs text-ink-3">
-                    {scope}. Updated with the existing live Ledger refresh—no additional request or database schema change.
+                    {scope}. Updates automatically with the current filters.
                 </p>
             </div>
 
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                <StatCard label="Loaded rows" value={fmtInt(analytics.total)} />
+                <StatCard label="Matching generations" value={fmtInt(analytics.total)} />
                 <StatCard label="Succeeded" value={fmtInt(analytics.succeeded)} tone="green" />
                 <StatCard label="Failed" value={fmtInt(analytics.failed)} tone={analytics.failed ? 'red' : 'zinc'} />
                 <StatCard
@@ -499,6 +504,8 @@ export function LedgerAnalytics({ analytics, total, days = [] }) {
                     tone={analytics.successRate == null ? 'zinc' : analytics.failed ? 'amber' : 'green'}
                 />
             </div>
+
+            {generationDuration ? <GenerationDurationChart data={generationDuration} /> : null}
 
             <Card>
                 <div className="grid items-center gap-5 lg:grid-cols-[minmax(18rem,0.9fr)_minmax(16rem,1fr)]">

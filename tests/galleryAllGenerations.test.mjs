@@ -147,4 +147,36 @@ test('a fail-open generation (usage_events only, no jobs row) still reaches hist
     const orphan = rows.find((r) => r.task_id === 'cgt-orphan');
     assert.equal(orphan.status, 'running', "'created' maps to 'running' so it renders as in-flight, not error");
     assert.equal(orphan.category, 'video');
+    assert.equal(orphan.gateway_id, null);
+    assert.equal(orphan.submitted_at, null);
+    assert.equal(orphan.finished_at, null);
+});
+
+test('video timing starts at submission, including the wait before a queue claim', async () => {
+    const { sql } = await freshDb();
+    const body = JSON.stringify({ category: 'video', prompt: 'queued shot', options: { resolution: '4k', duration: 7 } });
+    const [job] = await sql`INSERT INTO jobs
+        (project_id, user_id, model_id, priority, status, request_body, provider_task_id, created_at, started_at, finished_at)
+        VALUES (33, 'u1', 'seedance-2.0', 'batch', 'succeeded', ${body}::jsonb, 'cgt-timed',
+            '2026-10-09T10:00:00Z', '2026-10-09T10:02:00Z', '2026-10-09T10:07:25Z')
+        RETURNING id`;
+    const [row] = await queryUserGenerations(sql, { userId: 'u1' });
+    assert.equal(row.gateway_id, job.id);
+    assert.equal(new Date(row.created_at).toISOString(), '2026-10-09T10:02:00.000Z');
+    assert.equal(new Date(row.submitted_at).toISOString(), '2026-10-09T10:00:00.000Z');
+    assert.equal(new Date(row.finished_at).toISOString(), '2026-10-09T10:07:25.000Z');
+    assert.equal((new Date(row.finished_at) - new Date(row.submitted_at)) / 1000, 445);
+});
+
+test('legacy usage finalization is not used as a generation completion time', async () => {
+    const { sql } = await freshDb();
+    await sql`INSERT INTO usage_events
+        (user_id, user_email, model_id, task_id, status, created_at, finalized_at)
+        VALUES ('u1', 'a@hoichoi.tv', 'seedance-2.0', 'cgt-legacy-completed', 'succeeded',
+            '2026-10-09T10:00:00Z', '2026-10-09T11:00:00Z')`;
+    const [row] = await queryUserGenerations(sql, { userId: 'u1' });
+    assert.equal(row.status, 'succeeded');
+    assert.equal(row.gateway_id, null);
+    assert.equal(row.submitted_at, null);
+    assert.equal(row.finished_at, null);
 });

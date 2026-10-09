@@ -14,6 +14,7 @@ import { estimateExrCost, EXR_DEFAULT_OPTIONS, EXR_FPS, EXR_RESOLUTIONS, EXR_TIE
 import BudgetRequestModal from '../seedance/BudgetRequestModal.jsx';
 import VideoDownloadFormat from '../seedance/VideoDownloadFormat.jsx';
 import DownloadProgress, { useDownloadProgress } from '../seedance/DownloadProgress.jsx';
+import { formatGenerationTime, GENERATION_TIME_DESCRIPTION } from '../../lib/seedance/generationTime.mjs';
 
 export const modeNameOf = (id) => MODES.find((m) => m.id === id)?.name ?? null;
 
@@ -301,6 +302,7 @@ export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext, onEx
         ['Mode', modeNameOf(item.mode)],
         ['Project', item.projectName],
         ['Created', createdText],
+        ['Generation time', !isImage ? <span title={GENERATION_TIME_DESCRIPTION} className="tabular-nums">{formatGenerationTime(item.submittedAt, item.finishedAt) ?? 'Not recorded'}</span> : null],
     ].filter(([, value]) => value);
 
     return (

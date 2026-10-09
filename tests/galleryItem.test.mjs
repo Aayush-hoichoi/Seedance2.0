@@ -14,6 +14,21 @@ test('toItem maps a video row (no AK/SK in env → archiveUrl null) and an image
     assert.equal(image.archiveUrl, null);
     assert.equal(image.projectId, 9);
     assert.equal(image.projectName, 'Film A');
+    assert.equal(image.gatewayId, null);
+    assert.equal(image.submittedAt, null);
+    assert.equal(image.finishedAt, null);
+});
+
+test('gallery items preserve authoritative timing independently of their history cursor date', () => {
+    const item = toItem({
+        task_id: 'cgt-timing', category: 'video', status: 'succeeded', gateway_id: 27,
+        created_at: '2026-10-09T10:01:00Z',
+        submitted_at: '2026-10-09T10:00:00Z', finished_at: '2026-10-09T10:07:25Z',
+    });
+    assert.equal(item.gatewayId, 27);
+    assert.equal(item.createdAt, '2026-10-09T10:01:00Z');
+    assert.equal(item.submittedAt, '2026-10-09T10:00:00Z');
+    assert.equal(item.finishedAt, '2026-10-09T10:07:25Z');
 });
 
 test('imageUrlsFromResult: url entries pass through; key entries need creds (none in test env → dropped); b64 and junk skipped', () => {

@@ -57,6 +57,7 @@ import { TOOLS } from '../tools/toolsCatalog.js';
 import AssetsPanel from './AssetsPanel.jsx';
 import VideoDownloadFormat from './VideoDownloadFormat.jsx';
 import DownloadProgress, { useDownloadProgress } from './DownloadProgress.jsx';
+import { formatGenerationTime, GENERATION_TIME_DESCRIPTION } from '../../lib/seedance/generationTime.mjs';
 import CinematicPanel from './CinematicPanel.jsx';
 import { cinematicToPayload, sanitizeSetup, DEFAULT_SETUP } from '../../lib/seedance/cinematic.mjs';
 
@@ -1183,15 +1184,23 @@ export default function SeedanceStudio() {
                     // reload's legacy backfill stamped them onto the home
                     // project) — untagged cards show in NO project's rail.
                     const byTask = new Map(items.map((it) => [it.taskId, it]));
-                    let retagCount = 0;
-                    const retagged = prev.map((j) => {
+                    let changed = false;
+                    const refreshed = prev.map((j) => {
                         const it = j.taskId && byTask.get(j.taskId);
-                        if (!it || it.projectId == null || j.projectId === it.projectId) return j;
-                        if (j.projectId != null && !String(j.id).startsWith('srv-')) return j;
-                        retagCount += 1;
-                        return { ...j, projectId: it.projectId };
+                        if (!it) return j;
+                        const projectId = it.projectId != null && (j.projectId == null || String(j.id).startsWith('srv-'))
+                            ? it.projectId : j.projectId;
+                        // Hydrate timing even when a cached card already has
+                        // the right project. Local createdAt predates submit.
+                        const gatewayId = it.gatewayId ?? j.gatewayId;
+                        const submittedAt = it.submittedAt ?? j.submittedAt;
+                        const finishedAt = it.finishedAt ?? j.finishedAt;
+                        if (projectId === j.projectId && gatewayId === j.gatewayId
+                            && submittedAt === j.submittedAt && finishedAt === j.finishedAt) return j;
+                        changed = true;
+                        return { ...j, projectId, gatewayId, submittedAt, finishedAt };
                     });
-                    const base = retagCount ? retagged : prev;
+                    const base = changed ? refreshed : prev;
                     const known = new Set(base.map((j) => j.taskId).filter(Boolean));
                     // Image jobs have no provider task id: the server keys them
                     // 'job:<genId>'. Skip any we already track locally by genId,
@@ -1218,6 +1227,9 @@ export default function SeedanceStudio() {
                                 model: it.modelId,
                                 status: toStatus(it.status),
                                 genId: null,
+                                gatewayId: it.gatewayId ?? null,
+                                submittedAt: it.submittedAt ?? null,
+                                finishedAt: it.finishedAt ?? null,
                                 videoUrl: isImage ? null : (it.archiveUrl || null),
                                 archiveKey: isImage ? null : (it.taskId ? archiveKeyForTask(it.taskId) : null),
                                 imageUrl: isImage ? (it.imageUrl || null) : null,
@@ -3276,18 +3288,45 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
     const [promptTab, setPromptTab] = useState('yours');
     const [sent, setSent] = useState(null);
     const serverId = job.genId || job.gatewayId || null;
+    const [detailsLoading, setDetailsLoading] = useState(!!serverId);
     useEffect(() => {
         let alive = true;
         if (!serverId) return undefined;
-        fetch(`/api/generations/${serverId}`)
-            .then((r) => (r.ok ? r.json() : null))
-            .then((d) => {
-                if (!alive || !d?.request_body) return;
-                setSent({ prompt: d.request_body.prompt || null, options: d.request_body.options || null });
-            })
-            .catch(() => {});
-        return () => { alive = false; };
-    }, [serverId]);
+        const controller = new AbortController();
+        let timer;
+        let attempts = 0;
+        setDetailsLoading(true);
+        const load = async () => {
+            attempts += 1;
+            try {
+                const response = await fetch(`/api/generations/${serverId}`, { signal: controller.signal, cache: 'no-store' });
+                const d = response.ok ? await response.json() : null;
+                if (!alive) return;
+                if (d) setSent({
+                    serverId,
+                    prompt: d.request_body?.prompt || null,
+                    options: d.request_body?.options || null,
+                    submittedAt: d.created_at,
+                    finishedAt: d.status === 'succeeded' ? d.finished_at : null,
+                });
+                // A playable provider result can precede DB settlement and
+                // archival. Briefly recheck the same record; never time it
+                // from the browser clock or the moment this preview opens.
+                if (!job.imageUrl && job.status === 'done'
+                    && ['queued', 'running'].includes(d?.status) && attempts < 24) {
+                    timer = setTimeout(load, 5000);
+                    return;
+                }
+            } catch { /* metadata failure must not block the preview */ }
+            if (alive) setDetailsLoading(false);
+        };
+        load();
+        return () => { alive = false; clearTimeout(timer); controller.abort(); };
+    }, [serverId, job.status, job.imageUrl]);
+    const generationTime = formatGenerationTime(
+        sent?.serverId === serverId ? sent.submittedAt ?? job.submittedAt : job.submittedAt,
+        sent?.serverId === serverId ? sent.finishedAt ?? job.finishedAt : job.finishedAt,
+    );
     // "Enhanced" = what the model actually received. Server record first;
     // for older jobs, the enhancer output the browser kept is the fallback.
     const enhancedPrompt = (sent?.prompt && sent.prompt !== prompt ? sent.prompt : null)
@@ -3474,6 +3513,11 @@ function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onReques
                             {genResolution && <DetailRow k="Resolution" v={genResolution === '4k' ? '4K' : genResolution} />}
                             {exrResolution && <DetailRow k="EXR resolution" v={exrResolution === '4k' ? '4K' : exrResolution} />}
                             {createdText && <DetailRow k="Created" v={createdText} />}
+                            {!job.imageUrl && <DetailRow k="Generation time" v={
+                                <span title={GENERATION_TIME_DESCRIPTION} className="tabular-nums">
+                                    {generationTime ?? (detailsLoading ? 'Recording time…' : 'Not recorded')}
+                                </span>
+                            } />}
                             {job.taskId && <DetailRow k="Task" v={<span className="break-all font-mono text-[10px]">{job.taskId}</span>} />}
                         </dl>
                     </section>

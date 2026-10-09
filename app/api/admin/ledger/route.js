@@ -3,6 +3,7 @@ import { gatewayContext } from '../../../../lib/gateway/authz.js';
 import { MASTER_COLUMNS, VIDEO_COLUMNS, projectRow } from '../../../../lib/ledger/columns.mjs';
 import { ACCEPTANCE_BASIS } from '../../../../lib/ledger/sessions.mjs';
 import { readFilters, readRange, ledgerQuery, readSort, orderBy } from '../../../../lib/ledger/filters.mjs';
+import { readGenerationDuration } from '../../../../lib/ledger/generationDuration.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -61,48 +62,55 @@ export async function GET(request) {
     // Snapshot before the LIMIT/OFFSET are bound: Postgres rejects a statement
     // handed more parameters than it references.
     const countValues = [...values];
-    const [counts] = await sql.query(
-        `SELECT count(*) FILTER (WHERE ${mediaTest})::int             AS total,
-                count(*) FILTER (WHERE media = 'Image')::int AS images,
-                count(*) FILTER (WHERE media = 'Video')::int AS videos,
-                count(*) FILTER (WHERE ${mediaTest} AND status = 'succeeded')::int AS succeeded,
-                count(*) FILTER (WHERE ${mediaTest} AND status = 'failed')::int AS failed,
-                count(*) FILTER (WHERE ${mediaTest} AND status = 'timed_out')::int AS timed_out,
-                count(*) FILTER (WHERE ${mediaTest} AND status = 'rejected')::int AS rejected,
-                count(*) FILTER (WHERE ${mediaTest} AND status = 'cancelled')::int AS cancelled,
-                count(*) FILTER (WHERE ${mediaTest} AND status = 'queued')::int AS queued,
-                count(*) FILTER (WHERE ${mediaTest} AND status = 'running')::int AS running
-         FROM ledger_rows
-         ${where}`,
-        countValues,
-    );
+    const [countRows, days, generationDuration, rows] = await Promise.all([
+        sql.query(
+            `SELECT count(*) FILTER (WHERE ${mediaTest})::int             AS total,
+                    count(*) FILTER (WHERE media = 'Image')::int AS images,
+                    count(*) FILTER (WHERE media = 'Video')::int AS videos,
+                    count(*) FILTER (WHERE ${mediaTest} AND status = 'succeeded')::int AS succeeded,
+                    count(*) FILTER (WHERE ${mediaTest} AND status = 'failed')::int AS failed,
+                    count(*) FILTER (WHERE ${mediaTest} AND status = 'timed_out')::int AS timed_out,
+                    count(*) FILTER (WHERE ${mediaTest} AND status = 'rejected')::int AS rejected,
+                    count(*) FILTER (WHERE ${mediaTest} AND status = 'cancelled')::int AS cancelled,
+                    count(*) FILTER (WHERE ${mediaTest} AND status = 'queued')::int AS queued,
+                    count(*) FILTER (WHERE ${mediaTest} AND status = 'running')::int AS running
+             FROM ledger_rows
+             ${where}`,
+            countValues,
+        ),
 
-    // Per-day rollup over the SAME filtered view (rowsWhere covers the media
-    // tab too), grouped by the 'Date (IST)' cell so the chart's days are the
-    // days the Date column shows. Cost cells are money numbers or '' — NULLIF
-    // keeps the blanks out of the sum.
-    const days = await sql.query(
-        `SELECT cells->>'Date (IST)' AS key,
-                count(*)::int AS total,
-                count(*) FILTER (WHERE status = 'succeeded')::int AS succeeded,
-                count(*) FILTER (WHERE status IN ('failed', 'timed_out', 'rejected', 'cancelled'))::int AS failed,
-                count(*) FILTER (WHERE status IN ('queued', 'running'))::int AS active,
-                COALESCE(SUM(NULLIF(cells->>'Cost (USD)', '')::numeric), 0)::float8 AS cost_usd
-         FROM ledger_rows
-         ${rowsWhere}
-         GROUP BY 1 ORDER BY 1`,
-        countValues,
-    );
+        // Per-day rollup over the SAME filtered view (rowsWhere covers the media
+        // tab too), grouped by the 'Date (IST)' cell so the chart's days are the
+        // days the Date column shows. Cost cells are money numbers or '' — NULLIF
+        // keeps the blanks out of the sum.
+        sql.query(
+            `SELECT cells->>'Date (IST)' AS key,
+                    count(*)::int AS total,
+                    count(*) FILTER (WHERE status = 'succeeded')::int AS succeeded,
+                    count(*) FILTER (WHERE status IN ('failed', 'timed_out', 'rejected', 'cancelled'))::int AS failed,
+                    count(*) FILTER (WHERE status IN ('queued', 'running'))::int AS active,
+                    COALESCE(SUM(NULLIF(cells->>'Cost (USD)', '')::numeric), 0)::float8 AS cost_usd
+             FROM ledger_rows
+             ${rowsWhere}
+             GROUP BY 1 ORDER BY 1`,
+            countValues,
+        ),
 
-    // orderBy() resolves through a fixed map, so nothing from the request is
-    // ever interpolated here.
-    const rows = await sql.query(
-        `SELECT cells FROM ledger_rows
-         ${rowsWhere}
-         ORDER BY ${orderBy(sort)}
-         LIMIT ${bind(limit)} OFFSET ${bind(offset)}`,
-        values,
-    );
+        // Same filter scope, without LIMIT/OFFSET. Jobs supply actual
+        // completion times that the workbook-shaped cells do not hold.
+        readGenerationDuration(sql, { rowsWhere, values: countValues }),
+
+        // orderBy() resolves through a fixed map, so nothing from the request is
+        // ever interpolated here.
+        sql.query(
+            `SELECT cells FROM ledger_rows
+             ${rowsWhere}
+             ORDER BY ${orderBy(sort)}
+             LIMIT ${bind(limit)} OFFSET ${bind(offset)}`,
+            values,
+        ),
+    ]);
+    const [counts] = countRows;
 
     const projected = rows.map((r) => {
         const cells = projectRow(r.cells, columns);
@@ -134,6 +142,7 @@ export async function GET(request) {
         // One row per IST day in the filtered view, chronological. A row with
         // no date (blank cell) has no day to land on and is dropped.
         days: days.filter((d) => d.key),
+        generationDuration,
         // Echoed back so the client can render "filtered by …" from the
         // response it actually got, rather than from what it hoped it sent.
         filters,
