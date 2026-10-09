@@ -50,7 +50,7 @@ export default function ProjectSelect({ projects, value, onChange, block }) {
                             <Select.Item
                                 key={p.id}
                                 value={String(p.id)}
-                                className={`${ITEM} relative flex cursor-pointer select-none items-center justify-between gap-6 py-1.5 pl-7 pr-3 text-xs font-medium outline-none data-[highlighted]:bg-[#141414] data-[highlighted]:text-[#f0f0f0] data-[highlighted]:shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_1px_2px_rgba(0,0,0,0.4)] data-[state=checked]:text-[#f0f0f0]`}
+                                className={`${ITEM} relative flex cursor-pointer select-none items-center justify-between gap-6 py-1.5 pl-7 pr-3 text-xs font-medium outline-none data-[highlighted]:bg-[#222222] data-[highlighted]:text-[#f0f0f0] data-[highlighted]:shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_1px_2px_rgba(0,0,0,0.4)] data-[state=checked]:text-[#f0f0f0]`}
                             >
                                 <Select.ItemIndicator className="absolute left-2 inline-flex items-center">
                                     <Check size={13} className="text-accent" />

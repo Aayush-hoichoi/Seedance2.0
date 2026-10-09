@@ -1,7 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { CARD, WELL, RAISED, POPOVER, CONTROL, ITEM } from '@/components/ui/surface-styles';
+import { CARD, WELL, RAISED, POPOVER, CONTROL, ITEM, TOGGLE } from '@/components/ui/surface-styles';
 
 // Floating prompt bar using the console's shared surfaces and button primitives.
 // Wired to the Seedance modes/options.
@@ -452,7 +452,7 @@ function MediaTypeToggle({ value, onChange }) {
             type="button"
             aria-pressed={value === id}
             onClick={() => onChange?.(id)}
-            className={`${ITEM} flex w-full flex-1 flex-col items-center justify-center gap-0.5 px-2 py-2 text-[11px] font-medium sm:px-3 ${value === id ? `${RAISED} !text-[#f0f0f0]` : ''}`}
+            className={`${TOGGLE} flex w-full flex-1 flex-col items-center justify-center gap-0.5 px-2 py-2 text-[11px] font-medium sm:px-3 ${value === id ? `${RAISED} !text-[#f0f0f0]` : ''}`}
         >
             {icon}
             {label}
@@ -666,7 +666,7 @@ function MannequinImport({ sources, onImport }) {
                                 key={j.id}
                                 type="button"
                                 onClick={() => { onImport?.(j); setOpen(false); }}
-                                className={`${ITEM} flex w-full items-center gap-2 px-2 py-1.5 text-left`}
+                                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left hover:bg-white/[0.06] transition-colors"
                             >
                                 <video src={j.videoUrl} muted playsInline preload="metadata" className="w-16 h-10 shrink-0 rounded object-cover bg-black" />
                                 <div className="min-w-0">
@@ -1531,7 +1531,7 @@ export default function PromptBar({
                                         type="button"
                                         aria-pressed={batch === n}
                                         onClick={() => setBatch(n)}
-                                        className={`${ITEM} h-full px-3 py-1.5 text-xs font-medium ${batch === n ? `${RAISED} !text-[#f0f0f0]` : ''}`}
+                                        className={`${TOGGLE} h-full px-3 py-1.5 text-xs font-medium ${batch === n ? `${RAISED} !text-[#f0f0f0]` : ''}`}
                                     >×{n}</button>
                                 ))}
                             </div>
