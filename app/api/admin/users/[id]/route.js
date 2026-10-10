@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getUser } from '../../../../../lib/auth/user.js';
-import { setUserRole, deleteUserData } from '../../../../../lib/access/db.js';
+import { setUserRole, setUserGenerationPaused, deleteUserData } from '../../../../../lib/access/db.js';
 
 // Admin user management. Clerk is the source of truth; Neon is updated
 // immediately as well so the admin UI's refetch never races the webhook.
@@ -48,6 +48,16 @@ export async function PATCH(request, { params }) {
 
     let body;
     try { body = await request.json(); } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }); }
+    if (typeof body?.generationPaused === 'boolean') {
+        try {
+            const row = await setUserGenerationPaused(id, body.generationPaused);
+            if (!row) return NextResponse.json({ error: 'User not found.' }, { status: 404 });
+            return NextResponse.json({ ok: true, id, generationPaused: row.generation_paused });
+        } catch (e) {
+            console.error('[admin/users] generation pause update failed:', e.message);
+            return NextResponse.json({ error: 'Could not update generation access.' }, { status: 502 });
+        }
+    }
     const role = body?.role ?? null;
     if (role !== 'admin' && role !== 'manager' && role !== null) {
         return NextResponse.json({ error: 'role must be "admin", "manager" or null.' }, { status: 400 });

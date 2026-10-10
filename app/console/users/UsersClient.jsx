@@ -69,6 +69,12 @@ export default function UsersClient() {
         const r = await sendJson(`/api/admin/users/${id}`, 'PATCH', { role });
         r.ok ? (toast.success(`Role set to ${role || 'member'}`), users.mutate()) : toast.error(r.data?.error || r.data?.message || 'Failed');
     }
+    async function setGenerationPaused(user, generationPaused) {
+        const r = await sendJson(`/api/admin/users/${user.id}`, 'PATCH', { generationPaused });
+        if (!r.ok) return toast.error(r.data?.error || r.data?.message || 'Could not update generation access');
+        toast.success(generationPaused ? `Generation paused for ${user.email || user.name}` : `Generation resumed for ${user.email || user.name}`);
+        users.mutate();
+    }
     async function removeUser() {
         if (!toRemove) return;
         setRemoving(true);
@@ -98,6 +104,10 @@ export default function UsersClient() {
                         : <Badge tone="zinc">member</Badge>;
             },
         },
+        {
+            accessorKey: 'generation_paused', header: 'Generation',
+            cell: ({ getValue }) => getValue() ? <Badge tone="red">paused</Badge> : <Badge tone="green">active</Badge>,
+        },
         { accessorKey: 'created_at', header: 'Joined', cell: ({ getValue }) => <span className="font-mono text-ink-3">{fmtDate(getValue())}</span> },
         {
             id: 'actions', header: '', enableSorting: false,
@@ -112,6 +122,10 @@ export default function UsersClient() {
                         {u.role !== 'manager' && (
                             <Button variant="ghost" size="xs" title="Make manager" onClick={() => setRole(u.id, 'manager')}><Shield size={13} className="text-accent-hi" /></Button>
                         )}
+                        <Button variant="ghost" size="xs" title={u.generation_paused ? 'Resume generation' : 'Pause generation'}
+                            onClick={() => setGenerationPaused(u, !u.generation_paused)}>
+                            <span className={u.generation_paused ? 'text-ok' : 'text-warn'}>{u.generation_paused ? 'Resume' : 'Pause generation'}</span>
+                        </Button>
                         {(u.role === 'admin' || u.role === 'manager') && (
                             <Button variant="ghost" size="xs" title="Make member" onClick={() => setRole(u.id, null)}><ShieldOff size={13} className="text-warn" /></Button>
                         )}
