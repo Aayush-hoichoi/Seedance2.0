@@ -107,7 +107,7 @@ export default function AdminDocs() {
             <DocSection id="projects" title="Projects">
                 <FactList items={[
                     ['Create', 'Admins and managers. Creating a name that matches an archived project revives it. Users can request a project by name (2–60 chars) — approval creates it with them as first member.'],
-                    ['Archive', 'Admins only, soft-delete. The Default project can never be archived.'],
+                    ['Archive', 'Admins only, soft-delete. Users with no active project see the empty state with an option to request one; managers can create one directly.'],
                     ['Members', 'Add/remove needs member.manage (admin + manager). Adding is idempotent; both are audited.'],
                     ['Project style', 'The style brief is validated before save (it rides on every generation), versions monotonically, and keeps full before/after history in the audit log.'],
                 ]} />

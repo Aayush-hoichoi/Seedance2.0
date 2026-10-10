@@ -95,7 +95,6 @@ export async function DELETE(request, { params }) {
     if (!isPlatformAdmin) {
         return apiError('FORBIDDEN', 'Only admins can archive projects.');
     }
-    if (project.name === 'Default') return apiError('BAD_REQUEST', 'The Default project cannot be archived.');
     await sql`UPDATE projects SET archived_at = now() WHERE id = ${project.id}`;
     await writeAudit(sql, {
         actorId: user.userId, actorEmail: user.email, action: 'project.archive',

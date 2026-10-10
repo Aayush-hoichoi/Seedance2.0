@@ -85,7 +85,7 @@ export default function ProjectsClient() {
             cell: ({ row }) => (
                 <div className="inline-flex items-center gap-3">
                     <Link href={`/console/projects/${row.original.id}`} className="text-xs font-semibold text-ink-3 hover:text-ink">Manage</Link>
-                    {isAdminRef.current && row.original.name !== 'Default' ? (
+                    {isAdminRef.current ? (
                         <button
                             type="button"
                             title="Archive this project (stops new generations; usage history is kept)"

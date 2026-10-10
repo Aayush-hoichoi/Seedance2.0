@@ -88,7 +88,7 @@ function ProjectCard({ p, canManage, isAdmin, onOpen, onArchive }) {
                         >
                             Manage
                         </Link>
-                        {isAdmin && p.name !== 'Default' && (
+                        {isAdmin && (
                             <button
                                 type="button"
                                 onClick={onArchive}
