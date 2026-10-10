@@ -7,6 +7,7 @@ import { getUser } from '../../../../lib/auth/user.js';
 import { getDb } from '../../../../lib/db/neon.js';
 import { recordGenerationEvent } from '../../../../lib/access/db.js';
 import { isVideoCdnUrl } from '../../../../lib/seedance/videoCdn.mjs';
+import { acquireDownloadConversion, holdConversionResponse } from '../../../../lib/seedance/downloadAdmission.mjs';
 
 // Bulk-download finished generations (videos or images). POST { items: [{ url, name }] }.
 //   • one item  → streams that asset back as an attachment (raw mp4/png/…)
@@ -98,34 +99,30 @@ async function streamRawAsset(item) {
     }
 }
 
-async function streamQuickTime(item, request) {
+function streamQuickTime(item, serve) {
     const conversion = transcodeUrlToQuickTime(item.url);
     if (!conversion) return bad('QuickTime conversion is not available on this server.', 503);
-    request.signal?.addEventListener('abort', conversion.cancel, { once: true });
     const name = /\.(?:exr|mp4|m4v|mov)$/i.test(item.name) ? item.name.replace(/\.(?:exr|mp4|m4v|mov)$/i, '.mov') : `${item.name}.mov`;
-    return new Response(Readable.toWeb(conversion.stream), {
+    return serve(new Response(Readable.toWeb(conversion.stream), {
         headers: {
             'Content-Type': 'video/quicktime',
             'Content-Disposition': contentDisposition(name),
             'Cache-Control': 'no-store',
         },
-    });
+    }), conversion.done, conversion.cancel);
 }
 
-function streamProRes(item, request) {
+function streamProRes(item, serve) {
     const conversion = transcodeUrlToProRes(item.url);
     if (!conversion) return bad('ProRes MOV conversion is not available on this server.', 503);
-    if (request.signal?.aborted) conversion.cancel();
-    else request.signal?.addEventListener('abort', conversion.cancel, { once: true });
-    conversion.stream.once('close', () => request.signal?.removeEventListener('abort', conversion.cancel));
     const name = item.name.replace(/\.(mp4|m4v|mov)$/i, '') + '.mov';
-    return new Response(Readable.toWeb(conversion.stream), {
+    return serve(new Response(Readable.toWeb(conversion.stream), {
         headers: {
             'Content-Type': 'video/quicktime',
             'Content-Disposition': contentDisposition(name),
             'Cache-Control': 'no-store',
         },
-    });
+    }), conversion.done, conversion.cancel);
 }
 
 // Download one asset into a Buffer, enforcing the size cap. Returns null on any
@@ -184,54 +181,74 @@ export async function POST(request) {
         return mov ? { data: mov, name: name.replace(/\.(mp4|m4v)$/i, '.mov') } : { data: fixed, name };
     }
 
-    await logDownloads(items);
-
-    if (prores && !raw) return streamProRes(items[0], request);
-
-    // EXR results from BytePlus may be delivered as a MOV containing FFV1.
-    // QuickTime cannot play FFV1, so provide a streamed H.264 MOV derivative
-    // when the user asks for a QuickTime-compatible download.
-    if (items.length === 1 && quickTime) {
-        return streamQuickTime(items[0], request);
-    }
-
-    // Raw originals can be larger than 1 GB (16-bit FFV1 MOVs). Stream the
-    // exact bytes instead of buffering the whole file in server memory.
-    if (items.length === 1 && raw) {
-        return streamRawAsset(items[0]);
-    }
-
-    // Single asset → buffer it (so the codec can be fixed) and send it back.
-    if (items.length === 1) {
-        const buf = await fetchAsset(items[0].url, items[0].name);
-        if (!buf) {
-            return bad('Could not download the file — the link may have expired.', 502);
-        }
-        const { data, name } = await toDelivery(buf, items[0].name);
-        return new Response(data, {
-            headers: {
-                'Content-Type': contentTypeFor(name),
-                'Content-Disposition': contentDisposition(name),
-                'Cache-Control': 'no-store',
-            },
+    const needsConversion = !raw && (prores || quickTime || items.some((item) => /\.(mp4|m4v|mov)$/i.test(item.name)));
+    const release = needsConversion ? acquireDownloadConversion() : null;
+    if (needsConversion && !release) {
+        return NextResponse.json({ error: 'Another video is being processed. Please retry your download in a few seconds.' }, {
+            status: 429,
+            headers: { 'Retry-After': '5' },
         });
     }
+    let streaming = false;
+    const serve = (response, settled, cancel) => {
+        if (!release) return response;
+        const result = holdConversionResponse(response, request.signal, release, settled, cancel);
+        streaming = true;
+        return result;
+    };
+    try {
+        await logDownloads(items);
 
-    // Many assets → stream a zip. Fetch lazily as the archive is consumed.
-    async function* entries() {
-        for (const it of items) {
-            const buf = await fetchAsset(it.url, it.name);
-            if (buf) yield await toDelivery(buf, it.name);
+        if (prores && !raw) return streamProRes(items[0], serve);
+
+        // EXR results from BytePlus may be delivered as a MOV containing FFV1.
+        // QuickTime cannot play FFV1, so provide a streamed H.264 MOV derivative
+        // when the user asks for a QuickTime-compatible download.
+        if (items.length === 1 && quickTime && !raw) {
+            return streamQuickTime(items[0], serve);
         }
+
+        // Raw originals can be larger than 1 GB (16-bit FFV1 MOVs). Stream the
+        // exact bytes instead of buffering the whole file in server memory.
+        if (items.length === 1 && raw) {
+            return streamRawAsset(items[0]);
+        }
+
+        // Single asset → buffer it (so the codec can be fixed) and send it back.
+        if (items.length === 1) {
+            const buf = await fetchAsset(items[0].url, items[0].name);
+            if (!buf) {
+                return bad('Could not download the file — the link may have expired.', 502);
+            }
+            const { data, name } = await toDelivery(buf, items[0].name);
+            return serve(new Response(data, {
+                headers: {
+                    'Content-Type': contentTypeFor(name),
+                    'Content-Disposition': contentDisposition(name),
+                    'Cache-Control': 'no-store',
+                },
+            }));
+        }
+
+        // Many assets → stream a zip. Fetch lazily as the archive is consumed.
+        async function* entries() {
+            for (const it of items) {
+                const buf = await fetchAsset(it.url, it.name);
+                if (buf) yield await toDelivery(buf, it.name);
+            }
+        }
+        const nodeStream = Readable.from(zipStream(entries()));
+        const closed = new Promise((resolve) => nodeStream.once('close', resolve));
+        return serve(new Response(Readable.toWeb(nodeStream), {
+            headers: {
+                'Content-Type': 'application/zip',
+                'Content-Disposition': contentDisposition(zipName()),
+                'Cache-Control': 'no-store',
+            },
+        }), closed);
+    } finally {
+        if (!streaming) release?.();
     }
-    const nodeStream = Readable.from(zipStream(entries()));
-    return new Response(Readable.toWeb(nodeStream), {
-        headers: {
-            'Content-Type': 'application/zip',
-            'Content-Disposition': contentDisposition(zipName()),
-            'Cache-Control': 'no-store',
-        },
-    });
 }
 
 const TYPES = { mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/mp4', webm: 'video/webm', exr: 'image/x-exr', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };

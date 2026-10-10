@@ -13,11 +13,11 @@ const stubs = {
     'db/neon.js': 'export const getDb = async () => null;',
     'access/db.js': 'export const recordGenerationEvent = async () => {};',
     'seedance/ensureH264.mjs': `
-        export const ensureH264 = async (buffer) => buffer;
+        export const ensureH264 = async (buffer) => globalThis.${stateKey}.ensure(buffer);
         export const remuxToMov = async () => null;
         export const retimeToFps = async () => null;
         export const transcodeToProRes = async () => null;
-        export const transcodeUrlToQuickTime = () => null;
+        export const transcodeUrlToQuickTime = (url) => globalThis.${stateKey}.convert(url);
         export const transcodeUrlToProRes = (url) => globalThis.${stateKey}.convert(url);
     `,
 };
@@ -44,7 +44,7 @@ const sourceUrl = 'https://seedance-studio-assets.tos-ap-southeast-1.bytepluses.
 const encodedBytes = Buffer.from('streamed ProRes fixture');
 
 function setup(t, { available = true, stream = Readable.from([encodedBytes]) } = {}) {
-    const state = { sourceFetches: [], conversionUrls: [], cancellations: 0 };
+    const state = { sourceFetches: [], conversionUrls: [], cancellations: 0, ensure: async (buffer) => buffer };
     state.convert = (url) => {
         state.conversionUrls.push(url);
         if (!available) return null;
@@ -107,7 +107,7 @@ test('aborting a ProRes download cancels its encoder', async (t) => {
 
     controller.abort();
     assert.equal(state.cancellations, 1);
-    await response.body.cancel();
+    await assert.rejects(response.arrayBuffer(), /abort/i);
 });
 
 test('a failed encoder stream rejects the download instead of substituting MP4 bytes', async (t) => {
@@ -207,4 +207,204 @@ test('download rejects foreign CDN distributions and non-video CDN paths', async
     }
     assert.deepEqual(state.sourceFetches, []);
     assert.deepEqual(state.conversionUrls, []);
+});
+
+function deferred() {
+    let resolve;
+    const promise = new Promise((r) => { resolve = r; });
+    return { promise, resolve };
+}
+
+async function expectBusy(options = {}) {
+    const response = await POST(request(undefined, undefined, options));
+    assert.equal(response.status, 429);
+    assert.equal(response.headers.get('retry-after'), '5');
+    assert.match((await response.json()).error, /another video.*retry/i);
+}
+
+function nextConversion(state) {
+    state.convert = (url) => {
+        state.conversionUrls.push(url);
+        return { stream: Readable.from([encodedBytes]), cancel() {} };
+    };
+}
+
+for (const format of ['prores', 'quicktime']) {
+    test(`${format} admits one conversion and releases it after completion`, async (t) => {
+        const stream = new PassThrough();
+        const state = setup(t, { stream });
+        const first = await deliver(t, undefined, undefined, { format });
+        await expectBusy({ format });
+        assert.equal(state.conversionUrls.length, 1, 'the busy request must not spawn another encoder');
+        stream.end(encodedBytes);
+        await first.arrayBuffer();
+        nextConversion(state);
+        const next = await deliver(t, undefined, undefined, { format });
+        assert.equal(next.status, 200);
+        await next.arrayBuffer();
+    });
+}
+
+test('stream cancellation holds the slot until the encoder actually exits', async (t) => {
+    const stream = new PassThrough();
+    const state = setup(t, { stream });
+    const exited = deferred();
+    const convert = state.convert;
+    state.convert = (url) => ({ ...convert(url), done: exited.promise });
+    const first = await deliver(t);
+    const canceled = first.body.cancel();
+    await expectBusy();
+    exited.resolve();
+    await canceled;
+    nextConversion(state);
+    const next = await deliver(t);
+    assert.equal(next.status, 200);
+    await next.arrayBuffer();
+});
+
+test('stream failure releases the slot after encoder exit', async (t) => {
+    const stream = new PassThrough();
+    const state = setup(t, { stream });
+    const exited = deferred();
+    const convert = state.convert;
+    state.convert = (url) => ({ ...convert(url), done: exited.promise });
+    const first = await deliver(t);
+    const transfer = first.arrayBuffer();
+    stream.destroy(new Error('encoder failed'));
+    await assert.rejects(transfer, /encoder failed/);
+    await expectBusy();
+    exited.resolve();
+    await new Promise((resolve) => setImmediate(resolve));
+    nextConversion(state);
+    const next = await deliver(t);
+    assert.equal(next.status, 200);
+    await next.arrayBuffer();
+});
+
+test('buffered conversion acquires before the source fetch and holds through body consumption', async (t) => {
+    const state = setup(t);
+    const started = deferred();
+    const source = deferred();
+    t.mock.method(globalThis, 'fetch', async (url) => {
+        state.sourceFetches.push(url);
+        started.resolve();
+        await source.promise;
+        return new Response('source bytes');
+    });
+    const pending = deliver(t, undefined, undefined, { format: 'mp4' });
+    await started.promise;
+    await expectBusy({ format: 'mp4' });
+    assert.equal(state.sourceFetches.length, 1);
+    source.resolve();
+    const first = await pending;
+    await expectBusy();
+    await first.arrayBuffer();
+    const next = await deliver(t, undefined, undefined, { format: 'mp4' });
+    assert.equal(next.status, 200);
+    await next.arrayBuffer();
+});
+
+test('a source fetch failure releases the conversion slot', async (t) => {
+    const state = setup(t);
+    t.mock.method(globalThis, 'fetch', async () => new Response('', { status: 502 }));
+    const failed = await deliver(t, undefined, undefined, { format: 'mp4' });
+    assert.equal(failed.status, 502);
+    await failed.json();
+    const next = await deliver(t);
+    assert.equal(next.status, 200);
+    await next.arrayBuffer();
+    assert.equal(state.conversionUrls.length, 1);
+});
+
+test('aborting an active buffered encode does not release it before the encode settles', async (t) => {
+    const state = setup(t);
+    const started = deferred();
+    const encoded = deferred();
+    state.ensure = async (buffer) => { started.resolve(); await encoded.promise; return buffer; };
+    const controller = new AbortController();
+    const pending = deliver(t, undefined, controller.signal, { format: 'mp4' });
+    await started.promise;
+    controller.abort();
+    await expectBusy();
+    encoded.resolve();
+    const first = await pending;
+    await assert.rejects(first.arrayBuffer(), /abort/i);
+    await new Promise((resolve) => setImmediate(resolve));
+    const next = await deliver(t);
+    assert.equal(next.status, 200);
+    await next.arrayBuffer();
+});
+
+test('raw originals and images remain available while a codec conversion is active', async (t) => {
+    const stream = new PassThrough();
+    setup(t, { stream });
+    const first = await deliver(t);
+    const raw = await deliver(t, undefined, undefined, { raw: true, format: 'quicktime' });
+    assert.equal(raw.status, 200);
+    assert.equal(await raw.text(), 'original MP4 bytes');
+    const image = await deliver(t, [{ url: sourceUrl.replace('.mp4', '.png'), name: 'still' }], undefined, { format: 'mov' });
+    assert.equal(image.status, 200);
+    await image.arrayBuffer();
+    stream.end(encodedBytes);
+    await first.arrayBuffer();
+});
+
+test('canceling a ZIP holds the slot until its current buffered encode settles', async (t) => {
+    const state = setup(t);
+    const started = deferred();
+    const encoded = deferred();
+    state.ensure = async (buffer) => { started.resolve(); await encoded.promise; return buffer; };
+    const items = [{ url: sourceUrl, name: 'one' }, { url: sourceUrl, name: 'two' }];
+    const first = await deliver(t, items, undefined, { format: 'mp4' });
+    await started.promise;
+    const canceled = first.body.cancel();
+    await expectBusy();
+    encoded.resolve();
+    await canceled;
+    const next = await deliver(t);
+    assert.equal(next.status, 200);
+    await next.arrayBuffer();
+    assert.equal(state.sourceFetches.length, 1, 'cancelled ZIP must not start another source read');
+});
+
+
+test('request abort holds the streaming slot until actual encoder exit', async (t) => {
+    const stream = new PassThrough();
+    const state = setup(t, { stream });
+    const exited = deferred();
+    const convert = state.convert;
+    state.convert = (url) => ({ ...convert(url), done: exited.promise });
+    const controller = new AbortController();
+    const first = await deliver(t, undefined, controller.signal);
+    controller.abort();
+    await assert.rejects(first.arrayBuffer(), /abort/i);
+    assert.equal(state.cancellations, 1);
+    await expectBusy();
+    exited.resolve();
+    await new Promise((resolve) => setImmediate(resolve));
+    nextConversion(state);
+    const next = await deliver(t);
+    assert.equal(next.status, 200);
+    await next.arrayBuffer();
+});
+
+test('an unexpected buffered conversion failure releases the slot', async (t) => {
+    const state = setup(t);
+    state.ensure = async () => { throw new Error('conversion failed'); };
+    await assert.rejects(POST(request(undefined, undefined, { format: 'mp4' })), /conversion failed/);
+    const next = await deliver(t);
+    assert.equal(next.status, 200);
+    await next.arrayBuffer();
+});
+
+test('a completed video ZIP releases the conversion slot', async (t) => {
+    setup(t);
+    const items = [{ url: sourceUrl, name: 'one' }, { url: sourceUrl, name: 'two' }];
+    const first = await deliver(t, items, undefined, { format: 'mp4' });
+    await expectBusy();
+    const archive = Buffer.from(await first.arrayBuffer());
+    assert.equal(archive.subarray(0, 2).toString(), 'PK');
+    const next = await deliver(t);
+    assert.equal(next.status, 200);
+    await next.arrayBuffer();
 });

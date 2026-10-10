@@ -78,6 +78,13 @@ test('ordinary MOV downloads retain the existing original-file fallback', { time
     assert.deepEqual(state.opened, [[sourceUrl, '_blank', 'noopener']]);
 });
 
+test('a busy conversion shows the retry message without substituting the original codec', async (t) => {
+    const state = setup(t, Response.json({ error: 'Another video is being converted. Please retry shortly.' }, { status: 429 }));
+    await downloadAsset(sourceUrl, 'shot', 'task-123', { format: 'mov' });
+    assert.deepEqual(state.errors, ['Another video is being converted. Please retry shortly.']);
+    assert.deepEqual(state.opened, [], 'a busy encoder must not substitute an unconverted original');
+});
+
 test('an explicit Original download can still open the original URL after a proxy failure', { timeout: 3000 }, async (t) => {
     const state = setup(t, Response.json({ error: 'The media proxy is unavailable.' }, { status: 502 }));
 
