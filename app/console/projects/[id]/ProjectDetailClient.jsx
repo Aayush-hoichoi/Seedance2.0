@@ -1391,13 +1391,20 @@ function OverridesTab({ projectId, overrides, members, catalog, budgets = [], on
     return (
         <div>
             <Card className="mb-4">
-                <div className="grid items-end gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                <div className="grid items-end gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
                     <Field label="User">
                         <Select className="w-full" value={form.userId} onChange={(e) => setForm({ ...form, userId: e.target.value })}>
                             <option value="">Select…</option>
                             {members.map((m) => <option key={m.user_id} value={m.user_id}>{m.email || m.user_id}</option>)}
                         </Select>
                     </Field>
+                    {requiresInitialBudget ? (
+                        <Field label={hasInitialBudget ? 'Initial budget · lifetime' : 'Initial budget · USD'}>
+                            {hasInitialBudget
+                                ? <div className="h-9 rounded-md border border-line px-3 py-2 text-xs text-green-400">Set for this user</div>
+                                : <Input type="number" min="0.01" step="0.01" value={form.initialBudget} placeholder="Required to allow" onChange={(e) => setForm({ ...form, initialBudget: e.target.value })} />}
+                        </Field>
+                    ) : null}
                     <Field label="Model">
                         <Select className="w-full" value={form.modelId} onChange={(e) => pickModel(e.target.value)}>
                             <option value="">Select…</option>
@@ -1421,13 +1428,6 @@ function OverridesTab({ projectId, overrides, members, catalog, budgets = [], on
                     <Field label="Expires (optional)">
                         <DateTimePicker value={form.validUntil} onChange={(v) => setForm({ ...form, validUntil: v })} />
                     </Field>
-                    {requiresInitialBudget && form.effect === 'allow' ? (
-                        <Field label={hasInitialBudget ? 'Initial budget' : 'Initial budget (USD)'}>
-                            {hasInitialBudget
-                                ? <div className="h-9 rounded-md border border-line px-3 py-2 text-xs text-green-400">Budget already set · lifetime</div>
-                                : <Input type="number" min="0.01" step="0.01" value={form.initialBudget} placeholder="e.g. 25" onChange={(e) => setForm({ ...form, initialBudget: e.target.value })} />}
-                        </Field>
-                    ) : null}
                     <Button variant="primary" onClick={add} disabled={!form.userId || !form.modelId
                         || (requiresInitialBudget && form.effect === 'allow' && !hasInitialBudget && !(Number(form.initialBudget) > 0))}>
                         {requiresInitialBudget && form.effect === 'allow' && !hasInitialBudget ? 'Set budget & grant' : 'Save override'}
