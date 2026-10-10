@@ -35,6 +35,7 @@ const NEW_EXPIRY = '2026-08-09T07:23:00.000Z';
 function runApproval() {
     const sql = fakeSql([
         [{ model_id: 'seedance-2.0' }], // version tag → alias
+        [{ id: 123 }],                 // required user/project/model starter budget
         [{ id: 91 }],                   // the upsert
     ]);
     return syncGatewayOverride({ action: 'approve', row: EXPIRED_GRANT_ROW, admin: ADMIN, validUntil: NEW_EXPIRY, sql })
@@ -56,6 +57,18 @@ test('re-approving an expired grant upserts the override with the new expiry', a
     // The new expiry must actually be bound — an upsert that reuses the old
     // value would leave the user just as locked out.
     assert.ok(upsert.values.includes(NEW_EXPIRY), `new expiry must be bound, got ${JSON.stringify(upsert.values)}`);
+});
+
+test('restricted Seedance approvals stop before writing an override without a starter budget', async () => {
+    const sql = fakeSql([
+        [{ model_id: 'seedance-2.0' }],
+        [], // no exact user + project + model lifetime USD budget
+    ]);
+    await assert.rejects(
+        () => syncGatewayOverride({ action: 'approve', row: EXPIRED_GRANT_ROW, admin: ADMIN, validUntil: NEW_EXPIRY, sql }),
+        /positive USD lifetime budget/,
+    );
+    assert.equal(sql.calls.some((call) => call.text.includes('INSERT INTO user_model_overrides')), false);
 });
 
 test('the grant resolves the provider version tag to the model alias the gateway keys on', async () => {

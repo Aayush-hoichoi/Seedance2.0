@@ -40,6 +40,7 @@ async function legacy(userId, taskId, { status = 'succeeded', mode = 'reference'
 const originalQuery = (order) => `SELECT coalesce(u.id, s.user_id) AS id,
         coalesce(u.name, split_part(coalesce(u.email, s.user_email), '@', 1)) AS name,
         coalesce(u.email, s.user_email) AS email, u.role,
+        coalesce(u.generation_paused, false) AS generation_paused,
         coalesce(s.generations, 0)::int AS generations, s.last_at
     FROM users u FULL OUTER JOIN (
         SELECT user_id, max(user_email) AS user_email,
