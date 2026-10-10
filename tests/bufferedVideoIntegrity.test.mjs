@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
+import { Transform } from 'node:stream';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -138,4 +139,78 @@ test('a valid video with a leading empty edit retains every frame', async (t) =>
         assert.equal(decoded.status, 0, label);
         assert.match(decoded.stderr, /frame=\s*48\b/, label);
     }
+});
+
+test('FFmpeg 6.1 stream-copy progress without frame counts validates complete video only', async (t) => {
+    const dir = await mkdtemp(join(tmpdir(), 'video-progress-version-'));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const source = join(dir, 'source.mp4');
+    const single = join(dir, 'single.mp4');
+    childProcess.execFileSync(ffmpegPath, [
+        '-hide_banner', '-loglevel', 'error', '-y',
+        '-f', 'lavfi', '-i', 'testsrc2=size=128x64:duration=4:rate=24',
+        '-c:v', 'libx265', '-threads', '2', '-x265-params', 'pools=1:frame-threads=1:log-level=error', source,
+    ], { stdio: 'ignore' });
+    childProcess.execFileSync(ffmpegPath, [
+        '-hide_banner', '-loglevel', 'error', '-y', '-i', source,
+        '-frames:v', '1', '-c:v', 'libx264', '-threads', '2', single,
+    ], { stdio: 'ignore' });
+    const input = await readFile(source);
+    const oneFrame = await readFile(single);
+    const spawn = childProcess.spawn;
+    let mode = 'full';
+    t.mock.method(childProcess, 'spawn', (command, args, options) => {
+        const actual = mode === 'short' && args.includes('libx264')
+            ? [...args.slice(0, -1), '-t', '1', args.at(-1)] : args;
+        const child = spawn(command, actual, options);
+        if (args.includes('-progress') && args.includes('copy')) {
+            let pending = '';
+            const rewrite = (line) => {
+                if (/^frame=/.test(line)) return '';
+                if (/^out_time_us=/.test(line)) {
+                    if (mode === 'single') return 'out_time_us=0\n';
+                    if (mode === 'empty') return 'out_time_us=N/A\n';
+                }
+                return (mode === 'zero' && /^progress=/.test(line) ? 'frame=0\n' : '') + line + '\n';
+            };
+            // Reproduce FFmpeg 6.1's actual progress protocol while the real
+            // encoder and packet reader still process every source/output.
+            const filtered = new Transform({
+                transform(chunk, encoding, callback) {
+                    pending += String(chunk);
+                    const lines = pending.split('\n');
+                    pending = lines.pop();
+                    callback(null, lines.map(rewrite).join(''));
+                },
+                flush(callback) { callback(null, pending ? rewrite(pending) : ''); },
+            });
+            child.stdout.pipe(filtered);
+            child.stdout = filtered;
+        }
+        return child;
+    });
+    syncBuiltinESMExports();
+    t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+    await t.test('complete outputs remain accepted', async () => {
+        for (const [label, convert] of converters) {
+            const output = await convert(input, 'video.mp4');
+            assert.ok(output?.length, label);
+        }
+    });
+    await t.test('a successful but short encoder output still rejects', async () => {
+        mode = 'short';
+        await assert.rejects(ensureH264(input, 'video.mp4'), /conversion failed/i);
+    });
+    await t.test('a single frame at timestamp zero remains valid', async () => {
+        mode = 'single';
+        assert.equal(await ensureH264(oneFrame, 'video.mp4'), oneFrame);
+    });
+    await t.test('an explicit zero frame count rejects', async () => {
+        mode = 'zero';
+        await assert.rejects(ensureH264(oneFrame, 'video.mp4'), /conversion failed/i);
+    });
+    await t.test('no frames and no numeric output timestamp rejects', async () => {
+        mode = 'empty';
+        await assert.rejects(ensureH264(oneFrame, 'video.mp4'), /conversion failed/i);
+    });
 });

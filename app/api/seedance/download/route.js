@@ -193,8 +193,8 @@ export async function POST(request) {
     const wantMov = body?.format !== 'mp4';
 
     // Videos leave as .mov by default: fix the codec if needed, then losslessly
-    // rewrap the mp4 into a QuickTime container (editing tools prefer it). If
-    // the remux fails for any reason the mp4 goes out unchanged.
+    // rewrap the mp4 into a QuickTime container (editing tools prefer it).
+    // Requested conversions must complete successfully before delivery.
     async function toDelivery(buf, name) {
         if (raw) return { data: buf, name };
         // Retiming re-encodes to H.264 from any source codec, so it replaces
