@@ -8,6 +8,42 @@ import { join } from 'node:path';
 import ffmpegPath from 'ffmpeg-static';
 import { transcodeUrlToProRes, transcodeUrlToQuickTime } from '../lib/seedance/ensureH264.mjs';
 
+test('streamed conversion failure diagnostics classify source errors without exposing signed URLs', async (t) => {
+    const server = http.createServer((_request, response) => {
+        response.writeHead(403);
+        response.end();
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    t.after(async () => {
+        server.closeAllConnections();
+        await new Promise((resolve) => server.close(resolve));
+    });
+    const logged = [];
+    t.mock.method(console, 'error', (...args) => logged.push(args));
+    const conversion = transcodeUrlToProRes(`http://127.0.0.1:${server.address().port}/private-source-object.mp4?Signature=private-test-signature`);
+    try {
+        await assert.rejects(async () => {
+            for await (const _chunk of conversion.stream) { /* drain until failure */ }
+        }, /ProRes MOV conversion failed/);
+        await conversion.done;
+        assert.equal(logged.length, 1, 'a failed child must emit one diagnostic');
+        assert.equal(logged[0][0], '[video-conversion]');
+        const diagnostic = JSON.parse(logged[0][1]);
+        assert.equal(diagnostic.format, 'ProRes MOV');
+        assert.equal(diagnostic.succeeded, false);
+        assert.equal(diagnostic.exitCode, 1);
+        assert.equal(diagnostic.httpStatus, 403);
+        assert.ok(diagnostic.categories.includes('network'));
+        assert.equal(diagnostic.sourceDuration, null);
+        assert.equal(diagnostic.outputBytes, 0);
+        assert.equal(diagnostic.progressSeen, false);
+        assert.equal(diagnostic.cancelRequested, false);
+        for (const secret of ['127.0.0.1', 'private-source-object', 'private-test-signature', 'Signature=']) {
+            assert.equal(JSON.stringify(logged).includes(secret), false, `${secret} must never enter logs`);
+        }
+    } finally { conversion.cancel(); await conversion.done; }
+});
+
 test('streamed conversions reject truncated HTTP sources instead of returning a shorter successful video', async (t) => {
     const dir = await mkdtemp(join(tmpdir(), 'video-transfer-'));
     t.after(() => rm(dir, { recursive: true, force: true }));
@@ -44,7 +80,9 @@ test('streamed conversions reject truncated HTTP sources instead of returning a 
     });
     for (const [name, convert] of [['ProRes', transcodeUrlToProRes], ['QuickTime', transcodeUrlToQuickTime]]) {
         for (const mode of ['full', 'declared-full', 'honest-short', 'socket-cut']) {
-            await t.test(`${name}: ${mode}`, async () => {
+            await t.test(`${name}: ${mode}`, async (t) => {
+                const completed = [];
+                t.mock.method(console, 'info', (...args) => completed.push(args));
                 const conversion = convert(`http://127.0.0.1:${server.address().port}/${mode}?Signature=private-test-signature`);
                 const chunks = [];
                 const consume = async () => { for await (const chunk of conversion.stream) chunks.push(chunk); };
@@ -58,6 +96,16 @@ test('streamed conversions reject truncated HTTP sources instead of returning a 
                         });
                     } else {
                         await consume();
+                        assert.equal(completed.length, 1, 'successful child completion must be observable separately from HTTP delivery');
+                        assert.equal(completed[0][0], '[video-conversion]');
+                        const diagnostic = JSON.parse(completed[0][1]);
+                        assert.equal(diagnostic.succeeded, true);
+                        assert.equal(diagnostic.exitCode, 0);
+                        assert.equal(diagnostic.sourceDuration, 4);
+                        assert.ok(diagnostic.outputDuration >= 3.75);
+                        assert.equal(diagnostic.outputBytes, chunks.reduce((sum, chunk) => sum + chunk.length, 0));
+                        assert.equal(diagnostic.cancelReason, null);
+                        assert.equal(JSON.stringify(completed).includes('private-test-signature'), false);
                         const outputPath = join(dir, `${name}.mov`);
                         await writeFile(outputPath, Buffer.concat(chunks));
                         let info = '';
