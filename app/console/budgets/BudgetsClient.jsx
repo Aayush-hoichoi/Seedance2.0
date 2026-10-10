@@ -99,7 +99,7 @@ export default function BudgetsClient() {
     const scopeText = `${scopeProject ? `project “${scopeProject}”` : 'all projects'} · ${scopeUser || 'everyone'} · ${scopeModel || 'all models'}`;
 
     return (
-        <div>
+        <div className="min-w-0 max-w-full">
             <PageHeader title="Budgets & quotas" subtitle="Checked before any job reaches a provider — reservations make bursts race-safe">
                 <Button variant="primary" onClick={() => setOpen(true)}><Plus size={14} /> New budget</Button>
             </PageHeader>
@@ -108,25 +108,25 @@ export default function BudgetsClient() {
                 : !items.length
                     ? <EmptyState icon={Wallet} title="No budgets yet" hint="Without budgets every allowed request goes through. Add a workspace-wide, per-project, per-user, or per-model limit — hard limits reject, soft limits allow a small overage." />
                     : (
-                        <div className="grid gap-3 lg:grid-cols-2">
+                        <div className="grid min-w-0 grid-cols-1 gap-3 xl:grid-cols-2">
                             {items.map((q) => {
                                 const projected = Number(q.used) + Number(q.reserved || 0);
                                 const overBy = projected - Number(q.hard_limit);
                                 return (
-                                    <Card key={q.id}>
-                                        <div className="mb-1 flex items-center justify-between">
-                                            <div className="text-sm font-medium text-ink">
+                                    <Card key={q.id} className="min-w-0">
+                                        <div className="mb-2 flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between">
+                                            <div className="min-w-0 [overflow-wrap:anywhere] text-sm font-medium text-ink">
                                                 {[
                                                     q.project_name ? `Project · ${q.project_name}` : null,
                                                     q.user_id ? `User · ${emailOf(q.user_id)}` : null,
                                                     q.model_id ? `Model · ${q.model_name || q.model_id}` : null,
                                                 ].filter(Boolean).join(' · ') || 'Workspace-wide'}
                                             </div>
-                                            <div className="flex items-center gap-1.5">
+                                            <div className="flex shrink-0 flex-wrap items-center gap-1.5 [&_button]:h-11 [&_button]:min-w-11 sm:[&_button]:h-8 sm:[&_button]:min-w-8">
                                                 <Badge tone={q.policy === 'hard' ? 'red' : 'amber'}>{q.policy}{q.policy === 'soft' ? ` +${q.soft_overage_pct}%` : ''}</Badge>
-                                                <Button variant="ghost" size="xs" title="Change history" onClick={() => setToHistory(q)}><History size={13} /></Button>
-                                                <Button variant="ghost" size="xs" title="Change model scope" onClick={() => openRescope(q)}><Pencil size={13} /></Button>
-                                                <Button variant="ghost" size="xs" title="Delete budget" onClick={() => setToRemove(q)}><Trash2 size={13} className="text-danger" /></Button>
+                                                <Button variant="ghost" size="xs" title="Change history" aria-label="Change history" onClick={() => setToHistory(q)}><History size={13} /></Button>
+                                                <Button variant="ghost" size="xs" title="Change model scope" aria-label="Change model scope" onClick={() => openRescope(q)}><Pencil size={13} /></Button>
+                                                <Button variant="ghost" size="xs" title="Delete budget" aria-label="Delete budget" onClick={() => setToRemove(q)}><Trash2 size={13} className="text-danger" /></Button>
                                             </div>
                                         </div>
                                         <div className="mb-2 text-xs text-ink-3">
@@ -156,7 +156,7 @@ export default function BudgetsClient() {
                     project, user, and/or model, or leave all three blank for a workspace-wide cap. <span className="text-ink-2">Hard</span> budgets
                     reject once the limit is hit; <span className="text-ink-2">soft</span> budgets allow a small overage and only warn.
                 </p>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
                     <Field label="Type">
                         <Select className="w-full" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
                             {TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -207,7 +207,7 @@ export default function BudgetsClient() {
                         <Input type="number" min="1" max="50" value={form.softOveragePct} onChange={(e) => setForm({ ...form, softOveragePct: Number(e.target.value) })} />
                     </Field>
                 ) : null}
-                <div className="mt-3 rounded-md border border-line bg-paper-2 px-3 py-2 text-xs leading-relaxed text-ink-2">
+                <div className="mt-3 [overflow-wrap:anywhere] rounded-md border border-line bg-paper-2 px-3 py-2 text-xs leading-relaxed text-ink-2">
                     Caps <span className="font-medium text-ink">{limitText} {form.window}</span> for{' '}
                     <span className="font-medium text-ink">{scopeText}</span>.{' '}
                     {form.policy === 'hard'
@@ -216,7 +216,7 @@ export default function BudgetsClient() {
                 </div>
             </Modal>
             <Modal open={!!toRescope} onOpenChange={(nextOpen) => { if (!nextOpen && !rescoping) setToRescope(null); }}
-                title="Change model scope"
+                title="Change model scope" aria-label="Change model scope"
                 footer={<>
                     <Button variant="outline" onClick={() => setToRescope(null)} disabled={rescoping}>Cancel</Button>
                     <Button variant="primary" onClick={rescope} loading={rescoping}
@@ -288,7 +288,7 @@ export default function BudgetsClient() {
                                             const prev = r.before?.hard_limit;
                                             const next = r.after?.hard_limit;
                                             return (
-                                                <li key={i} className="text-xs">
+                                                <li key={i} className="min-w-0 [overflow-wrap:anywhere] text-xs">
                                                     <div className="text-ink-3">{new Date(r.created_at).toLocaleString()} · {r.actor_email || r.actor_id}</div>
                                                     <div className="text-ink-2">
                                                         <span className="font-medium text-ink">{label}</span>

@@ -34,11 +34,11 @@ import { ChevronUp, ChevronDown, ChevronsUpDown, Search, Loader2, CalendarDays }
 export function PageHeader({ title, subtitle, children }) {
     return (
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-            <div>
+            <div className="min-w-0 [overflow-wrap:anywhere]">
                 <h1 className="font-display text-3xl font-semibold tracking-wide text-ink">{title}</h1>
                 {subtitle ? <p className="mt-1 text-sm text-ink-3">{subtitle}</p> : null}
             </div>
-            <div className="flex items-center gap-2">{children}</div>
+            <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto">{children}</div>
         </div>
     );
 }
@@ -172,7 +172,7 @@ function collectOptions(children, out = []) {
     return out;
 }
 
-export function Select({ className, children, value, onChange, title, disabled }) {
+export function Select({ className, children, value, onChange, title, disabled, ...props }) {
     const options = collectOptions(children);
     const current = String(value ?? '');
     return (
@@ -181,13 +181,13 @@ export function Select({ className, children, value, onChange, title, disabled }
             onValueChange={(v) => onChange?.({ target: { value: v === EMPTY_VALUE ? '' : v } })}
             disabled={disabled}
         >
-            <SelectTrigger title={title} className={cn('h-8 w-auto gap-1.5 px-2.5 text-sm shadow-none text-[#d4d4d4] transition-colors duration-150 hover:text-[#f0f0f0] focus:ring-0 data-[state=open]:text-[#f0f0f0]', WELL, className)}>
+            <SelectTrigger {...props} title={title} className={cn('h-11 min-w-0 max-w-full sm:h-8 [&>span]:min-w-0 [&>span]:truncate [&>svg]:shrink-0 w-auto gap-1.5 px-2.5 text-sm shadow-none text-[#d4d4d4] transition-colors duration-150 hover:text-[#f0f0f0] focus:ring-0 data-[state=open]:text-[#f0f0f0]', WELL, className)}>
                 <SelectValue />
             </SelectTrigger>
-            <SelectContent className={cn('p-[3px] shadow-[0_8px_24px_rgba(0,0,0,0.55)] duration-150 ease-out', WELL)}>
+            <SelectContent className={cn('max-w-[calc(100vw-2rem)] p-[3px] shadow-[0_8px_24px_rgba(0,0,0,0.55)] duration-150 ease-out', WELL)}>
                 {options.map((o, i) => (
                     <SelectItem key={`${o.value}-${i}`} value={o.value === '' ? EMPTY_VALUE : o.value} disabled={o.disabled}
-                        className={cn('rounded-[10px] text-[#9a9a9a] transition-all duration-150 focus:bg-[#222222] focus:text-[#f0f0f0] focus:shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_1px_2px_rgba(0,0,0,0.4)] data-[state=checked]:text-[#f0f0f0] focus-visible:!outline-none', RAISED_HOVER)}>
+                        className={cn('whitespace-normal [overflow-wrap:anywhere] rounded-[10px] text-[#9a9a9a] transition-all duration-150 focus:bg-[#222222] focus:text-[#f0f0f0] focus:shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_1px_2px_rgba(0,0,0,0.4)] data-[state=checked]:text-[#f0f0f0] focus-visible:!outline-none', RAISED_HOVER)}>
                         {o.label}
                     </SelectItem>
                 ))}
@@ -199,11 +199,11 @@ export function Select({ className, children, value, onChange, title, disabled }
 export function Modal({ open, onOpenChange, title, children, footer, className }) {
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className={cn('max-h-[85dvh] w-[min(94vw,480px)] overflow-y-auto rounded-xl border-line bg-paper-1 p-4 sm:max-w-[480px] sm:p-5', className)}>
+            <DialogContent className={cn('min-w-0 max-h-[85dvh] w-[min(94vw,480px)] overflow-y-auto rounded-xl border-line bg-paper-1 p-4 sm:max-w-[480px] sm:p-5', className)}>
                 <DialogHeader>
                     <DialogTitle className="font-display text-lg font-semibold tracking-wide text-ink">{title}</DialogTitle>
                 </DialogHeader>
-                <div className="space-y-3">{children}</div>
+                <div className="min-w-0 space-y-3 [overflow-wrap:anywhere]">{children}</div>
                 {footer ? <DialogFooter className="mt-2 gap-2 sm:gap-2">{footer}</DialogFooter> : null}
             </DialogContent>
         </Dialog>
@@ -288,7 +288,7 @@ export function DateTimePicker({ value, onChange, placeholder = 'No expiry', cla
 
 export function Field({ label, children }) {
     return (
-        <label className="block">
+        <label className="block min-w-0">
             <Label asChild><span className="mb-1 block text-xs font-medium text-ink-2">{label}</span></Label>
             {children}
         </label>
