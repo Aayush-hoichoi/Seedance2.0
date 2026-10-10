@@ -145,13 +145,13 @@ export default function ProjectDetailClient({ projectId }) {
                         onEditCap={() => setEditingBudget(overallBudget.quota)}
                         onHistory={() => setHistoryQuota(overallBudget.quota)}
                     />}
-                    <div className="grid gap-3 lg:grid-cols-2">
+                    <div className="grid min-w-0 grid-cols-1 gap-3 xl:grid-cols-2">
                         {budgetGroups.map((group) => (
-                            <Card key={group.userId ?? 'everyone'} className="self-start">
+                            <Card key={group.userId ?? 'everyone'} className="min-w-0 self-start">
                                 <details className="group/budget">
-                                    <summary className="flex cursor-pointer list-none items-start justify-between gap-3 [&::-webkit-details-marker]:hidden">
+                                    <summary className="flex cursor-pointer list-none flex-col items-start gap-3 sm:flex-row sm:justify-between [&::-webkit-details-marker]:hidden">
                                         <div className="min-w-0">
-                                            <div className="truncate text-sm font-medium text-ink">
+                                            <div className="[overflow-wrap:anywhere] text-sm font-medium text-ink">
                                                 {group.userId ? emailOf(group.userId) : 'Everyone · shared pool'}
                                             </div>
                                             <div className="mt-0.5 text-xs text-ink-3">
@@ -167,7 +167,7 @@ export default function ProjectDetailClient({ projectId }) {
                                                 </div>
                                             ) : null}
                                         </div>
-                                        <div className="flex shrink-0 items-center gap-1.5">
+                                        <div className="flex shrink-0 flex-wrap items-center gap-1.5 [&_button]:h-11 [&_button]:min-w-11 sm:[&_button]:h-8 sm:[&_button]:min-w-8">
                                             {isAdmin ? (
                                                 <Button variant="outline" size="xs"
                                                     onClick={(e) => {
@@ -195,12 +195,12 @@ export default function ProjectDetailClient({ projectId }) {
                                             const remaining = Math.max(0, Number(q.hard_limit) - used - reserved);
                                             return (
                                                 <div key={q.id} className="border-t border-line pt-3 first:border-t-0 first:pt-0">
-                                                    <div className="mb-1 flex items-center justify-between gap-2">
-                                                        <div className="min-w-0 truncate text-xs font-medium text-ink">
+                                                    <div className="mb-1 flex flex-col items-start gap-2 sm:flex-row sm:justify-between">
+                                                        <div className="min-w-0 [overflow-wrap:anywhere] text-xs font-medium text-ink">
                                                             {q.model_id ? (q.model_name || q.model_id) : 'All models'}
                                                             <span className="ml-1.5 font-normal text-ink-3">{q.type} · {q.window}</span>
                                                         </div>
-                                                        <div className="flex shrink-0 items-center gap-1.5">
+                                                        <div className="flex shrink-0 flex-wrap items-center gap-1.5 [&_button]:h-11 [&_button]:min-w-11 sm:[&_button]:h-8 sm:[&_button]:min-w-8">
                                                             {q.locked_at ? <Badge tone="red">locked</Badge> : null}
                                                             <Badge tone={q.policy === 'hard' ? 'red' : 'amber'}>{q.policy}{q.policy === 'soft' ? ` +${q.soft_overage_pct}%` : ''}</Badge>
                                                             {isAdmin ? (
@@ -246,12 +246,12 @@ export default function ProjectDetailClient({ projectId }) {
                                     <div className="mt-3 space-y-3">
                                         {group.unbudgeted.map((row) => (
                                             <div key={row.model_id} className="border-t border-line pt-3">
-                                                <div className="mb-1 flex items-center justify-between gap-2">
-                                                    <div className="min-w-0 truncate text-xs font-medium text-ink">
+                                                <div className="mb-1 flex flex-col items-start gap-2 sm:flex-row sm:justify-between">
+                                                    <div className="min-w-0 [overflow-wrap:anywhere] text-xs font-medium text-ink">
                                                         {row.model_name || row.model_id}
                                                         <span className="ml-1.5 font-normal text-warn">no model budget</span>
                                                     </div>
-                                                    <div className="flex shrink-0 items-center gap-1.5">
+                                                    <div className="flex shrink-0 flex-wrap items-center gap-1.5 [&_button]:h-11 [&_button]:min-w-11 sm:[&_button]:h-8 sm:[&_button]:min-w-8">
                                                         <span className="text-xs text-ink-3">
                                                             {group.overallCapUsd != null ? 'within the All models budget' : 'uncapped'}
                                                         </span>
@@ -286,7 +286,7 @@ export default function ProjectDetailClient({ projectId }) {
                                                         ) : null}
                                                     </div>
                                                 </div>
-                                                <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
+                                                <div className="mb-1.5 flex flex-wrap items-center justify-between gap-3 text-xs">
                                                     <span className="text-ink-2">{fmtUsd(row.cost_usd)} spent</span>
                                                     {group.overallCapUsd != null ? (
                                                         <span className="font-mono tabular-nums text-ink-3">of {fmtUsd(group.overallCapUsd)} shared cap</span>
@@ -302,13 +302,13 @@ export default function ProjectDetailClient({ projectId }) {
                                         <div className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.1em] text-ink-3">Lifetime spend by model</div>
                                         <div className="space-y-1">
                                             {group.spendBreakdown.map((row) => (
-                                                <div key={row.model_id} className="flex items-center justify-between gap-3 text-xs">
-                                                    <span className="min-w-0 truncate text-ink-2">{row.model_name || row.model_id}</span>
+                                                <div key={row.model_id} className="flex flex-wrap items-center justify-between gap-3 text-xs">
+                                                    <span className="min-w-0 [overflow-wrap:anywhere] text-ink-2">{row.model_name || row.model_id}</span>
                                                     <span className="shrink-0 font-mono tabular-nums text-ink">{fmtUsd(row.cost_usd)}</span>
                                                 </div>
                                             ))}
                                         </div>
-                                        <div className="mt-1.5 flex items-center justify-between gap-3 border-t border-line pt-1.5 text-xs">
+                                        <div className="mt-1.5 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-1.5 text-xs">
                                             <span className="text-ink-3">Total spent</span>
                                             <span className="font-mono tabular-nums text-ink">{fmtUsd(group.spentUsd)}</span>
                                         </div>
@@ -642,8 +642,8 @@ function BudgetCardValue({ label, value, hint }) {
     return (
         <div className="min-w-0">
             <div className="text-[10px] font-medium uppercase tracking-[0.1em] text-ink-3">{label}</div>
-            <div className="mt-1 truncate text-xs font-medium text-ink" title={value}>{value}</div>
-            {hint ? <div className="mt-0.5 truncate text-[10px] text-ink-3" title={hint}>{hint}</div> : null}
+            <div className="mt-1 [overflow-wrap:anywhere] text-xs font-medium text-ink" title={value}>{value}</div>
+            {hint ? <div className="mt-0.5 [overflow-wrap:anywhere] text-[10px] text-ink-3" title={hint}>{hint}</div> : null}
         </div>
     );
 }
@@ -669,7 +669,7 @@ function BudgetTimelineModal({ quota, onClose }) {
                                     const prev = entry.before?.hard_limit;
                                     const next = entry.after?.hard_limit;
                                     return (
-                                        <li key={index} className="text-xs">
+                                        <li key={index} className="[overflow-wrap:anywhere] text-xs">
                                             <div className="text-ink-3">{new Date(entry.created_at).toLocaleString()} · {entry.actor_email || entry.actor_id}</div>
                                             <div className="text-ink-2">
                                                 <span className="font-medium text-ink">{LABELS[entry.action] || entry.action}</span>
@@ -806,7 +806,7 @@ function EditBudgetModal({ quota, projectName, userName, allocatedUsd = 0, onClo
                 </>}
             </>}>
             <Card className="bg-paper-3">
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                     <BudgetCardValue label="Project" value={projectName} />
                     <BudgetCardValue label="User" value={userName} />
                     <BudgetCardValue label="Spent" value={format(snapshot.used)} />
@@ -967,7 +967,7 @@ function AddBudgetModal({ project, members, models, modelsLoading, modelsError, 
                 <Card className="mb-4 bg-paper-3">
                     {overallCap ? (
                         // Cap-mode stats: the bar vs the two figures it must clear.
-                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                             <BudgetCardValue label="Project" value={previewData?.project?.name || project.name} />
                             <BudgetCardValue
                                 label="Spent so far · all models"
@@ -991,7 +991,7 @@ function AddBudgetModal({ project, members, models, modelsLoading, modelsError, 
                             />
                         </div>
                     ) : (
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                         <BudgetCardValue label="Project" value={previewData?.project?.name || project.name} />
                         <BudgetCardValue
                             label="User"
@@ -1132,7 +1132,7 @@ function BudgetProgressBar({ quota }) {
             <div
                 id={tooltipId}
                 role="tooltip"
-                className="pointer-events-none invisible absolute bottom-full left-1/2 z-50 mb-2 w-72 -translate-x-1/2 rounded border border-line bg-paper-1 p-3 opacity-0 shadow-xl transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+                className="pointer-events-none invisible absolute bottom-full left-1/2 z-50 mb-2 w-72 max-w-full -translate-x-1/2 rounded border border-line bg-paper-1 p-3 opacity-0 shadow-xl transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
             >
                 <div className="mb-2 text-xs font-medium text-ink">Spent by model · {quota.window}</div>
                 {rows.length ? (
