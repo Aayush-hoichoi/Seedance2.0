@@ -12,6 +12,7 @@ const stubs = {
     'auth/user.js': 'export const getUser = async () => null;',
     'db/neon.js': 'export const getDb = async () => null;',
     'access/db.js': 'export const recordGenerationEvent = async () => {};',
+    'seedance/archiveDownload.mjs': `export const archiveProResDownload = (options) => globalThis.${stateKey}.archive(options);`,
     'seedance/ensureH264.mjs': `
         export const ensureH264 = async (buffer) => globalThis.${stateKey}.ensure(buffer);
         export const remuxToMov = async () => null;
@@ -42,6 +43,7 @@ const { POST } = await import(`data:text/javascript;base64,${Buffer.from(bundled
 
 const sourceUrl = 'https://seedance-studio-assets.tos-ap-southeast-1.bytepluses.com/videos/task-123.mp4';
 const encodedBytes = Buffer.from('streamed ProRes fixture');
+const storedUrl = 'https://seedance-studio-assets.tos-ap-southeast-1.bytepluses.com/downloads/prores/fixture.mov?signature=test';
 
 function setup(t, { available = true, stream = Readable.from([encodedBytes]) } = {}) {
     const state = { sourceFetches: [], conversionUrls: [], cancellations: 0, ensure: async (buffer) => buffer };
@@ -52,6 +54,26 @@ function setup(t, { available = true, stream = Readable.from([encodedBytes]) } =
             stream,
             cancel() { state.cancellations += 1; stream.destroy(); },
         };
+    };
+    state.archiveCalls = [];
+    state.archive = async ({ conversion, name, signal }) => {
+        state.archiveCalls.push({ conversion, name, signal });
+        const abort = () => conversion.cancel();
+        signal?.addEventListener('abort', abort, { once: true });
+        if (signal?.aborted) abort();
+        let bytes = 0;
+        try {
+            for await (const chunk of conversion.stream) bytes += chunk.byteLength;
+            await conversion.done;
+            if (signal?.aborted) throw new Error('Aborted');
+            return { url: storedUrl, name, bytes, key: 'downloads/prores/internal-object-key.mov' };
+        } catch (error) {
+            conversion.cancel();
+            await conversion.done;
+            throw error;
+        } finally {
+            signal?.removeEventListener('abort', abort);
+        }
     };
     globalThis[stateKey] = state;
     t.mock.method(globalThis, 'fetch', async (url) => {
@@ -66,7 +88,7 @@ function request(items = [{ url: sourceUrl, name: 'shot' }], signal, options = {
     return new Request('http://localhost/api/seedance/download', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items, format: 'prores', ...options }),
+        body: JSON.stringify({ items, format: 'prores', delivery: 'stored', ...options }),
         signal,
     });
 }
@@ -79,16 +101,30 @@ async function deliver(t, items, signal, options) {
     return response;
 }
 
-test('ProRes delivery streams a MOV without buffering the source file', async (t) => {
+test('ProRes delivery returns a completed stored MOV link without buffering the source', async (t) => {
     const state = setup(t);
     const response = await deliver(t);
 
     assert.equal(response.status, 200);
-    assert.equal(response.headers.get('content-type'), 'video/quicktime');
-    assert.match(response.headers.get('content-disposition'), /filename="shot\.mov"/);
-    assert.deepEqual(Buffer.from(await response.arrayBuffer()), encodedBytes);
+    assert.match(response.headers.get('content-type'), /application\/json/);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(await response.json(), { downloadUrl: storedUrl, name: 'shot.mov', bytes: encodedBytes.length });
+    assert.equal(state.archiveCalls.length, 1);
     assert.deepEqual(state.conversionUrls, [sourceUrl]);
-    assert.deepEqual(state.sourceFetches, [], 'the route must not buffer the source before streaming ProRes');
+    assert.deepEqual(state.sourceFetches, [], 'the route must not buffer the source before converting ProRes');
+});
+
+test('legacy ProRes clients must refresh instead of saving a JSON response as a MOV', async (t) => {
+    const state = setup(t);
+    for (const delivery of [undefined, 'streamed']) {
+        const response = await deliver(t, undefined, undefined, { delivery });
+        assert.equal(response.status, 409);
+        assert.equal(response.headers.get('content-disposition'), null);
+        assert.deepEqual(await response.json(), { error: 'Please refresh the page and retry the ProRes download.' });
+    }
+    assert.deepEqual(state.conversionUrls, [], 'legacy requests must not start an expensive encoder');
+    assert.deepEqual(state.archiveCalls, []);
+    assert.deepEqual(state.sourceFetches, []);
 });
 
 test('unavailable ProRes conversion returns an error instead of the original MP4', async (t) => {
@@ -100,10 +136,10 @@ test('unavailable ProRes conversion returns an error instead of the original MP4
     assert.deepEqual(state.sourceFetches, []);
 });
 
-test('aborting a ProRes download cancels its encoder', async (t) => {
+test('aborting a QuickTime download cancels its encoder', async (t) => {
     const state = setup(t, { stream: new PassThrough() });
     const controller = new AbortController();
-    const response = await deliver(t, undefined, controller.signal);
+    const response = await deliver(t, undefined, controller.signal, { format: 'quicktime' });
 
     controller.abort();
     assert.equal(state.cancellations, 1);
@@ -113,7 +149,7 @@ test('aborting a ProRes download cancels its encoder', async (t) => {
 test('a failed encoder stream rejects the download instead of substituting MP4 bytes', async (t) => {
     const stream = new PassThrough();
     const state = setup(t, { stream });
-    const response = await deliver(t);
+    const response = await deliver(t, undefined, undefined, { format: 'quicktime' });
 
     assert.equal(response.headers.get('content-type'), 'video/quicktime');
     await assert.rejects(async () => {
@@ -179,8 +215,8 @@ for (const options of [{ raw: true }, { format: 'mp4' }, { format: 'mov' }, { fo
         if (options.format === 'prores') {
             assert.deepEqual(state.conversionUrls, [url], 'encoder should stream through the CDN');
             assert.deepEqual(state.sourceFetches, []);
-            assert.equal(response.headers.get('content-type'), 'video/quicktime');
-            assert.deepEqual(Buffer.from(await response.arrayBuffer()), encodedBytes);
+            assert.match(response.headers.get('content-type'), /application\/json/);
+            assert.equal((await response.json()).downloadUrl, storedUrl);
         } else {
             assert.deepEqual(state.sourceFetches, [url], 'download should retain the CDN cache benefit');
             assert.deepEqual(state.conversionUrls, []);
@@ -229,7 +265,7 @@ function nextConversion(state) {
     };
 }
 
-for (const format of ['prores', 'quicktime']) {
+for (const format of ['quicktime']) {
     test(`${format} admits one conversion and releases it after completion`, async (t) => {
         const stream = new PassThrough();
         const state = setup(t, { stream });
@@ -251,13 +287,13 @@ test('stream cancellation holds the slot until the encoder actually exits', asyn
     const exited = deferred();
     const convert = state.convert;
     state.convert = (url) => ({ ...convert(url), done: exited.promise });
-    const first = await deliver(t);
+    const first = await deliver(t, undefined, undefined, { format: 'quicktime' });
     const canceled = first.body.cancel();
     await expectBusy();
     exited.resolve();
     await canceled;
     nextConversion(state);
-    const next = await deliver(t);
+    const next = await deliver(t, undefined, undefined, { format: 'quicktime' });
     assert.equal(next.status, 200);
     await next.arrayBuffer();
 });
@@ -268,7 +304,7 @@ test('stream failure releases the slot after encoder exit', async (t) => {
     const exited = deferred();
     const convert = state.convert;
     state.convert = (url) => ({ ...convert(url), done: exited.promise });
-    const first = await deliver(t);
+    const first = await deliver(t, undefined, undefined, { format: 'quicktime' });
     const transfer = first.arrayBuffer();
     stream.destroy(new Error('encoder failed'));
     await assert.rejects(transfer, /encoder failed/);
@@ -276,7 +312,7 @@ test('stream failure releases the slot after encoder exit', async (t) => {
     exited.resolve();
     await new Promise((resolve) => setImmediate(resolve));
     nextConversion(state);
-    const next = await deliver(t);
+    const next = await deliver(t, undefined, undefined, { format: 'quicktime' });
     assert.equal(next.status, 200);
     await next.arrayBuffer();
 });
@@ -338,7 +374,7 @@ test('aborting an active buffered encode does not release it before the encode s
 test('raw originals and images remain available while a codec conversion is active', async (t) => {
     const stream = new PassThrough();
     setup(t, { stream });
-    const first = await deliver(t);
+    const first = await deliver(t, undefined, undefined, { format: 'quicktime' });
     const raw = await deliver(t, undefined, undefined, { raw: true, format: 'quicktime' });
     assert.equal(raw.status, 200);
     assert.equal(await raw.text(), 'original MP4 bytes');
@@ -375,7 +411,7 @@ test('request abort holds the streaming slot until actual encoder exit', async (
     const convert = state.convert;
     state.convert = (url) => ({ ...convert(url), done: exited.promise });
     const controller = new AbortController();
-    const first = await deliver(t, undefined, controller.signal);
+    const first = await deliver(t, undefined, controller.signal, { format: 'quicktime' });
     controller.abort();
     await assert.rejects(first.arrayBuffer(), /abort/i);
     assert.equal(state.cancellations, 1);
@@ -383,7 +419,7 @@ test('request abort holds the streaming slot until actual encoder exit', async (
     exited.resolve();
     await new Promise((resolve) => setImmediate(resolve));
     nextConversion(state);
-    const next = await deliver(t);
+    const next = await deliver(t, undefined, undefined, { format: 'quicktime' });
     assert.equal(next.status, 200);
     await next.arrayBuffer();
 });
@@ -407,4 +443,101 @@ test('a completed video ZIP releases the conversion slot', async (t) => {
     const next = await deliver(t);
     assert.equal(next.status, 200);
     await next.arrayBuffer();
+});
+
+
+test('ProRes waits for completed storage before responding and holds admission throughout', async (t) => {
+    const state = setup(t);
+    const started = deferred();
+    const stored = deferred();
+    const archive = state.archive;
+    state.archive = async (options) => {
+        const result = await archive(options);
+        started.resolve();
+        await stored.promise;
+        return result;
+    };
+    let responded = false;
+    const pending = deliver(t).then((response) => { responded = true; return response; });
+    await started.promise;
+    assert.equal(responded, false, 'no successful response may precede multipart completion');
+    await expectBusy();
+    assert.equal(state.conversionUrls.length, 1);
+    stored.resolve();
+    const first = await pending;
+    assert.equal(first.status, 200);
+    nextConversion(state);
+    const next = await deliver(t);
+    assert.equal(next.status, 200, 'completed storage releases admission before either JSON response is consumed');
+    assert.equal((await first.json()).downloadUrl, storedUrl);
+    await next.json();
+});
+
+test('partial ProRes output returns a sanitized failure and no stored download link', async (t) => {
+    const stream = new PassThrough();
+    const state = setup(t, { stream });
+    const started = deferred();
+    const archive = state.archive;
+    state.archive = (options) => { started.resolve(); return archive(options); };
+    const pending = deliver(t);
+    await started.promise;
+    stream.write(encodedBytes);
+    stream.destroy(new Error('source failed https://secret.example/?token=private'));
+    const response = await pending;
+    assert.equal(response.status, 502);
+    const body = await response.json();
+    assert.match(body.error, /ProRes.*retry/i);
+    assert.equal(body.downloadUrl, undefined);
+    assert.doesNotMatch(JSON.stringify(body), /secret|token=private/);
+    assert.deepEqual(state.sourceFetches, []);
+    nextConversion(state);
+    const next = await deliver(t);
+    assert.equal(next.status, 200);
+    await next.json();
+});
+
+for (const [code, status] of [['VIDEO_DOWNLOAD_STORAGE_UNAVAILABLE', 503], ['UPLOAD_FAILED', 502]]) {
+    test(`ProRes storage failure ${code} returns ${status} and releases admission`, async (t) => {
+        const state = setup(t);
+        const archive = state.archive;
+        state.archive = async (options) => {
+            await archive(options);
+            throw Object.assign(new Error('private storage credential details'), { code });
+        };
+        const response = await deliver(t);
+        assert.equal(response.status, status);
+        const body = await response.json();
+        assert.match(body.error, /ProRes/i);
+        assert.equal(body.downloadUrl, undefined);
+        assert.doesNotMatch(JSON.stringify(body), /credential/);
+        nextConversion(state);
+        state.archive = archive;
+        const next = await deliver(t);
+        assert.equal(next.status, 200);
+        await next.json();
+    });
+}
+
+test('aborted ProRes preparation retains admission until encoder and upload cleanup settle', async (t) => {
+    const stream = new PassThrough();
+    const state = setup(t, { stream });
+    const exited = deferred();
+    const started = deferred();
+    const convert = state.convert;
+    const archive = state.archive;
+    state.convert = (url) => ({ ...convert(url), done: exited.promise });
+    state.archive = (options) => { started.resolve(); return archive(options); };
+    const controller = new AbortController();
+    const pending = deliver(t, undefined, controller.signal);
+    await started.promise;
+    controller.abort();
+    await expectBusy();
+    exited.resolve();
+    const response = await pending;
+    assert.equal(response.status, 502);
+    assert.equal((await response.json()).downloadUrl, undefined);
+    nextConversion(state);
+    const next = await deliver(t);
+    assert.equal(next.status, 200);
+    await next.json();
 });

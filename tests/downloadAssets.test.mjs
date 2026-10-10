@@ -25,13 +25,21 @@ const { downloadAsset } = await import(`data:text/javascript;base64,${Buffer.fro
 const sourceUrl = 'https://seedance-studio-assets.tos-ap-southeast-1.bytepluses.com/videos/task-123.mp4';
 
 function setup(t, response) {
-    const state = { requests: [], opened: [], errors: [] };
+    const state = { requests: [], opened: [], errors: [], downloads: [] };
     state.errorShown = new Promise((resolve) => {
         state.showError = (message) => { state.errors.push(message); resolve(); };
     });
     globalThis[stateKey] = state;
     const previousWindow = globalThis.window;
+    const previousDocument = globalThis.document;
     globalThis.window = { open: (...args) => state.opened.push(args) };
+    globalThis.document = {
+        createElement(tag) {
+            assert.equal(tag, 'a');
+            return { click() { state.downloads.push({ url: this.href, name: this.download }); }, remove() {} };
+        },
+        body: { appendChild() {} },
+    };
     t.mock.method(globalThis, 'fetch', async (_url, init) => {
         state.requests.push(JSON.parse(init.body));
         return response;
@@ -39,6 +47,8 @@ function setup(t, response) {
     t.after(() => {
         if (previousWindow === undefined) delete globalThis.window;
         else globalThis.window = previousWindow;
+        if (previousDocument === undefined) delete globalThis.document;
+        else globalThis.document = previousDocument;
         delete globalThis[stateKey];
     });
     return state;
@@ -53,6 +63,28 @@ test('failed ProRes conversion shows its error without opening the source MP4', 
     assert.equal(state.requests[0].format, 'prores');
     assert.deepEqual(state.errors, ['ProRes conversion failed.']);
     assert.deepEqual(state.opened, [], 'a requested conversion must never fall back to the source MP4');
+});
+
+test('completed ProRes downloads directly from its private attachment URL without buffering a blob', async (t) => {
+    const downloadUrl = 'https://seedance-studio-assets.tos-ap-southeast-1.bytepluses.com/downloads/ready.mov?signature=test';
+    const response = Response.json({ downloadUrl, name: 'completed-shot.mov', bytes: 173654113 });
+    t.mock.method(response, 'blob', () => { throw new Error('The completed video must not be buffered in the browser.'); });
+    const state = setup(t, response);
+
+    await downloadAsset(sourceUrl, 'shot', 'task-123', { format: 'prores' });
+
+    assert.equal(state.requests[0].delivery, 'stored', 'explicitly opt in to the completed-file response');
+    assert.deepEqual(state.downloads, [{ url: downloadUrl, name: 'completed-shot.mov' }]);
+    assert.deepEqual(state.errors, []);
+    assert.deepEqual(state.opened, []);
+});
+
+test('an invalid completed ProRes URL shows an error without saving JSON or substituting the source', async (t) => {
+    const state = setup(t, Response.json({ downloadUrl: 'javascript:alert(1)', name: 'shot.mov', bytes: 42 }));
+    await downloadAsset(sourceUrl, 'shot', 'task-123', { format: 'prores' });
+    assert.deepEqual(state.downloads, []);
+    assert.deepEqual(state.opened, []);
+    assert.match(state.errors[0], /completed video download/i);
 });
 
 test('a broken ProRes response stream does not open the source MP4', { timeout: 3000 }, async (t) => {

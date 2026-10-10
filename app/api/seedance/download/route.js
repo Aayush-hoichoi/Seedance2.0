@@ -8,6 +8,7 @@ import { getDb } from '../../../../lib/db/neon.js';
 import { recordGenerationEvent } from '../../../../lib/access/db.js';
 import { isVideoCdnUrl } from '../../../../lib/seedance/videoCdn.mjs';
 import { acquireDownloadConversion, holdConversionResponse } from '../../../../lib/seedance/downloadAdmission.mjs';
+import { archiveProResDownload } from '../../../../lib/seedance/archiveDownload.mjs';
 
 // Bulk-download finished generations (videos or images). POST { items: [{ url, name }] }.
 //   • one item  → streams that asset back as an attachment (raw mp4/png/…)
@@ -112,17 +113,24 @@ function streamQuickTime(item, serve) {
     }), conversion.done, conversion.cancel);
 }
 
-function streamProRes(item, serve) {
+async function prepareProResDownload(item, request) {
     const conversion = transcodeUrlToProRes(item.url);
     if (!conversion) return bad('ProRes MOV conversion is not available on this server.', 503);
     const name = item.name.replace(/\.(mp4|m4v|mov)$/i, '') + '.mov';
-    return serve(new Response(Readable.toWeb(conversion.stream), {
-        headers: {
-            'Content-Type': 'video/quicktime',
-            'Content-Disposition': contentDisposition(name),
-            'Cache-Control': 'no-store',
-        },
-    }), conversion.done, conversion.cancel);
+    try {
+        // Large ProRes bodies can fail in the browser's streamed API response.
+        // Complete and validate the private stored file before offering a
+        // direct attachment download. The helper owns encoder/upload cleanup.
+        const stored = await archiveProResDownload({ conversion, name, signal: request.signal });
+        return NextResponse.json({ downloadUrl: stored.url, name: stored.name, bytes: stored.bytes }, {
+            headers: { 'Cache-Control': 'no-store' },
+        });
+    } catch (error) {
+        if (error?.code === 'VIDEO_DOWNLOAD_STORAGE_UNAVAILABLE') {
+            return bad('ProRes MOV download storage is not available on this server.', 503);
+        }
+        return bad('ProRes MOV preparation failed. Please retry the download.', 502);
+    }
 }
 
 // Download one asset into a Buffer, enforcing the size cap. Returns null on any
@@ -156,9 +164,13 @@ export async function POST(request) {
     const quickTime = body?.format === 'quicktime';
     // format: 'prores' → ProRes 4444 .mov (keeps 10-bit 4:4:4, opens in Nuke).
     const prores = body?.format === 'prores';
-    // The ZIP writer buffers each entry. Keep ProRes on the streaming path;
+    // The ZIP writer buffers each entry. ProRes streams to private storage;
     // a single encoded clip can exceed the function's whole memory budget.
     if (prores && !raw) {
+        // Older open tabs expect a binary attachment and would save the new
+        // JSON result as a corrupt MOV. Require the updated delivery contract
+        // before starting any conversion or upload.
+        if (body?.delivery !== 'stored') return bad('Please refresh the page and retry the ProRes download.', 409);
         if (items.length !== 1) return bad('Download ProRes MOV videos one at a time.');
         if (!/\.(mp4|m4v|mov)$/i.test(items[0].name)) return bad('ProRes MOV is available for videos only.');
     }
@@ -199,7 +211,9 @@ export async function POST(request) {
     try {
         await logDownloads(items);
 
-        if (prores && !raw) return streamProRes(items[0], serve);
+        // Await storage completion so finally retains admission until both
+        // encoding and multipart upload (or failure cleanup) have settled.
+        if (prores && !raw) return await prepareProResDownload(items[0], request);
 
         // EXR results from BytePlus may be delivered as a MOV containing FFV1.
         // QuickTime cannot play FFV1, so provide a streamed H.264 MOV derivative
