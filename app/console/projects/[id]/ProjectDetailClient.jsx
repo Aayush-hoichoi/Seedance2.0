@@ -127,7 +127,7 @@ export default function ProjectDetailClient({ projectId }) {
                 )}
                 {isAdmin && (
                     <Tabs.Content value="overrides">
-                        <OverridesTab projectId={projectId} overrides={overrides} members={members} catalog={models.data?.items ?? []} onChange={refresh} />
+                        <OverridesTab projectId={projectId} overrides={overrides} members={members} catalog={models.data?.items ?? []} budgets={projectQuotas} onChange={refresh} />
                     </Tabs.Content>
                 )}
                 <Tabs.Content value="budget">
@@ -1289,6 +1289,7 @@ function ModelsTab({ projectId, grants, catalog, onChange }) {
             </Modal>
             {catalog.map((m) => {
                 const g = grants.find((x) => x.model_id === m.id);
+                const needsIndividualBudget = ['seedance-2.0', 'seedance-2.5', 'seedance-2.0-sensitive'].includes(m.id);
                 return (
                     <Card key={m.id}>
                         <div className="flex items-start justify-between">
@@ -1302,6 +1303,8 @@ function ModelsTab({ projectId, grants, catalog, onChange }) {
                             </div>
                             {g ? (
                                 <Button variant="danger" size="xs" onClick={() => setToRevoke(m.id)}>Revoke</Button>
+                            ) : needsIndividualBudget ? (
+                                <span className="max-w-52 text-right text-xs text-ink-3">Grant per user in Overrides after setting an initial budget</span>
                             ) : m.isDefault ? (
                                 <Badge tone="green">always on</Badge>
                             ) : (
@@ -1321,14 +1324,18 @@ function ModelsTab({ projectId, grants, catalog, onChange }) {
     );
 }
 
-function OverridesTab({ projectId, overrides, members, catalog, onChange }) {
-    const [form, setForm] = useState({ userId: '', modelId: '', effect: 'deny', maxResolution: '', validUntil: '' });
+function OverridesTab({ projectId, overrides, members, catalog, budgets = [], onChange }) {
+    const [form, setForm] = useState({ userId: '', modelId: '', effect: 'deny', maxResolution: '', validUntil: '', initialBudget: '' });
     const [toRemove, setToRemove] = useState(null);
     const [removing, setRemoving] = useState(false);
     // Quality caps an ALLOW only — a deny grants nothing to cap. Tiers come from
     // the picked model; switching model drops a cap it no longer supports.
     const tiers = supportedResolutionsFor(form.modelId) ?? [];
     const capDisabled = form.effect !== 'allow' || !tiers.length;
+    const requiresInitialBudget = ['seedance-2.0', 'seedance-2.5', 'seedance-2.0-sensitive'].includes(form.modelId);
+    const hasInitialBudget = budgets.some((q) => q.project_id === Number(projectId)
+        && q.user_id === form.userId && q.model_id === form.modelId
+        && q.type === 'usd' && q.window === 'lifetime' && !q.deleted_at && Number(q.hard_limit) > 0);
 
     function pickModel(modelId) {
         const next = supportedResolutionsFor(modelId) ?? [];
@@ -1336,12 +1343,21 @@ function OverridesTab({ projectId, overrides, members, catalog, onChange }) {
     }
 
     async function add() {
+        if (form.effect === 'allow' && requiresInitialBudget && !hasInitialBudget) {
+            const amount = Number(form.initialBudget);
+            if (!(amount > 0)) return toast.error('Enter a positive initial USD budget first.');
+            const budget = await sendJson('/api/admin/quotas', 'POST', {
+                type: 'usd', window: 'lifetime', hardLimit: amount,
+                policy: 'hard', projectId: Number(projectId), userId: form.userId, modelId: form.modelId,
+            });
+            if (!budget.ok) return toast.error(budget.data?.message || 'Could not create the initial budget. Access was not granted.');
+        }
         const r = await sendJson(`/api/projects/${projectId}/overrides`, 'POST', {
             ...form,
             maxResolution: capDisabled ? null : (form.maxResolution || null),
             validUntil: form.validUntil ? new Date(form.validUntil).toISOString() : null,
         });
-        r.ok ? (toast.success(`Override saved (${form.effect})`), onChange()) : toast.error(r.data?.message || 'Failed');
+        r.ok ? (toast.success(requiresInitialBudget && form.effect === 'allow' ? 'Initial budget saved and access granted' : `Override saved (${form.effect})`), onChange()) : toast.error(r.data?.message || 'Failed');
     }
     async function remove() {
         if (!toRemove) return;
@@ -1405,8 +1421,19 @@ function OverridesTab({ projectId, overrides, members, catalog, onChange }) {
                     <Field label="Expires (optional)">
                         <DateTimePicker value={form.validUntil} onChange={(v) => setForm({ ...form, validUntil: v })} />
                     </Field>
-                    <Button variant="primary" onClick={add} disabled={!form.userId || !form.modelId}>Save override</Button>
+                    {requiresInitialBudget && form.effect === 'allow' ? (
+                        <Field label={hasInitialBudget ? 'Initial budget' : 'Initial budget (USD)'}>
+                            {hasInitialBudget
+                                ? <div className="h-9 rounded-md border border-line px-3 py-2 text-xs text-green-400">Budget already set · lifetime</div>
+                                : <Input type="number" min="0.01" step="0.01" value={form.initialBudget} placeholder="e.g. 25" onChange={(e) => setForm({ ...form, initialBudget: e.target.value })} />}
+                        </Field>
+                    ) : null}
+                    <Button variant="primary" onClick={add} disabled={!form.userId || !form.modelId
+                        || (requiresInitialBudget && form.effect === 'allow' && !hasInitialBudget && !(Number(form.initialBudget) > 0))}>
+                        {requiresInitialBudget && form.effect === 'allow' && !hasInitialBudget ? 'Set budget & grant' : 'Save override'}
+                    </Button>
                 </div>
+                {requiresInitialBudget && form.effect === 'allow' ? <p className="mt-2 text-xs text-ink-3">This Seedance tier requires a positive user + project + model lifetime USD budget. The budget is created before the access grant.</p> : null}
             </Card>
             <DataTable columns={columns} data={overrides} searchable={false} empty="No user overrides — everyone follows the project grants." />
             <Modal open={!!toRemove} onOpenChange={(nextOpen) => { if (!nextOpen && !removing) setToRemove(null); }}

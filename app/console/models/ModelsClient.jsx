@@ -34,17 +34,19 @@ export default function ModelsClient() {
             accessorKey: 'isDefault', header: 'Org default',
             cell: ({ row }) => {
                 const m = row.original;
+                const requiresUserBudget = ['seedance-2.0', 'seedance-2.5', 'seedance-2.0-sensitive'].includes(m.id);
                 if (!isAdmin) return m.isDefault ? <Badge tone="green">default</Badge> : <span className="text-ink-3">—</span>;
                 return (
                     <button
                         type="button"
                         onClick={() => toggleDefault(m)}
-                        title={m.isDefault ? 'Remove from org defaults' : 'Make an org default'}
-                        className="group inline-flex items-center"
+                        disabled={requiresUserBudget && !m.isDefault}
+                        title={requiresUserBudget && !m.isDefault ? 'This model requires an individual model-specific budget for each user' : m.isDefault ? 'Remove from org defaults' : 'Make an org default'}
+                        className="group inline-flex items-center disabled:cursor-not-allowed disabled:opacity-50"
                     >
                         {m.isDefault
                             ? <Badge tone="green">default ✕</Badge>
-                            : <span className="rounded-md border border-line px-2 py-0.5 text-xs font-medium text-ink-3 transition-colors group-hover:border-accent group-hover:text-accent-hi">+ Set default</span>}
+                            : <span className="rounded-md border border-line px-2 py-0.5 text-xs font-medium text-ink-3 transition-colors group-hover:border-accent group-hover:text-accent-hi">{requiresUserBudget ? 'individual budget required' : '+ Set default'}</span>}
                     </button>
                 );
             },
@@ -61,6 +63,7 @@ export default function ModelsClient() {
             <Card className="mt-4 text-xs leading-relaxed text-ink-3">
                 Access precedence: <span className="text-ink-2">user DENY → user ALLOW → project grant → org default → deny</span>.
                 Grants and overrides can carry an expiry; enforcement happens on every request server-side, and revokes cancel queued jobs instantly.
+                Seedance 2.0, Seedance 2.5, and Sensitive Content require an individual user + project + model lifetime USD budget before use.
             </Card>
         </div>
     );

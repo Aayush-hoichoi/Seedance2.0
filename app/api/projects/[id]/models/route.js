@@ -4,6 +4,7 @@ import { gatewayContext, clientIp } from '../../../../../lib/gateway/authz.js';
 import { apiError } from '../../../../../lib/gateway/httpError.mjs';
 import { writeAudit, emitEvent } from '../../../../../lib/gateway/db.js';
 import { cancelDeauthorizedQueued } from '../../../../../lib/gateway/sweep.mjs';
+import { requiresInitialModelBudget } from '../../../../../lib/gateway/initialModelBudget.mjs';
 
 export const runtime = 'nodejs';
 
@@ -15,6 +16,9 @@ export async function POST(request, { params }) {
     const { sql, user, project } = auth.ctx;
     const body = await request.json().catch(() => null);
     if (!body?.modelId) return apiError('BAD_REQUEST', 'modelId is required.');
+    if (requiresInitialModelBudget(body.modelId)) {
+        return apiError('INITIAL_BUDGET_REQUIRED', 'This Seedance model needs an individual model-specific budget for each user. Assign each user a budget, then grant access from Project → Overrides.');
+    }
 
     const [grant] = await sql`INSERT INTO project_model_grants
         (project_id, model_id, valid_from, valid_until, created_by, revoked_at)

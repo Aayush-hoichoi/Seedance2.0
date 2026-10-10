@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { gatewayContext, clientIp } from '../../../../../lib/gateway/authz.js';
 import { apiError } from '../../../../../lib/gateway/httpError.mjs';
 import { writeAudit } from '../../../../../lib/gateway/db.js';
+import { requiresInitialModelBudget } from '../../../../../lib/gateway/initialModelBudget.mjs';
 
 export const runtime = 'nodejs';
 
@@ -21,6 +22,9 @@ export async function PATCH(request, { params }) {
     }
     const [before] = await sql`SELECT id, is_default FROM models WHERE id = ${id}`;
     if (!before) return apiError('NOT_FOUND', 'Model not found.');
+    if (body.isDefault && requiresInitialModelBudget(id)) {
+        return apiError('INITIAL_BUDGET_REQUIRED', 'This model cannot be an org default because access requires an individual model-specific budget.');
+    }
 
     const [row] = await sql`UPDATE models SET is_default = ${body.isDefault} WHERE id = ${id}
         RETURNING id, is_default`;

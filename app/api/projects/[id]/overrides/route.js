@@ -5,6 +5,7 @@ import { apiError } from '../../../../../lib/gateway/httpError.mjs';
 import { writeAudit, emitEvent } from '../../../../../lib/gateway/db.js';
 import { cancelDeauthorizedQueued } from '../../../../../lib/gateway/sweep.mjs';
 import { supportedResolutionsFor } from '../../../../../lib/seedance/constants.js';
+import { hasInitialModelBudget } from '../../../../../lib/gateway/initialModelBudget.mjs';
 
 export const runtime = 'nodejs';
 
@@ -17,6 +18,9 @@ export async function POST(request, { params }) {
     const body = await request.json().catch(() => null);
     if (!body?.userId || !body?.modelId || !['allow', 'deny'].includes(body?.effect)) {
         return apiError('BAD_REQUEST', 'userId, modelId and effect (allow|deny) are required.');
+    }
+    if (body.effect === 'allow' && !await hasInitialModelBudget(sql, { projectId: project.id, userId: body.userId, modelId: body.modelId })) {
+        return apiError('INITIAL_BUDGET_REQUIRED', 'Create a positive USD lifetime budget for this user, project, and model before granting access.');
     }
     // A quality cap only means something on an allow — a deny grants nothing to
     // cap. Must be a tier this model actually supports, or the gateway would

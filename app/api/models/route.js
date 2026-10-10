@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { gatewayContext } from '../../../lib/gateway/authz.js';
 import { apiError } from '../../../lib/gateway/httpError.mjs';
 import { effectiveAccess } from '../../../lib/gateway/access.mjs';
+import { requiresInitialModelBudget } from '../../../lib/gateway/initialModelBudget.mjs';
 
 // Effective model catalog for the caller in a project (design §7): each model
 // with { allowed, rule } so the picker can explain WHY something is locked.
@@ -29,14 +30,22 @@ export async function GET(request) {
     const overrides = await sql`SELECT * FROM user_model_overrides WHERE project_id = ${projectId} AND user_id = ${user.userId}`;
     const defaultModelIds = models.filter((m) => m.is_default).map((m) => m.id);
 
-    const items = models.map((m) => {
+    const items = await Promise.all(models.map(async (m) => {
         const decision = effectiveAccess({ modelId: m.id, now: new Date(), grants, overrides, defaultModelIds });
+        let initialBudgetOk = true;
+        if (requiresInitialModelBudget(m.id)) {
+            const [budget] = await sql`SELECT id FROM quotas
+                WHERE project_id = ${projectId} AND user_id = ${user.userId} AND model_id = ${m.id}
+                  AND type = 'usd' AND "window" = 'lifetime' AND hard_limit > 0 AND deleted_at IS NULL LIMIT 1`;
+            initialBudgetOk = !!budget;
+        }
         return {
             id: m.id, displayName: m.display_name, category: m.category, kind: m.kind,
             provider: m.provider_name ?? null,
-            caps: m.caps, isDefault: m.is_default, allowed: decision.allowed, rule: decision.rule,
+            caps: m.caps, isDefault: m.is_default, allowed: decision.allowed && initialBudgetOk,
+            rule: initialBudgetOk ? decision.rule : 'initial_budget_required',
             maxResolution: decision.maxResolution ?? null,
         };
-    });
+    }));
     return NextResponse.json({ items });
 }
