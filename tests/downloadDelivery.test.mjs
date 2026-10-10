@@ -85,7 +85,7 @@ function setup(t, { available = true, stream = Readable.from([encodedBytes]) } =
 }
 
 function request(items = [{ url: sourceUrl, name: 'shot' }], signal, options = {}) {
-    return new Request('http://localhost/api/seedance/download', {
+    return new Request('http://localhost/api/seedance/download/prores', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items, format: 'prores', delivery: 'stored', ...options }),
@@ -114,6 +114,20 @@ test('ProRes delivery returns a completed stored MOV link without buffering the 
     assert.deepEqual(state.sourceFetches, [], 'the route must not buffer the source before converting ProRes');
 });
 
+test('already-open clients are redirected to the separate ProRes function without starting a conversion here', async (t) => {
+    const state = setup(t);
+    const oldClient = new Request('https://studio.example.com/api/seedance/download', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ items: [{ url: sourceUrl, name: 'shot.mp4' }], format: 'prores', delivery: 'stored' }),
+    });
+    const response = await POST(oldClient);
+    assert.equal(response.status, 307);
+    assert.equal(response.headers.get('location'), 'https://studio.example.com/api/seedance/download/prores');
+    assert.deepEqual(state.conversionUrls, []);
+    assert.deepEqual(state.sourceFetches, []);
+    assert.deepEqual(state.archiveCalls, []);
+});
+
 test('legacy ProRes clients must refresh instead of saving a JSON response as a MOV', async (t) => {
     const state = setup(t);
     for (const delivery of [undefined, 'streamed']) {
@@ -125,6 +139,19 @@ test('legacy ProRes clients must refresh instead of saving a JSON response as a 
     assert.deepEqual(state.conversionUrls, [], 'legacy requests must not start an expensive encoder');
     assert.deepEqual(state.archiveCalls, []);
     assert.deepEqual(state.sourceFetches, []);
+});
+
+test('a failed H.264 conversion returns a safe error and releases its conversion slot', async (t) => {
+    const state = setup(t);
+    state.ensure = async () => { throw new Error('private source URL and encoder details'); };
+    const failed = await deliver(t, undefined, undefined, { format: 'mp4' });
+    assert.equal(failed.status, 502);
+    assert.equal(failed.headers.get('content-disposition'), null);
+    assert.deepEqual(await failed.json(), { error: 'Could not prepare the requested video format. Please retry the download.' });
+    state.ensure = async (buffer) => buffer;
+    const next = await deliver(t, undefined, undefined, { format: 'mp4' });
+    assert.equal(next.status, 200);
+    await next.arrayBuffer();
 });
 
 test('unavailable ProRes conversion returns an error instead of the original MP4', async (t) => {
@@ -420,15 +447,6 @@ test('request abort holds the streaming slot until actual encoder exit', async (
     await new Promise((resolve) => setImmediate(resolve));
     nextConversion(state);
     const next = await deliver(t, undefined, undefined, { format: 'quicktime' });
-    assert.equal(next.status, 200);
-    await next.arrayBuffer();
-});
-
-test('an unexpected buffered conversion failure releases the slot', async (t) => {
-    const state = setup(t);
-    state.ensure = async () => { throw new Error('conversion failed'); };
-    await assert.rejects(POST(request(undefined, undefined, { format: 'mp4' })), /conversion failed/);
-    const next = await deliver(t);
     assert.equal(next.status, 200);
     await next.arrayBuffer();
 });

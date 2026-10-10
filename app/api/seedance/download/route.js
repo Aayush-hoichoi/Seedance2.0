@@ -22,6 +22,9 @@ import { archiveProResDownload } from '../../../../lib/seedance/archiveDownload.
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
+// Media is stored in Singapore; avoid moving every source across the Pacific
+// before encoding it and sending large derivatives back to the same storage.
+export const preferredRegion = 'sin1';
 
 const MAX_ITEMS = 200;
 const MAX_ASSET_BYTES = 200 * 1024 * 1024; // mirrors the archive route's cap
@@ -173,6 +176,15 @@ export async function POST(request) {
         if (body?.delivery !== 'stored') return bad('Please refresh the page and retry the ProRes download.', 409);
         if (items.length !== 1) return bad('Download ProRes MOV videos one at a time.');
         if (!/\.(mp4|m4v|mov)$/i.test(items[0].name)) return bad('ProRes MOV is available for videos only.');
+        const requestUrl = new URL(request.url);
+        if (requestUrl.pathname.replace(/\/$/, '') === '/api/seedance/download') {
+            // Older open tabs already understand the stored-file response.
+            // Preserve their POST body while moving the work to its own pool.
+            return new Response(null, { status: 307, headers: {
+                Location: new URL('/api/seedance/download/prores', requestUrl).href,
+                'Cache-Control': 'no-store',
+            } });
+        }
     }
     // fps: 25 retimes the video to 25 fps (PAL speedup) before delivery.
     const fps = body?.fps === 25 ? 25 : null;
@@ -260,6 +272,10 @@ export async function POST(request) {
                 'Cache-Control': 'no-store',
             },
         }), closed);
+    } catch {
+        // Conversion failures must be errors, never successful attachments of
+        // the original codec or raw encoder messages containing private paths.
+        return bad('Could not prepare the requested video format. Please retry the download.', 502);
     } finally {
         if (!streaming) release?.();
     }

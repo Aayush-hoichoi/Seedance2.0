@@ -21,11 +21,11 @@ const bundled = await build({
         },
     }],
 });
-const { downloadAsset } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString('base64')}`);
+const { downloadAsset, downloadArchivedAsset } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString('base64')}`);
 const sourceUrl = 'https://seedance-studio-assets.tos-ap-southeast-1.bytepluses.com/videos/task-123.mp4';
 
 function setup(t, response) {
-    const state = { requests: [], opened: [], errors: [], downloads: [] };
+    const state = { requests: [], requestUrls: [], opened: [], errors: [], downloads: [] };
     state.errorShown = new Promise((resolve) => {
         state.showError = (message) => { state.errors.push(message); resolve(); };
     });
@@ -40,7 +40,8 @@ function setup(t, response) {
         },
         body: { appendChild() {} },
     };
-    t.mock.method(globalThis, 'fetch', async (_url, init) => {
+    t.mock.method(globalThis, 'fetch', async (url, init) => {
+        state.requestUrls.push(url);
         state.requests.push(JSON.parse(init.body));
         return response;
     });
@@ -74,6 +75,7 @@ test('completed ProRes downloads directly from its private attachment URL withou
     await downloadAsset(sourceUrl, 'shot', 'task-123', { format: 'prores' });
 
     assert.equal(state.requests[0].delivery, 'stored', 'explicitly opt in to the completed-file response');
+    assert.deepEqual(state.requestUrls, ['/api/seedance/download/prores']);
     assert.deepEqual(state.downloads, [{ url: downloadUrl, name: 'completed-shot.mov' }]);
     assert.deepEqual(state.errors, []);
     assert.deepEqual(state.opened, []);
@@ -100,14 +102,66 @@ test('a broken ProRes response stream does not open the source MP4', { timeout: 
     assert.deepEqual(state.opened, []);
 });
 
-test('ordinary MOV downloads retain the existing original-file fallback', { timeout: 3000 }, async (t) => {
+test('failed H.264 MOV downloads show their error without substituting the original codec', { timeout: 3000 }, async (t) => {
     const state = setup(t, Response.json({ error: 'The media proxy is unavailable.' }, { status: 502 }));
 
     downloadAsset(sourceUrl, 'shot', 'task-123', { format: 'mov' });
     await state.errorShown;
 
     assert.deepEqual(state.errors, ['The media proxy is unavailable.']);
-    assert.deepEqual(state.opened, [[sourceUrl, '_blank', 'noopener']]);
+    assert.deepEqual(state.opened, []);
+});
+
+test('failed H.264 MP4 downloads do not open the original HEVC source', async (t) => {
+    const state = setup(t, Response.json({ error: 'H.264 conversion failed.' }, { status: 502 }));
+    await downloadAsset(sourceUrl, 'shot', 'task-123', { format: 'mp4' });
+    assert.equal(state.requests[0].format, 'mp4');
+    assert.deepEqual(state.requestUrls, ['/api/seedance/download']);
+    assert.deepEqual(state.errors, ['H.264 conversion failed.']);
+    assert.deepEqual(state.opened, []);
+});
+
+test('interrupted H.264 MP4 delivery reports the error without opening the original', async (t) => {
+    const state = setup(t, { ok: true, async blob() { throw new Error('Download interrupted.'); } });
+    await downloadAsset(sourceUrl, 'shot', 'task-123', { format: 'mp4' });
+    assert.deepEqual(state.errors, ['Download interrupted.']);
+    assert.deepEqual(state.opened, []);
+});
+
+test('default MOV conversion failures also preserve the requested format', async (t) => {
+    const state = setup(t, Response.json({ error: 'Conversion failed.' }, { status: 502 }));
+    await downloadAsset(sourceUrl, 'shot', 'task-123');
+    assert.equal(state.requests[0].format, 'mov');
+    assert.deepEqual(state.opened, []);
+});
+
+test('archived downloads stay pending through URL renewal and the complete download', async (t) => {
+    const state = setup(t, null);
+    let finishDownload;
+    let signalDownloadStarted;
+    const downloadStarted = new Promise((resolve) => { signalDownloadStarted = resolve; });
+    const response = new Promise((resolve) => { finishDownload = resolve; });
+    t.mock.method(globalThis, 'fetch', async (url, init) => {
+        if (url.startsWith('/api/byteplus/archive')) {
+            return Response.json({ url: `${sourceUrl}?renewed=true` });
+        }
+        state.requests.push(JSON.parse(init.body));
+        signalDownloadStarted();
+        return response;
+    });
+    let settled = false;
+    const pending = downloadArchivedAsset('videos/task-123.mp4', sourceUrl, 'shot', 'task-123', { raw: true })
+        .then(() => { settled = true; });
+    await downloadStarted;
+    await new Promise((resolve) => setImmediate(resolve));
+    const settledBeforeTransfer = settled;
+    finishDownload(Response.json({ error: 'Transfer failed.' }, { status: 502 }));
+    await pending;
+    await state.errorShown;
+
+    assert.equal(settledBeforeTransfer, false, 'a caller must keep its loader active until download completion');
+    assert.equal(settled, true);
+    assert.equal(state.requests[0].items[0].url, `${sourceUrl}?renewed=true`);
 });
 
 test('a busy conversion shows the retry message without substituting the original codec', async (t) => {
@@ -124,6 +178,7 @@ test('an explicit Original download can still open the original URL after a prox
     await state.errorShown;
 
     assert.equal(state.requests[0].raw, true);
+    assert.deepEqual(state.requestUrls, ['/api/seedance/download']);
     assert.deepEqual(state.errors, ['The media proxy is unavailable.']);
     assert.deepEqual(state.opened, [[sourceUrl, '_blank', 'noopener']]);
 });

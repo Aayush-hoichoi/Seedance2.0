@@ -15,6 +15,7 @@ export default function nextConfig(phase) {
     serverExternalPackages: ['ffmpeg-static'],
     outputFileTracingIncludes: {
       '/api/seedance/download': ['./node_modules/ffmpeg-static/ffmpeg'],
+      '/api/seedance/download/prores': ['./node_modules/ffmpeg-static/ffmpeg'],
     },
   };
 }
