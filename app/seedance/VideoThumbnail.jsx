@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { videoPreviewQueue } from '../../lib/seedance/videoPreviewQueue.mjs';
 
 // A plain video source for Studio; Gallery supplies its archive/live player.
-function PreviewVideo({ item, videoRef, onUnavailable, onError, ...videoProps }) {
+function PreviewVideo({ item, videoRef, onUnavailable, onTaskStatus, onError, ...videoProps }) {
     if (!item.archiveUrl) return null;
     return <video ref={videoRef} src={item.archiveUrl} {...videoProps} onError={(event) => {
         onError?.(event);
@@ -31,16 +31,17 @@ export default function VideoThumbnail({ item, visible, hovered = false, Player 
     const [slow, setSlow] = useState(false);
     const [timedOut, setTimedOut] = useState(false);
     const [failed, setFailed] = useState(false);
+    const [taskStatus, setTaskStatus] = useState(null);
     // A renewed signature retries a failed preview without discarding an
     // already captured frame of this same generation.
-    useEffect(() => { setFailed(false); setTimedOut(false); }, [item.archiveUrl]);
+    useEffect(() => { setFailed(false); setTimedOut(false); setTaskStatus(null); }, [item.archiveUrl, item.status, item.taskId]);
     const attachVideo = useCallback((video) => {
         if (videoRef.current && videoRef.current !== video) stopPreviewVideo(videoRef.current);
         videoRef.current = video;
     }, []);
 
     useEffect(() => {
-        if (!visible || ready || failed || timedOut || hovered) return;
+        if (!visible || ready || failed || timedOut || hovered || taskStatus) return;
         let slowTimer;
         let deadlineTimer;
         const cancel = videoPreviewQueue.enqueue((release) => {
@@ -64,7 +65,7 @@ export default function VideoThumbnail({ item, visible, hovered = false, Player 
             setLoading(false);
             cancel();
         };
-    }, [visible, ready, failed, timedOut, hovered]);
+    }, [visible, ready, failed, timedOut, hovered, taskStatus]);
 
     const captureFrame = (event) => {
         const video = event.currentTarget;
@@ -92,11 +93,18 @@ export default function VideoThumbnail({ item, visible, hovered = false, Player 
         setLoading(false);
         releaseRef.current?.();
     }, []);
-    const state = ready ? 'ready' : failed ? 'error' : timedOut ? 'timeout' : loading || hovered ? 'loading' : visible ? 'queued' : 'idle';
+    const processing = useCallback((status) => {
+        if (!['queued', 'running'].includes(status)) return;
+        stopPreviewVideo(videoRef.current);
+        setTaskStatus(status);
+        setLoading(false);
+        releaseRef.current?.();
+    }, []);
+    const state = ready ? 'ready' : taskStatus ? 'processing' : failed ? 'error' : timedOut ? 'timeout' : loading || hovered ? 'loading' : visible ? 'queued' : 'idle';
     return (
         <div className="relative h-full w-full" data-preview-state={state}>
             <canvas ref={canvasRef} aria-hidden="true" className={`absolute inset-0 h-full w-full object-cover ${ready ? '' : 'invisible'}`} />
-            {(hovered || (visible && loading && !ready)) && (
+            {!taskStatus && (hovered || (visible && loading && !ready)) && (
                 <Player {...playerProps} key={hovered ? 'hover' : 'still'} item={item} videoRef={attachVideo}
                     className={`absolute inset-0 h-full w-full object-cover ${hovered ? '' : 'opacity-0 pointer-events-none'}`}
                     muted playsInline preload="metadata" autoPlay={hovered} loop={hovered}
@@ -105,10 +113,10 @@ export default function VideoThumbnail({ item, visible, hovered = false, Player 
                             event.currentTarget.currentTime = Math.min(0.1, event.currentTarget.duration / 2);
                         }
                     }}
-                    onLoadedData={captureFrame} onSeeked={captureFrame} onUnavailable={unavailable} />
+                    onLoadedData={captureFrame} onSeeked={captureFrame} onUnavailable={unavailable} onTaskStatus={processing} />
             )}
             {!ready && <div role="status" className={`absolute inset-0 flex items-center justify-center font-medium text-white/65 pointer-events-none ${compact ? 'flex-col gap-1 px-2 text-center text-[9px] leading-snug' : 'gap-2 text-[11px]'}`}>
-                {failed ? 'Preview unavailable · Click to play' : timedOut ? 'Preview is taking too long · Click to play' : <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />{slow ? 'Taking longer… Loading preview' : loading || hovered ? 'Loading preview…' : 'Preparing preview…'}</>}
+                {taskStatus ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />{taskStatus === 'queued' ? 'Queued…' : 'Still rendering…'}</> : failed ? 'Preview unavailable · Click to play' : timedOut ? 'Preview is taking too long · Click to play' : <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />{slow ? 'Taking longer… Loading preview' : loading || hovered ? 'Loading preview…' : 'Preparing preview…'}</>}
             </div>}
         </div>
     );

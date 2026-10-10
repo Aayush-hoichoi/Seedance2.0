@@ -4,7 +4,7 @@
 // /liked): video cards with hover preview, the full lightbox view, the
 // archived→live URL fallback player, and the Reuse-in-Studio handoff.
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { ChevronLeft, ChevronRight, Download, RotateCcw, X } from 'lucide-react';
@@ -198,41 +198,72 @@ export function ImageCard({ item, creator, onOpen }) {
 // Video with a two-step URL fallback: the archived TOS copy (long-lived,
 // presigned server-side) → the live ModelArk task record (~24h) → a
 // placeholder. `videoRef`/`onUrl` let parents control playback / download.
-export function SmartVideo({ item, videoRef, onUrl, onUnavailable, className, ...videoProps }) {
+export function SmartVideo(props) {
+    return <SmartVideoSource key={props.item.taskId} {...props} />;
+}
+
+function SmartVideoSource({ item, videoRef, onUrl, onUnavailable, onTaskStatus, className, ...videoProps }) {
     const [src, setSrc] = useState(item.archiveUrl || null);
     const [phase, setPhase] = useState(item.archiveUrl ? 'archive' : 'task');
     const [taskStatus, setTaskStatus] = useState(null);
-    const triedTask = useRef(false);
+    const mediaRef = useRef(null);
+    const taskRequest = useRef(null);
+    const attemptedArchive = useRef(item.archiveUrl || null);
+    const sourceGeneration = useRef({ url: item.archiveUrl, status: item.status });
+    const attachVideo = useCallback((video) => {
+        mediaRef.current = video;
+        if (typeof videoRef === 'function') videoRef(video);
+        else if (videoRef) videoRef.current = video;
+    }, [videoRef]);
 
     const fetchTask = () => {
-        if (triedTask.current) { setPhase('dead'); setSrc(null); return; }
-        triedTask.current = true;
-        fetch(`/api/byteplus/contents/generations/tasks/${encodeURIComponent(item.taskId)}`)
+        if (taskRequest.current) return;
+        const controller = new AbortController();
+        taskRequest.current = controller;
+        fetch(`/api/byteplus/contents/generations/tasks/${encodeURIComponent(item.taskId)}`, { signal: controller.signal })
             .then((r) => (r.ok ? r.json() : null))
             .then((d) => {
+                if (controller.signal.aborted) return;
                 const url = d?.content?.video_url;
+                const status = d?.status || null;
+                setTaskStatus(status);
                 if (url) { setSrc(url); setPhase('live'); }
-                else { setTaskStatus(d?.status || null); setPhase('dead'); setSrc(null); }
+                else { setPhase(['queued', 'running'].includes(status) ? 'processing' : 'dead'); setSrc(null); }
             })
-            .catch(() => { setPhase('dead'); setSrc(null); });
+            .catch(() => {
+                if (!controller.signal.aborted) { setPhase('dead'); setSrc(null); }
+            });
     };
 
     useEffect(() => {
-        if (!item.archiveUrl) fetchTask();
+        const changed = sourceGeneration.current.url !== item.archiveUrl || sourceGeneration.current.status !== item.status;
+        sourceGeneration.current = { url: item.archiveUrl, status: item.status };
+        const latest = item.archiveUrl || null;
+        // A renewed signature must not restart a video that is already playing.
+        // Pending/failed previews can immediately adopt the new source; an
+        // already decoded source uses it only if its current request later fails.
+        if (changed && (mediaRef.current?.readyState ?? 0) < 2) {
+            if (latest) {
+                attemptedArchive.current = latest;
+                setSrc(latest); setPhase('archive'); setTaskStatus(null);
+            } else fetchTask();
+        } else if (!latest && !taskRequest.current) fetchTask();
+        return () => { taskRequest.current?.abort(); taskRequest.current = null; };
+        // Each source/status generation owns its lookup and cancels old results.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [item.archiveUrl, item.status]);
 
     useEffect(() => { if (src) onUrl?.(src); }, [src, onUrl]);
     useEffect(() => { if (phase === 'dead') onUnavailable?.(); }, [phase, onUnavailable]);
+    useEffect(() => { if (phase === 'processing') onTaskStatus?.(taskStatus); }, [phase, taskStatus, onTaskStatus]);
 
-    if (phase === 'dead') {
-        const rendering = ['queued', 'running'].includes(taskStatus);
+    if (phase === 'dead' || phase === 'processing') {
         return (
             <div className={`${className} flex flex-col items-center justify-center gap-1.5 text-white/25`}>
-                {rendering ? (
+                {phase === 'processing' ? (
                     <>
                         <span className="animate-spin inline-block text-primary text-sm">◌</span>
-                        <span className="text-[10px] font-semibold text-white/40">Still rendering…</span>
+                        <span className="text-[10px] font-semibold text-white/40">{taskStatus === 'queued' ? 'Queued…' : 'Still rendering…'}</span>
                     </>
                 ) : (
                     <>
@@ -246,10 +277,17 @@ export function SmartVideo({ item, videoRef, onUrl, onUnavailable, className, ..
     if (!src) return <div className={`${className} animate-pulse bg-white/[0.03]`} />;
     return (
         <video
-            ref={videoRef}
+            ref={attachVideo}
             src={src}
             className={className}
-            onError={() => { if (phase === 'archive') fetchTask(); else { setPhase('dead'); setSrc(null); } }}
+            onError={() => {
+                if (item.archiveUrl && item.archiveUrl !== attemptedArchive.current) {
+                    taskRequest.current?.abort(); taskRequest.current = null;
+                    attemptedArchive.current = item.archiveUrl;
+                    setSrc(item.archiveUrl); setPhase('archive'); setTaskStatus(null);
+                } else if (phase === 'archive') fetchTask();
+                else { setPhase('dead'); setSrc(null); }
+            }}
             {...videoProps}
         />
     );
@@ -261,7 +299,7 @@ export function Lightbox({ item, creator, onClose, onReuse, onPrev, onNext, onEx
     const imageUrls = (item.imageUrls?.length ? item.imageUrls : [item.imageUrl]).filter(Boolean);
     const [dlUrl, setDlUrl] = useState(isImage ? imageUrls[0] || null : null);
     const [dlFormat, setDlFormat] = useState('mov');
-    const { pending: downloadPending, runDownload } = useDownloadProgress();
+    const { pending: downloadPending, runDownload } = useDownloadProgress(item);
     const [videoDuration, setVideoDuration] = useState(Number(item.duration) > 0 ? Number(item.duration) : null);
     const [showExrDialog, setShowExrDialog] = useState(false);
     const [promptTab, setPromptTab] = useState('yours');

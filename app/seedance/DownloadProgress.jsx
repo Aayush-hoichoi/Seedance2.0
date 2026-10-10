@@ -1,24 +1,19 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useSyncExternalStore } from 'react';
 import { LoaderCircle } from 'lucide-react';
+import { downloadKeyForAsset, getDownloadProgress, runTrackedDownload, subscribeToDownload } from '../../lib/seedance/downloadProgress.mjs';
 
-export function useDownloadProgress() {
-    const [pending, setPending] = useState(null);
-    const inFlight = useRef(false);
+const serverSnapshot = () => null;
 
-    const runDownload = async (download, kind = 'video') => {
-        if (inFlight.current) return;
-        inFlight.current = true;
-        setPending(kind);
-        try {
-            await download();
-        } finally {
-            inFlight.current = false;
-            setPending(null);
-        }
-    };
-
+export function useDownloadProgress(asset) {
+    const anonymousKey = useRef(null);
+    if (!anonymousKey.current) anonymousKey.current = Symbol('download');
+    const key = downloadKeyForAsset(asset) ?? anonymousKey.current;
+    const subscribe = useCallback((listener) => subscribeToDownload(key, listener), [key]);
+    const snapshot = useCallback(() => getDownloadProgress(key), [key]);
+    const pending = useSyncExternalStore(subscribe, snapshot, serverSnapshot);
+    const runDownload = useCallback((download, kind = 'video') => runTrackedDownload(key, download, kind), [key]);
     return { pending, runDownload };
 }
 

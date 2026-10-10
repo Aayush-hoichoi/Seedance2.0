@@ -37,6 +37,7 @@ import { tosPresignExpired } from '../../lib/seedance/tosPresign.mjs';
 import { preferredProjectId, resolveProjectId, rememberProjectId, syncProjectParam } from '../../lib/seedance/projectChoice.mjs';
 import { archiveKeyForTask } from '../../lib/seedance/archiveKey.mjs';
 import { mergeStudioHistory } from '../../lib/seedance/historyMerge.mjs';
+import { reconcileVideoTask } from '../../lib/seedance/videoTaskState.mjs';
 import { resolveFreshVideoUrl } from '../../lib/seedance/videoUrl.js';
 import { isStudioVideoUrlStale as isStaleUrl } from '../../lib/seedance/videoUrlState.mjs';
 import VideoThumbnail from './VideoThumbnail.jsx';
@@ -947,21 +948,31 @@ export default function SeedanceStudio() {
 
     // Poll one task to its end and reflect progress on the job card.
     const watchJob = (jobId, taskId) => {
+        controllersRef.current[jobId]?.abort();
         const controller = new AbortController();
         controllersRef.current[jobId] = controller;
+        const isCurrent = () => controllersRef.current[jobId] === controller && !controller.signal.aborted;
+        const apply = (patch) => {
+            if (!isCurrent()) return;
+            updateJobs((prev) => prev.map((job) => job.id === jobId
+                ? reconcileVideoTask(job, taskId, patch) : job));
+        };
         pollTask(taskId, {
-            onStatus: (s) => patchJob(jobId, { status: s === 'succeeded' ? 'running' : s }),
+            onStatus: (s) => apply({ status: s === 'succeeded' ? 'running' : s }),
             signal: controller.signal,
         })
             .then(({ url }) => {
-                patchJob(jobId, { status: 'done', videoUrl: url });
+                if (!isCurrent()) return;
+                apply({ status: 'done', videoUrl: url, error: null, expired: false });
                 archiveJob(jobId, taskId, url);
             })
-            .catch((e) => patchJob(jobId, { status: 'error', error: e.message }))
+            .catch((e) => apply({ status: 'error', error: e.message }))
             .finally(() => {
-                delete controllersRef.current[jobId];
+                if (controllersRef.current[jobId] === controller) delete controllersRef.current[jobId];
                 // Best-effort cost finalization on either terminal outcome — the
                 // server re-fetches the task to decide succeeded vs failed.
+                // Keep this on cancel too: aborting a local watcher does not
+                // cancel the provider task, which may have finished meanwhile.
                 fetch('/api/usage/complete', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1124,7 +1135,7 @@ export default function SeedanceStudio() {
                         if (t.status === 'succeeded') {
                             // Archived copies (user's own bucket) outlive ModelArk links — keep them.
                             const videoUrl = j.archiveKey ? j.videoUrl : (t.content?.video_url || j.videoUrl);
-                            return { ...j, status: 'done', videoUrl };
+                            return reconcileVideoTask(j, t.id, { status: 'done', videoUrl, error: null });
                         }
                         return j;
                     });
@@ -3181,7 +3192,7 @@ function Hero() {
 // thumbnails, generation details and the reuse / download / like actions.
 function AssetViewer({ job, onClose, onReuse, onGenerateExr, exrAccess, onRequestExrAccess, onRequestExrBudget, exrAccessRequesting, onToggleLike, onRefresh, onPrev, onNext }) {
     const [dlFormat, setDlFormat] = useState('mov'); // video download container — mov is the default
-    const { pending: downloadPending, runDownload } = useDownloadProgress();
+    const { pending: downloadPending, runDownload } = useDownloadProgress(job);
     const [showExrInfo, setShowExrInfo] = useState(false);
     // The confirm dialog stays open through the generate, so a budget
     // rejection (and its request-budget action) is seen where it happened —
