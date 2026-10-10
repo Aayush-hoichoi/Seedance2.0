@@ -5,6 +5,8 @@ import {
     listUserGenerations,
     listUserGenerationProjects,
     listLikedGenerations,
+    listProjectGenerations,
+    getProjectGenerationSummary,
 } from '../../../lib/access/db.js';
 import { toItem } from '../../../lib/seedance/galleryItem.mjs';
 
@@ -67,6 +69,25 @@ export async function GET(request) {
                 creator: r.user_id ? { id: r.user_id, name: r.creator_name, email: r.creator_email } : null,
             }));
             return NextResponse.json({ items });
+        }
+        if (!target && params.has('project')) {
+            const projectId = positiveInteger(params.get('project'));
+            if (projectId === undefined || projectId === null) return NextResponse.json({ error: 'Invalid project id.' }, { status: 400 });
+            const before = params.get('before') || null;
+            if (before && before.length > 40) return NextResponse.json({ error: 'Invalid cursor.' }, { status: 400 });
+            const beforeId = params.get('beforeId') || null;
+            if (beforeId && beforeId.length > 200) return NextResponse.json({ error: 'Invalid cursor.' }, { status: 400 });
+            const [rows, project] = await Promise.all([
+                listProjectGenerations(projectId, PAGE, before, beforeId),
+                getProjectGenerationSummary(projectId),
+            ]);
+            if (!project) return NextResponse.json({ error: 'Project not found.' }, { status: 404 });
+            const last = rows.length === PAGE ? rows[rows.length - 1] : null;
+            return NextResponse.json({
+                project: { id: Number(project.id), name: project.name, generations: Number(project.generations), images: Number(project.images), videos: Number(project.videos) },
+                items: rows.map((row) => ({ ...toItem(row), creator: { id: row.user_id || row.creator_email || 'unknown', name: row.creator_name || 'Unknown creator', email: row.creator_email } })),
+                total: Number(project.generations), nextBefore: last?.created_at ?? null, nextBeforeId: last?.task_id ?? null,
+            });
         }
         if (!target) {
             // Newest → oldest by last activity: this list is only ever the

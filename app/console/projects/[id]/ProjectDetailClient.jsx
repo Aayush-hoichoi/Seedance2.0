@@ -9,7 +9,7 @@ import { PageHeader, Card, Badge, Button, Modal, Field, Input, Select, DataTable
 import { useApi, sendJson, fmtUsd, fmtInt, fmtDate, monthStartIso } from '../../lib.js';
 import { supportedResolutionsFor } from '../../../../lib/seedance/constants.js';
 import { groupProjectBudgets, projectOverallBudget } from '../projectBudgetGroups.mjs';
-import { ChevronDown, History, Lock, LockOpen, PauseCircle, Pencil, PlayCircle, Plus, ShieldBan, ShieldCheck, Trash2, Wallet } from 'lucide-react';
+import { ChevronDown, History, Images, Lock, LockOpen, PauseCircle, Pencil, PlayCircle, Plus, ShieldBan, ShieldCheck, Trash2, Wallet } from 'lucide-react';
 
 const SpendDonut = dynamic(() => import('../../charts.jsx').then((m) => m.SpendDonut), { ssr: false });
 const TopBars = dynamic(() => import('../../charts.jsx').then((m) => m.TopBars), { ssr: false });
@@ -102,6 +102,9 @@ export default function ProjectDetailClient({ projectId }) {
                         ))}
                     </Select>
                 )}
+                <Button variant="outline" onClick={() => router.push(`/gallery?project=${project.id}`)}>
+                    <Images size={14} /> View generations
+                </Button>
                 {project.paused
                     ? <Button variant="primary" onClick={togglePause}><PlayCircle size={14} /> Resume queue</Button>
                     : <Button variant="outline" onClick={togglePause}><PauseCircle size={14} /> Pause queue</Button>}

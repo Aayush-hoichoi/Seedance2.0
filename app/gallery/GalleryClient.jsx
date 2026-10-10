@@ -12,13 +12,15 @@ import { UserButton } from '@clerk/nextjs';
 import { VideoCard, ImageCard, Lightbox, reuseInStudio, gradientFor, initialOf, timeAgo } from './shared.jsx';
 import { useExrAccess } from '../components/ExrAccess.jsx';
 
-export default function GalleryClient() {
+export default function GalleryClient({ projectWideId = '' }) {
     const router = useRouter();
     const [creators, setCreators] = useState(null); // null = loading
     const [me, setMe] = useState(null);
     const [selected, setSelected] = useState(null); // creator id
     const [items, setItems] = useState(null); // null = loading
     const [projects, setProjects] = useState(null); // project facets for selected creator
+    const [projectSummary, setProjectSummary] = useState(null);
+    const projectWide = Boolean(projectWideId);
     const [projectId, setProjectId] = useState(''); // empty = all projects
     const [total, setTotal] = useState(0);
     const [nextBefore, setNextBefore] = useState(null);
@@ -41,6 +43,7 @@ export default function GalleryClient() {
     };
 
     useEffect(() => {
+        if (projectWide) return undefined;
         let alive = true;
         const controller = new AbortController();
         setCreatorsError(null);
@@ -57,10 +60,10 @@ export default function GalleryClient() {
             })
             .catch((e) => { if (alive) setCreatorsError(e.message); });
         return () => { alive = false; controller.abort(); };
-    }, [creatorsAttempt]);
+    }, [creatorsAttempt, projectWide]);
 
     useEffect(() => {
-        if (!selected) return;
+        if (!selected && !projectWide) return undefined;
         let alive = true;
         // A creator/project can be selected again before an old page finishes.
         // An epoch distinguishes those visits even when their URLs are equal.
@@ -73,11 +76,13 @@ export default function GalleryClient() {
         setNextBefore(null);
         setLoadingMore(false);
         setLightbox(null);
-        fetchGallery(galleryUrl(selected, projectId), controller.signal, 'Could not load this creator’s work.')
+        const url = projectWide ? `/api/gallery?project=${encodeURIComponent(projectWideId)}` : galleryUrl(selected, projectId);
+        fetchGallery(url, controller.signal, projectWide ? 'Could not load this project’s generations.' : 'Could not load this creator’s work.')
             .then((d) => {
                 if (!alive || requestEpochRef.current !== epoch) return;
                 setItems(d.items || []);
                 setProjects(d.projects || []);
+                setProjectSummary(d.project || null);
                 setTotal(Number(d.total) || 0);
                 setNextBefore(d.nextBefore ? { before: d.nextBefore, beforeId: d.nextBeforeId || null } : null);
             })
@@ -89,9 +94,10 @@ export default function GalleryClient() {
             moreRequestRef.current?.abort();
             moreRequestRef.current = null;
         };
-    }, [selected, projectId, itemsAttempt]);
+    }, [selected, projectId, itemsAttempt, projectWide, projectWideId]);
 
     const creator = useMemo(() => creators?.find((c) => c.id === selected) || null, [creators, selected]);
+    const lightboxCreator = projectWide ? lightbox?.creator : creator;
 
     // Same list, same order — just narrowed. Name or email, whichever the
     // person searching happens to know.
@@ -106,12 +112,13 @@ export default function GalleryClient() {
         [projects, projectId],
     );
     const mediaTotals = useMemo(() => {
+        if (projectWide && projectSummary) return projectSummary;
         if (activeProject) return activeProject;
         return (projects || []).reduce((sum, project) => ({
             images: sum.images + project.images,
             videos: sum.videos + project.videos,
         }), { images: 0, videos: 0 });
-    }, [projects, activeProject]);
+    }, [projects, activeProject, projectWide, projectSummary]);
 
     const chooseCreator = (id) => {
         if (id === selected) {
@@ -129,14 +136,15 @@ export default function GalleryClient() {
     };
 
     const loadMore = async () => {
-        if (!selected || !nextBefore || moreRequestRef.current) return;
+        if ((!selected && !projectWide) || !nextBefore || moreRequestRef.current) return;
         const epoch = requestEpochRef.current;
         const controller = new AbortController();
         moreRequestRef.current = controller;
         setLoadingMore(true);
         setMoreError(null);
         try {
-            const data = await fetchGallery(galleryUrl(selected, projectId, nextBefore), controller.signal, 'Could not load older generations.');
+            const url = projectWide ? projectGalleryUrl(projectWideId, nextBefore) : galleryUrl(selected, projectId, nextBefore);
+            const data = await fetchGallery(url, controller.signal, 'Could not load older generations.');
             if (requestEpochRef.current !== epoch || controller.signal.aborted) return;
             setItems((current) => {
                 const known = new Set((current || []).map((item) => item.taskId));
@@ -236,7 +244,7 @@ export default function GalleryClient() {
                     {creatorsError && <GalleryLoadError message={creatorsError} onRetry={() => setCreatorsAttempt((attempt) => attempt + 1)} />}
                     {creators?.length === 0 && !creatorsError && <p className="py-12 text-center text-sm text-white/45">No creators yet.</p>}
 
-                    {creator && (
+                    {!projectWide && creator && (
                         <div className="flex items-center gap-3 pb-4">
                             <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${gradientFor(creator.id)} flex items-center justify-center text-base font-black text-black/80 shrink-0`}>{initialOf(creator)}</div>
                             <div className="min-w-0">
@@ -253,7 +261,15 @@ export default function GalleryClient() {
                         </div>
                     )}
 
-                    {creator && projects !== null && projects.length > 0 && (
+                    {projectWide && (
+                        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.025] px-3 py-2.5">
+                            <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-wider text-white/35">Project · all creators</p><h2 className="truncate text-sm font-bold text-white/90">{projectSummary?.name || `Project #${projectWideId}`}</h2></div>
+                            <span className="text-[11px] text-white/40">{mediaTotals.images} images · {mediaTotals.videos} videos</span>
+                            <span className="ml-auto text-[11px] text-white/35">{items === null ? 'Loading…' : `Showing ${items.length} of ${total}`}</span>
+                            <Link href="/gallery" className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs font-semibold text-white/65">Browse creators</Link>
+                        </div>
+                    )}
+                    {!projectWide && creator && projects !== null && projects.length > 0 && (
                         <div className="mb-4 flex flex-wrap items-center gap-2.5 rounded-xl border border-white/[0.08] bg-white/[0.025] px-3 py-2.5">
                             <label htmlFor="gallery-project" className="text-[10px] font-bold uppercase tracking-wider text-white/35">Project</label>
                             <select
@@ -270,6 +286,7 @@ export default function GalleryClient() {
                             <span className="text-[11px] text-white/40">
                                 {mediaTotals.images} image{mediaTotals.images === 1 ? '' : 's'} · {mediaTotals.videos} video{mediaTotals.videos === 1 ? '' : 's'}
                             </span>
+                            {activeProject && <Link href={`/gallery?project=${activeProject.id}`} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs font-semibold text-white/65">View all project generations</Link>}
                             <span className="ml-auto text-[11px] text-white/35">
                                 {itemsError ? 'Not loaded' : items === null ? 'Loading…' : `Showing ${items.length} of ${total}`}
                             </span>
@@ -279,7 +296,7 @@ export default function GalleryClient() {
                     {error && <p className="mb-4 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-300">{error}</p>}
                     {itemsError && <GalleryLoadError message={itemsError} onRetry={() => setItemsAttempt((attempt) => attempt + 1)} />}
 
-                    {items === null && selected && (
+                    {items === null && (selected || projectWide) && (
                         <>
                             <GalleryLoading>Loading generations…</GalleryLoading>
                             <div aria-hidden="true" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -303,8 +320,8 @@ export default function GalleryClient() {
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                                 {items.map((item) => (
                                     item.mediaType === 'image'
-                                        ? <ImageCard key={item.taskId} item={item} onOpen={() => setLightbox(item)} />
-                                        : <VideoCard key={item.taskId} item={item} exrAccess={exrAccess} onOpen={() => setLightbox(item)} />
+                                        ? <ImageCard key={item.taskId} item={item} creator={projectWide ? item.creator : undefined} onOpen={() => setLightbox(item)} />
+                                        : <VideoCard key={item.taskId} item={item} creator={projectWide ? item.creator : undefined} exrAccess={exrAccess} onOpen={() => setLightbox(item)} />
                                 ))}
                             </div>
                             {moreError && <div className="mt-4"><GalleryLoadError message={moreError} onRetry={loadMore} /></div>}
@@ -327,13 +344,13 @@ export default function GalleryClient() {
                 </main>
             </div>
 
-            {lightbox && creator && (() => {
+            {lightbox && lightboxCreator && (() => {
                 const idx = items?.findIndex((i) => i.taskId === lightbox.taskId) ?? -1;
                 return (
                     <Lightbox
                         key={lightbox.taskId}
                         item={lightbox}
-                        creator={creator}
+                        creator={lightboxCreator}
                         onClose={() => setLightbox(null)}
                         onReuse={() => reuseInStudio(router, lightbox)}
                         onExrReady={markExrReady}
@@ -396,6 +413,13 @@ function GalleryLoadError({ message, onRetry }) {
 function galleryUrl(userId, projectId = '', cursor = null) {
     const params = new URLSearchParams({ user: userId });
     if (projectId) params.set('project', projectId);
+    if (cursor?.before) params.set('before', cursor.before);
+    if (cursor?.beforeId) params.set('beforeId', cursor.beforeId);
+    return `/api/gallery?${params.toString()}`;
+}
+
+function projectGalleryUrl(projectId, cursor = null) {
+    const params = new URLSearchParams({ project: String(projectId) });
     if (cursor?.before) params.set('before', cursor.before);
     if (cursor?.beforeId) params.set('beforeId', cursor.beforeId);
     return `/api/gallery?${params.toString()}`;

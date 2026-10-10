@@ -5,6 +5,7 @@ export const metadata = {
     description: 'Browse every creator’s generations, watch their videos, and reuse any setup in the studio.',
 };
 
-export default function GalleryPage() {
-    return <GalleryClient />;
+export default async function GalleryPage({ searchParams }) {
+    const params = await searchParams;
+    return <GalleryClient projectWideId={params?.project || ''} />;
 }
