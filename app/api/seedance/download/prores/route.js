@@ -4,7 +4,9 @@ import { POST as download } from '../route.js';
 // Keep long ProRes preparation in its own serverless function pool so it
 // cannot occupy the H.264 download function's conversion slot.
 export const runtime = 'nodejs';
-export const maxDuration = 300;
+// Vercel bundles handlers with identical function settings. A distinct limit
+// keeps this pool separate; preparation already stops after 275 seconds.
+export const maxDuration = 299;
 export const preferredRegion = 'sin1';
 
 export async function POST(request) {

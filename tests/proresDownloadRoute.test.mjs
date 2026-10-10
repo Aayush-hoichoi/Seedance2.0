@@ -48,9 +48,11 @@ function request(options = {}) {
     });
 }
 
-test('dedicated entrypoint explicitly uses Node with the conversion deadline', () => {
+test('dedicated entrypoint has cleanup headroom and cannot be bundled with regular downloads', () => {
     assert.equal(prores.runtime, 'nodejs');
-    assert.equal(prores.maxDuration, 300);
+    assert.ok(prores.maxDuration > 275);
+    assert.ok(prores.maxDuration <= 300);
+    assert.notEqual(prores.maxDuration, regular.maxDuration);
 });
 
 test('dedicated entrypoint rejects other formats and raw downloads before conversion', async () => {

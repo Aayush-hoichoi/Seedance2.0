@@ -3,6 +3,10 @@
   "framework": "nextjs",
   "buildCommand": "npm run build",
   "installCommand": "npm install",
+  "functions": {
+    "app/api/seedance/download/route.js": { "regions": ["sin1"] },
+    "app/api/seedance/download/prores/route.js": { "regions": ["sin1"] }
+  },
   "crons": [
     { "path": "/api/cron/rollup", "schedule": "30 0 * * *" }
   ]
