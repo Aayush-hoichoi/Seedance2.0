@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getUser } from '../../../lib/auth/user.js';
 import {
     listCreators,
+    listGalleryProjects,
     listUserGenerations,
     listUserGenerationProjects,
     listLikedGenerations,
@@ -69,6 +70,13 @@ export async function GET(request) {
                 creator: r.user_id ? { id: r.user_id, name: r.creator_name, email: r.creator_email } : null,
             }));
             return NextResponse.json({ items });
+        }
+        if (params.get('projects') === '1') {
+            const rows = await listGalleryProjects();
+            return NextResponse.json({ projects: rows.map((row) => ({
+                id: Number(row.id), name: row.name, generations: Number(row.generations),
+                images: Number(row.images), videos: Number(row.videos), last_at: row.last_generation_at,
+            })) });
         }
         if (!target && params.has('project')) {
             const projectId = positiveInteger(params.get('project'));

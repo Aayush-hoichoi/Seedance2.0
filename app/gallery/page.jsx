@@ -7,5 +7,5 @@ export const metadata = {
 
 export default async function GalleryPage({ searchParams }) {
     const params = await searchParams;
-    return <GalleryClient projectWideId={params?.project || ''} />;
+    return <GalleryClient projectWideId={params?.project || ''} initialView={params?.view || 'creators'} />;
 }

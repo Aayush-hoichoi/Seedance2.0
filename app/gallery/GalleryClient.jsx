@@ -12,7 +12,7 @@ import { UserButton } from '@clerk/nextjs';
 import { VideoCard, ImageCard, Lightbox, reuseInStudio, gradientFor, initialOf, timeAgo } from './shared.jsx';
 import { useExrAccess } from '../components/ExrAccess.jsx';
 
-export default function GalleryClient({ projectWideId = '' }) {
+export default function GalleryClient({ projectWideId = '', initialView = 'creators' }) {
     const router = useRouter();
     const [creators, setCreators] = useState(null); // null = loading
     const [me, setMe] = useState(null);
@@ -21,6 +21,11 @@ export default function GalleryClient({ projectWideId = '' }) {
     const [projects, setProjects] = useState(null); // project facets for selected creator
     const [projectSummary, setProjectSummary] = useState(null);
     const projectWide = Boolean(projectWideId);
+    const projectsTab = !projectWide && initialView === 'projects';
+    const [galleryProjects, setGalleryProjects] = useState(null);
+    const [galleryProjectsError, setGalleryProjectsError] = useState(null);
+    const [galleryProjectsAttempt, setGalleryProjectsAttempt] = useState(0);
+    const [projectQuery, setProjectQuery] = useState('');
     const [projectId, setProjectId] = useState(''); // empty = all projects
     const [total, setTotal] = useState(0);
     const [nextBefore, setNextBefore] = useState(null);
@@ -43,7 +48,7 @@ export default function GalleryClient({ projectWideId = '' }) {
     };
 
     useEffect(() => {
-        if (projectWide) return undefined;
+        if (projectWide || projectsTab) return undefined;
         let alive = true;
         const controller = new AbortController();
         setCreatorsError(null);
@@ -60,7 +65,18 @@ export default function GalleryClient({ projectWideId = '' }) {
             })
             .catch((e) => { if (alive) setCreatorsError(e.message); });
         return () => { alive = false; controller.abort(); };
-    }, [creatorsAttempt, projectWide]);
+    }, [creatorsAttempt, projectWide, projectsTab]);
+
+    useEffect(() => {
+        if (!projectsTab) return undefined;
+        let alive = true;
+        const controller = new AbortController();
+        setGalleryProjectsError(null);
+        fetchGallery('/api/gallery?projects=1', controller.signal, 'Could not load projects.')
+            .then((data) => { if (alive) setGalleryProjects(data.projects || []); })
+            .catch((e) => { if (alive) setGalleryProjectsError(e.message); });
+        return () => { alive = false; controller.abort(); };
+    }, [projectsTab, galleryProjectsAttempt]);
 
     useEffect(() => {
         if (!selected && !projectWide) return undefined;
@@ -191,7 +207,7 @@ export default function GalleryClient({ projectWideId = '' }) {
 
             <div className="pt-[4.2rem] flex min-h-screen">
                 {/* Creators sidebar (desktop) / top strip (mobile) */}
-                <aside className="hidden md:flex w-72 shrink-0 flex-col border-r border-white/[0.06] px-3 py-4 gap-1 overflow-y-auto custom-scrollbar sticky top-[4.2rem] h-[calc(100vh-4.2rem)]">
+                {!projectsTab && !projectWide && <aside className="hidden md:flex w-72 shrink-0 flex-col border-r border-white/[0.06] px-3 py-4 gap-1 overflow-y-auto custom-scrollbar sticky top-[4.2rem] h-[calc(100vh-4.2rem)]">
                     <p className="px-2 pb-2 text-[10px] font-bold uppercase tracking-wider text-white/30">
                         Creators{shown ? ` · ${shown.length}` : ''}
                     </p>
@@ -212,10 +228,49 @@ export default function GalleryClient({ projectWideId = '' }) {
                     {shown?.length === 0 && query.trim() && (
                         <p className="px-2 text-xs text-white/35">No creator matches that.</p>
                     )}
-                </aside>
+                </aside>}
 
                 {/* Main pane */}
                 <main className="flex-1 min-w-0 px-4 sm:px-6 py-4">
+                    <nav aria-label="Gallery view" className="mb-5 flex w-fit items-center gap-1 rounded-xl border border-white/[0.08] bg-white/[0.025] p-1">
+                        <Link href="/gallery" aria-current={!projectsTab && !projectWide ? 'page' : undefined}
+                            className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${!projectsTab && !projectWide ? 'bg-white/[0.1] text-white' : 'text-white/45 hover:text-white/80'}`}>
+                            Creators
+                        </Link>
+                        <Link href="/gallery?view=projects" aria-current={projectsTab || projectWide ? 'page' : undefined}
+                            className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${projectsTab || projectWide ? 'bg-white/[0.1] text-white' : 'text-white/45 hover:text-white/80'}`}>
+                            Projects
+                        </Link>
+                    </nav>
+                    {projectsTab && (
+                        <section aria-labelledby="project-gallery-heading">
+                            <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+                                <div>
+                                    <h2 id="project-gallery-heading" className="text-lg font-bold tracking-tight">Project generations</h2>
+                                    <p className="mt-1 text-xs text-white/40">Browse every generation across all creators in an active project.</p>
+                                </div>
+                                <input type="search" value={projectQuery} onChange={(e) => setProjectQuery(e.target.value)}
+                                    placeholder="Search projects…" aria-label="Search projects"
+                                    className="w-full max-w-xs rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white placeholder:text-white/30 outline-none focus:border-primary/50" />
+                            </div>
+                            {galleryProjects === null && !galleryProjectsError && <GalleryLoading>Loading active projects…</GalleryLoading>}
+                            {galleryProjectsError && <GalleryLoadError message={galleryProjectsError} onRetry={() => setGalleryProjectsAttempt((attempt) => attempt + 1)} />}
+                            {galleryProjects?.length === 0 && !galleryProjectsError && <p className="py-12 text-center text-sm text-white/45">No active projects with generations.</p>}
+                            {galleryProjects && (() => {
+                                const search = projectQuery.trim().toLowerCase();
+                                const visible = galleryProjects.filter((project) => !search || project.name.toLowerCase().includes(search));
+                                return visible.length ? <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                                    {visible.map((project) => <Link key={project.id} href={`/gallery?project=${project.id}`} className="group rounded-2xl border border-white/[0.08] bg-white/[0.025] p-4 transition-colors hover:border-primary/40 hover:bg-white/[0.045]">
+                                        <div className="flex items-start justify-between gap-3"><h3 className="truncate text-sm font-semibold text-white/90 group-hover:text-white">{project.name}</h3><span aria-hidden="true" className="text-white/35 transition-transform group-hover:translate-x-0.5">→</span></div>
+                                        <p className="mt-3 text-xs text-white/45">{project.generations.toLocaleString()} generations</p>
+                                        <p className="mt-1 text-[11px] text-white/30">{project.images.toLocaleString()} images · {project.videos.toLocaleString()} videos</p>
+                                        <p className="mt-3 text-[10px] text-white/25">Last generation {project.last_at ? timeAgo(project.last_at) : '—'}</p>
+                                    </Link>)}
+                                </div> : <p className="py-12 text-center text-sm text-white/45">No projects match “{projectQuery}”.</p>;
+                            })()}
+                        </section>
+                    )}
+                    {!projectsTab && <>
                     {/* Mobile creator search + strip */}
                     <input
                         type="search"
@@ -341,6 +396,7 @@ export default function GalleryClient({ projectWideId = '' }) {
                             {!nextBefore && <div className="h-10" />}
                         </>
                     )}
+                    </>}
                 </main>
             </div>
 

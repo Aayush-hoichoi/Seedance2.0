@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PGlite } from '@electric-sql/pglite';
-import { queryProjectGenerations, queryProjectGenerationSummary } from '../lib/access/galleryQueries.mjs';
+import { queryGalleryProjects, queryProjectGenerations, queryProjectGenerationSummary } from '../lib/access/galleryQueries.mjs';
 
 function compile(strings, values) {
     let text = strings[0];
@@ -39,7 +39,7 @@ test('project gallery includes visible generations from every creator and report
                 duration integer, ratio text, mode text, status text, created_at timestamptz,
                 category text, image_key text, image_prompt text, images jsonb, project_id integer
             );
-            INSERT INTO projects VALUES (10, 'Film A'), (20, 'Film B');
+            INSERT INTO projects VALUES (10, 'Film A', null), (20, 'Film B', null), (30, 'Archived Film', '2026-10-10T00:00:00Z');
             INSERT INTO users VALUES ('u1', 'Ari', 'ari@example.com'), ('u2', 'Bea', 'bea@example.com');
             INSERT INTO gallery_generations
                 (task_id,user_id,user_email,model_id,status,created_at,category,image_key,image_prompt,project_id)
@@ -47,6 +47,7 @@ test('project gallery includes visible generations from every creator and report
                 ('video-a','u1','ari@example.com','seedance-2.0','succeeded','2026-10-10T12:00:00Z','video',null,null,10),
                 ('image-b','u2','bea@example.com','nano-banana-2','succeeded','2026-10-10T13:00:00Z','image','images/b.png','a still',10),
                 ('other-project','u2','bea@example.com','seedance-2.0','succeeded','2026-10-10T14:00:00Z','video',null,null,20),
+                ('archived-project','u1','ari@example.com','seedance-2.0','succeeded','2026-10-10T15:30:00Z','video',null,null,30),
                 ('failed-a','u1','ari@example.com','seedance-2.0','failed','2026-10-10T15:00:00Z','video',null,null,10),
                 ('deleted-a','u1','ari@example.com','seedance-2.0','succeeded','2026-10-10T16:00:00Z','video',null,null,10);
             INSERT INTO seedance_prompts (task_id, user_prompt, deleted)
@@ -66,6 +67,10 @@ test('project gallery includes visible generations from every creator and report
             images: summary.images,
             videos: summary.videos,
         }, { name: 'Film A', generations: 2, images: 1, videos: 1 });
+
+        const projects = await queryGalleryProjects(sql);
+        assert.deepEqual(projects.map((project) => project.name), ['Film B', 'Film A']);
+        assert.deepEqual(projects.map((project) => project.generations), [1, 2]);
     } finally {
         await db.close();
     }
