@@ -103,6 +103,7 @@ export default function ProjectsClient() {
     return (
         <div>
             <PageHeader title="Projects" subtitle="Model access, members and budgets are managed per project">
+                {canDecide ? <Button variant="outline" onClick={() => { window.location.href = '/console/projects/archived'; }}>Archived projects</Button> : null}
                 {isAdmin ? <Button variant="primary" onClick={() => setOpen(true)}><Plus size={14} /> New project</Button> : null}
             </PageHeader>
             {error ? (
